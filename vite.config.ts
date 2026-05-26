@@ -32,8 +32,8 @@ export default defineConfig({
         name: 'D&D 5e Character Sheet',
         short_name: 'DnD Sheet',
         description: 'D&D 5e character sheet and NPC manager',
-        theme_color: '#1a1a2e',
-        background_color: '#1a1a2e',
+        theme_color: '#1c1c1c',
+        background_color: '#1c1c1c',
         display: 'standalone',
         orientation: 'portrait-primary',
         icons: [
