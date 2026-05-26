@@ -12,6 +12,12 @@
 | Icons | lucide-react (ships with shadcn/ui) |
 | PWA | vite-plugin-pwa + Workbox |
 
+## Git Workflow
+
+- **Never push directly to `main`.** All work happens on a feature branch.
+- Create a new branch for every step or discrete piece of work: `git checkout -b step/3-tailwind-shadcn` (or `fix/`, `feat/`, etc.).
+- Open a PR to merge into `main` when the work is complete and tested.
+
 ## Commands
 
 ```bash
