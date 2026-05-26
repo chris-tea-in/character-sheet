@@ -57,6 +57,7 @@ scripts/
   build-data.js        # Data pipeline: validates, compiles data/ → public/data/
 src/
   lib/uuid.ts          # generateId() — UUID v4 using crypto.getRandomValues
+  lib/dice.ts          # rollDie(), abilityModifier(), proficiencyBonus(), SKILL_ABILITY_MAP (Step 2a)
   pages/
     CharacterListPage.tsx
   storage/
@@ -67,10 +68,12 @@ src/
     index.ts           # Re-exports from db.ts
   store/
     characters.ts      # Zustand store: useCharacterStore
+    dice.ts            # Zustand store: useDiceStore — session-scoped roll history (Step 2a)
   styles/
     globals.css        # CSS variables + body reset (see Pre-condition below)
   types/
     character.ts       # Character, NewCharacter, Abilities, etc.
+    dice.ts            # DieType, RollKind, RollResult, RollEntry (Step 2a)
   App.tsx              # Route definitions + persistent/storageError banners
   main.tsx             # bootstrap(): initDb() → render App
 ```
@@ -156,8 +159,9 @@ Defined in [src/styles/globals.css](src/styles/globals.css):
 |---|---|---|
 | 1 | Storage layer: sql.js + IndexedDB + migration runner | Done |
 | 2 | Character data model + Zustand stores | Done |
-| 3 | shadcn/ui + Tailwind CSS setup | **Next** |
-| 4 | Universal Detail Popup component (view + selection modes) | Pending |
+| 2a | Dice engine: types, utility lib, session store | Done |
+| 3 | shadcn/ui + Tailwind CSS setup | Done |
+| 4 | Universal Detail Popup component (view + selection modes) | **Next** |
 | 5 | Character list page | Pending |
 | 6 | Assisted character creation wizard (5 screens) | Pending |
 | 7 | Manual character creation form | Pending |
@@ -166,6 +170,88 @@ Defined in [src/styles/globals.css](src/styles/globals.css):
 | 10 | @media print CSS layer | Pending |
 
 ## Pre-conditions & Hazards
+
+### Step 2a — Dice engine
+
+**No SQLite migration needed** — roll history is session-only (in-memory Zustand, never flushed to IndexedDB).
+
+#### Files
+
+| File | Purpose |
+|---|---|
+| `src/types/dice.ts` | `DieType`, `RollKind`, `RollResult`, `RollEntry` |
+| `src/lib/dice.ts` | Pure utility functions + skill→ability map |
+| `src/store/dice.ts` | `useDiceStore` — session-scoped history |
+
+#### `src/types/dice.ts`
+
+```ts
+import type { AbilityName, SkillName } from './character'
+
+export type DieType = 4 | 6 | 8 | 10 | 12 | 20 | 100
+
+export type RollKind =
+  | { type: 'raw';    die: DieType }
+  | { type: 'skill';  skill: SkillName }
+  | { type: 'save';   ability: AbilityName }
+  | { type: 'ability'; ability: AbilityName }
+  | { type: 'attack'; label: string; modifier: number }
+
+export interface RollResult {
+  natural:  number  // raw die value
+  modifier: number  // 0 for raw rolls
+  total:    number  // natural + modifier
+}
+
+export interface RollEntry {
+  id:        string
+  kind:      RollKind
+  result:    RollResult
+  label:     string   // e.g. "Deception (CHA +5)" or "d20"
+  timestamp: number   // Date.now()
+}
+```
+
+#### `src/lib/dice.ts`
+
+- `rollDie(sides: DieType): number` — uses `crypto.getRandomValues`, returns 1–sides
+- `abilityModifier(score: number): number` — `Math.floor((score - 10) / 2)`
+- `proficiencyBonus(level: number): number` — `Math.ceil(level / 4) + 1` (1→+2, 5→+3, 9→+4, 13→+5, 17→+6)
+- `SKILL_ABILITY_MAP: Record<SkillName, AbilityName>` — all 18 skills mapped to their governing ability
+
+#### `src/store/dice.ts`
+
+```ts
+interface DiceState {
+  rolls: RollEntry[]                                // capped at 50, newest first
+  roll(kind: RollKind, character: Character): void  // computes result, prepends entry
+  clear(): void
+}
+```
+
+`roll()` logic:
+- `'raw'` → `rollDie(kind.die)`, modifier 0
+- `'skill'` → d20 + `abilityModifier(abilities[SKILL_ABILITY_MAP[kind.skill]])` + proficiency if `skillProficiencies[kind.skill]` is set (×2 for expertise)
+- `'save'` → d20 + `abilityModifier(abilities[kind.ability])` + proficiency if ability is in `savingThrowProficiencies`
+- `'ability'` → d20 + `abilityModifier(abilities[kind.ability])`
+- `'attack'` → d20 + `kind.modifier` (caller pre-computes the attack bonus)
+
+#### Character sheet integration (built in Step 8)
+
+| Location | Trigger | `RollKind` |
+|---|---|---|
+| Dice tray at top of sheet | Click die button | `{ type: 'raw', die }` |
+| Each skill row | Click row | `{ type: 'skill', skill }` |
+| Each saving throw row | Click row | `{ type: 'save', ability }` |
+| Ability score block | Click score | `{ type: 'ability', ability }` |
+| Weapon card | "Roll Attack" button | `{ type: 'attack', label: weapon.name, modifier }` |
+| Spell card | "Roll Attack" button (attack spells only) | `{ type: 'attack', label: spell.name, modifier }` |
+
+**Attack modifier for weapons:** melee → STR mod + proficiency; ranged → DEX mod + proficiency; finesse (`properties` includes `"Finesse"`) → max(STR, DEX) mod + proficiency. Detect finesse from the weapon's `properties` array in `equipment.json`. Compute the modifier in the weapon card component before calling `roll()`.
+
+**Roll history panel:** render `useDiceStore().rolls` as a list below or beside the dice tray. Each entry shows the label, natural roll (in a badge), modifier (if non-zero), and total. Cap display at 50 entries; the store enforces this on write.
+
+---
 
 ### Step 3 — Tailwind + shadcn/ui
 Delete the `*, *::before, *::after { box-sizing; margin; padding }` reset block from `globals.css` **before** installing Tailwind. Tailwind's preflight covers this reset; shadcn/ui depends on preflight being active. The CSS variables, body background, font, and `min-height` lines stay.
