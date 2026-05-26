@@ -57,4 +57,12 @@ export const migrations: Migration[] = [
       db.run(`CREATE INDEX idx_character_spells_char ON character_spells(character_id)`)
     },
   },
+  {
+    version: 2,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN progression_type TEXT NOT NULL DEFAULT 'milestone'`)
+      db.run(`ALTER TABLE characters ADD COLUMN languages TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`ALTER TABLE characters ADD COLUMN backstory TEXT NOT NULL DEFAULT ''`)
+    },
+  },
 ]

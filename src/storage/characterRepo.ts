@@ -30,7 +30,10 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     background: row['background_slug'] as string,
     level: row['level'] as number,
     xp: row['xp'] as number,
+    progressionType: (row['progression_type'] as string ?? 'milestone') as 'xp' | 'milestone',
     alignment: row['alignment'] as string,
+    languages: JSON.parse(row['languages'] as string ?? '[]'),
+    backstory: row['backstory'] as string ?? '',
     abilities: JSON.parse(row['abilities'] as string),
     maxHp: row['max_hp'] as number,
     currentHp: row['current_hp'] as number,
@@ -109,17 +112,19 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
     db.run(
       `INSERT INTO characters (
         id, name, race_slug, subrace, class_slug, subclass, background_slug,
-        level, xp, alignment, abilities, max_hp, current_hp, temp_hp,
+        level, xp, progression_type, alignment, languages, backstory,
+        abilities, max_hp, current_hp, temp_hp,
         armor_class, speed, death_saves, hit_dice_used, inspiration,
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race, data.subrace, data.class, data.subclass, data.background,
-        data.level, data.xp, data.alignment,
+        data.level, data.xp, data.progressionType, data.alignment,
+        JSON.stringify(data.languages), data.backstory,
         JSON.stringify(data.abilities),
         data.maxHp, data.currentHp, data.tempHp,
         data.armorClass, data.speed,
@@ -153,7 +158,8 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
     db.run(
       `UPDATE characters SET
         name=?, race_slug=?, subrace=?, class_slug=?, subclass=?, background_slug=?,
-        level=?, xp=?, alignment=?, abilities=?, max_hp=?, current_hp=?, temp_hp=?,
+        level=?, xp=?, progression_type=?, alignment=?, languages=?, backstory=?,
+        abilities=?, max_hp=?, current_hp=?, temp_hp=?,
         armor_class=?, speed=?, death_saves=?, hit_dice_used=?, inspiration=?,
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
@@ -161,7 +167,8 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
       WHERE id=?`,
       [
         merged.name, merged.race, merged.subrace, merged.class, merged.subclass, merged.background,
-        merged.level, merged.xp, merged.alignment,
+        merged.level, merged.xp, merged.progressionType, merged.alignment,
+        JSON.stringify(merged.languages), merged.backstory,
         JSON.stringify(merged.abilities),
         merged.maxHp, merged.currentHp, merged.tempHp,
         merged.armorClass, merged.speed,

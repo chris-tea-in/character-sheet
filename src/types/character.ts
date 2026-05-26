@@ -45,7 +45,10 @@ export interface Character {
   background: string  // slug into backgrounds.json
   level: number
   xp: number
+  progressionType: 'xp' | 'milestone'
   alignment: string
+  languages: string[]
+  backstory: string
 
   abilities: Abilities
 
@@ -86,7 +89,8 @@ export function defaultCharacter(name: string): NewCharacter {
     race: '', subrace: null,
     class: '', subclass: null,
     background: '',
-    level: 1, xp: 0, alignment: '',
+    level: 1, xp: 0, progressionType: 'milestone', alignment: '',
+    languages: [], backstory: '',
     abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
     maxHp: 0, currentHp: 0, tempHp: 0,
     armorClass: 10, speed: 30,
