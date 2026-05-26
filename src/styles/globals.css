@@ -1,0 +1,31 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-bg: #1a1a2e;
+  --color-surface: #16213e;
+  --color-surface-2: #0f3460;
+  --color-accent: #e94560;
+  --color-accent-2: #c4a35a;
+  --color-text: #eaeaea;
+  --color-text-muted: #9a9ab0;
+  --color-border: #2a2a4a;
+  --radius: 6px;
+  --font-body: system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100dvh;
+}
+
+#root {
+  min-height: 100dvh;
+}
