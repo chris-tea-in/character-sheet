@@ -8,7 +8,7 @@
 | Routing | React Router v7 (`react-router-dom`) |
 | State | Zustand 5 |
 | Storage | sql.js (SQLite in WASM) + IndexedDB blob |
-| UI | shadcn/ui + Tailwind CSS (Step 3 — not yet installed) |
+| UI | shadcn/ui + Tailwind CSS |
 | Icons | lucide-react (ships with shadcn/ui) |
 | PWA | vite-plugin-pwa + Workbox |
 
@@ -33,13 +33,13 @@ build fails (validation errors), the process exits and Vite does not start.
 ## Project Layout
 
 ```
-data/                  # Source data (raw, one JSON file per entry)
-  backgrounds/         # One .json per background slug
-  classes/             # One .json per class slug
-  feats/               # One .json per feat slug
-  races/               # One .json per race slug
-  spells/              # One .json per spell slug
-  subclasses/          # One .json per subclass (keyed classSlug:subclassSlug)
+data/                  # Source data — gitignored, local disk only (see Data Content below)
+  backgrounds/         # 48 .json files
+  classes/             # 14 .json files (12 SRD + artificer + blood-hunter)
+  feats/               # 105 .json files
+  races/               # 9 .json files
+  spells/              # 567 .json files
+  subclasses/          # 122 .json files (keyed classSlug:subclassSlug)
   equipment/           # Three files: weapons.json, armor.json, gear.json (arrays)
   rules.json           # Flat rules reference
 public/
@@ -55,11 +55,29 @@ public/
   sql-wasm.wasm        # Copied from node_modules by build-data.js
 scripts/
   build-data.js        # Data pipeline: validates, compiles data/ → public/data/
+  scrape-background.js # Scraper script (untracked)
 src/
-  lib/uuid.ts          # generateId() — UUID v4 using crypto.getRandomValues
-  lib/dice.ts          # rollDie(), abilityModifier(), proficiencyBonus(), SKILL_ABILITY_MAP (Step 2a)
+  components/
+    DetailBody.tsx      # Shared detail content renderer (used by DetailPopup)
+    DetailPopup.tsx     # Dialog wrapper — view mode + selection mode
+    SelectionList.tsx   # Searchable/sortable list with popup; used across all screens
+    setup/
+      SetupScreen1.tsx  # Identity & stats (name, level, race, class, subclass, HP, ability scores, ASI)
+      SetupScreen2.tsx  # Background & details (alignment, personality, backstory, appearance)
+      SetupScreen3.tsx  # Proficiencies (languages, skills, tools, armor/weapon display)
+      SetupScreen4.tsx  # Starting equipment
+      SetupScreen5.tsx  # Progression system (XP vs Milestone)
+    ui/                 # shadcn/ui primitives (badge, button, dialog, …)
+  lib/
+    characterSetup.ts   # Setup wizard state, HP calculation, point buy logic
+    data.ts             # Typed data-loading helpers (classes, races, spells, etc.)
+    dice.ts             # rollDie(), abilityModifier(), proficiencyBonus(), SKILL_ABILITY_MAP
+    utils.ts            # shadcn/ui cn() helper
+    uuid.ts             # generateId() — UUID v4 using crypto.getRandomValues
   pages/
     CharacterListPage.tsx
+    CharacterPage.tsx
+    CreateCharacterPage.tsx  # Wizard shell — hosts all 5 screens + back/next navigation
   storage/
     db.ts              # initDb(), flush(), getDb() — sql.js lifecycle
     idb.ts             # loadFromIdb(), saveToIdb() — IndexedDB blob persistence
@@ -68,12 +86,14 @@ src/
     index.ts           # Re-exports from db.ts
   store/
     characters.ts      # Zustand store: useCharacterStore
-    dice.ts            # Zustand store: useDiceStore — session-scoped roll history (Step 2a)
+    dice.ts            # Zustand store: useDiceStore — session-scoped roll history
   styles/
-    globals.css        # CSS variables + body reset (see Pre-condition below)
+    globals.css        # CSS variables + body styles
   types/
     character.ts       # Character, NewCharacter, Abilities, etc.
-    dice.ts            # DieType, RollKind, RollResult, RollEntry (Step 2a)
+    data.ts            # TypeScript types for reference data (classes, races, spells, etc.)
+    detail-item.ts     # DetailItem type used by DetailPopup + SelectionList
+    dice.ts            # DieType, RollKind, RollResult, RollEntry
   App.tsx              # Route definitions + persistent/storageError banners
   main.tsx             # bootstrap(): initDb() → render App
 ```
@@ -109,6 +129,8 @@ Append to the `migrations` array in [src/storage/migrations.ts](src/storage/migr
 - Subclass files use `key: "classSlug:subclassSlug"` — the build validates this matches the entry's own `classSlug` + `subclassSlug` fields.
 
 **Do not edit `public/data/` by hand.** Always edit `data/` source files and re-run `build:data`.
+
+**`data/` is gitignored.** All source JSON lives only on local disk — not committed, not pushed. Back up this directory manually if moving machines.
 
 ## Types
 
@@ -161,10 +183,10 @@ Defined in [src/styles/globals.css](src/styles/globals.css):
 | 2 | Character data model + Zustand stores | Done |
 | 2a | Dice engine: types, utility lib, session store | Done |
 | 3 | shadcn/ui + Tailwind CSS setup | Done |
-| 4 | Universal Detail Popup component (view + selection modes) | **Next** |
-| 5 | Character list page | Pending |
-| 6 | Assisted character creation wizard (5 screens) | Pending |
-| 7 | Manual character creation form | Pending |
+| 4 | Universal Detail Popup component (view + selection modes) | Done |
+| 5 | Character list page | Done |
+| 6 | Assisted character creation wizard (5 screens) | Done |
+| 7 | Manual character creation form | **Next** |
 | 8 | Character sheet view | Pending |
 | 9 | Export / import (full DB + single-character JSON) | Pending |
 | 10 | @media print CSS layer | Pending |
@@ -257,14 +279,14 @@ interface DiceState {
 Delete the `*, *::before, *::after { box-sizing; margin; padding }` reset block from `globals.css` **before** installing Tailwind. Tailwind's preflight covers this reset; shadcn/ui depends on preflight being active. The CSS variables, body background, font, and `min-height` lines stay.
 
 ### Step 6 — Spell selection
-Before touching spell selection UI, write a `SpellcastingProfile` typed parsing layer. Warlock `class_specific` uses different keys (`"Spell Slots"` + `"Slot Level"`) vs all other casters (`"1st"`–`"9th"` slot counts). Five distinct formats exist across 12 classes — detection is purely key-based:
+Before touching spell selection UI, write a `SpellcastingProfile` typed parsing layer. Warlock `class_specific` uses different keys (`"Spell Slots"` + `"Slot Level"`) vs all other casters (`"1st"`–`"9th"` slot counts). Formats exist across all 14 classes — detection is purely key-based:
 
 | Format | Classes |
 |---|---|
-| No spell slots | Barbarian, Fighter, Monk, Rogue |
+| No spell slots | Barbarian, Blood Hunter, Fighter, Monk, Rogue |
 | Full caster (prepared) | Cleric, Druid, Wizard |
 | Full caster (known) | Bard, Sorcerer |
-| Half caster (prepared) | Paladin |
+| Half caster (prepared) | Artificer, Paladin |
 | Half caster (known) | Ranger |
 | Pact Magic | Warlock |
 
@@ -287,4 +309,21 @@ Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` 
 - Spell slot counts in class level data are stored as **strings**, not integers. `"-"` means 0 slots.
 - Warlock slot data is under `class_specific` with keys `"Spell Slots"` and `"Slot Level"`, not the standard `"1st"`–`"9th"` keys.
 - A `parseClassSlots()` helper is required before any UI component renders spell slot data. Build this before Step 6.
-- Copyright: all content in `public/data/` is SRD-licensed. Personal use only until a formal copyright audit is done.
+- Copyright: SRD content is cleared for personal use. **Artificer and Blood Hunter are non-SRD** — formal copyright audit required before any public distribution.
+
+## Data Content
+
+Current entry counts in `data/` (as of 2026-05-27):
+
+| Category | Count | Notes |
+|---|---|---|
+| backgrounds | 48 | |
+| classes | 14 | 12 SRD + `artificer` + `blood-hunter` |
+| feats | 105 | |
+| races | 9 | |
+| spells | 567 | |
+| subclasses | 122 | Includes Artificer + Blood Hunter subclasses |
+
+Class roster: `barbarian`, `bard`, `cleric`, `druid`, `fighter`, `monk`, `paladin`, `ranger`, `rogue`, `sorcerer`, `warlock`, `wizard`, `artificer`, `blood-hunter`
+
+**`data/` is gitignored** — these files are not version-controlled. Manual backup required when changing machines.

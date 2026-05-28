@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(node scripts/scrape-background.js house-agent)",
+      "Bash(node index.js \"backgrounds:extra\")"
+    ]
+  }
+}
