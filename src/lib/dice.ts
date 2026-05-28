@@ -15,6 +15,27 @@ export function proficiencyBonus(level: number): number {
   return Math.ceil(level / 4) + 1
 }
 
+export const SKILL_DISPLAY_MAP: Record<SkillName, string> = {
+  acrobatics:     'Acrobatics',
+  animalHandling: 'Animal Handling',
+  arcana:         'Arcana',
+  athletics:      'Athletics',
+  deception:      'Deception',
+  history:        'History',
+  insight:        'Insight',
+  intimidation:   'Intimidation',
+  investigation:  'Investigation',
+  medicine:       'Medicine',
+  nature:         'Nature',
+  perception:     'Perception',
+  performance:    'Performance',
+  persuasion:     'Persuasion',
+  religion:       'Religion',
+  sleightOfHand:  'Sleight of Hand',
+  stealth:        'Stealth',
+  survival:       'Survival',
+}
+
 export const SKILL_ABILITY_MAP: Record<SkillName, AbilityName> = {
   acrobatics:     'dex',
   animalHandling: 'wis',

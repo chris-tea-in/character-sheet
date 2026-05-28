@@ -4,6 +4,7 @@ import { backgroundToDetailItem } from '@/lib/characterSetup'
 import type { SetupDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import { cn } from '@/lib/utils'
+import { Field } from './Field'
 
 interface Props {
   draft: SetupDraft
@@ -33,7 +34,7 @@ export function SetupScreen2({ draft, data, errors, onChange }: Props) {
   return (
     <div className="space-y-6">
       {/* Background */}
-      <Field label="Background" error={hasError('background') ? 'Background is required' : undefined}>
+      <Field id="field-background" label="Background" error={hasError('background') ? 'Background is required' : undefined}>
         <button
           onClick={() => setBgListOpen(true)}
           className={cn(
@@ -210,26 +211,6 @@ function SuggestTextarea({
           ))}
         </div>
       </details>
-    </div>
-  )
-}
-
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string
-  error?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-        {label}
-      </label>
-      {children}
-      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
     </div>
   )
 }

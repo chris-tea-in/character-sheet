@@ -1,5 +1,124 @@
 import type { AbilityName } from './character'
 
+// ── Equipment catalog types ────────────────────────────────────────────────
+
+export interface WeaponItem {
+  name: string
+  category: 'weapon'
+  weapon_type: 'Simple Melee' | 'Simple Ranged' | 'Martial Melee' | 'Martial Ranged'
+  damage_dice: string
+  damage_type: string
+  properties: string[]
+  cost: string | null
+  weight: string | null
+}
+
+export interface ArmorItem {
+  name: string
+  category: 'armor' | 'shield'
+  armor_type: 'Light' | 'Medium' | 'Heavy' | 'Shield'
+  ac_formula: string
+  stealth_disadvantage: boolean
+  strength_requirement: number | null
+  cost: string | null
+  weight: string | null
+}
+
+export interface AdventuringGearItem {
+  name: string
+  category: 'adventuring_gear'
+  subcategory: string
+  cost: string | null
+  weight: string | null
+  description?: string
+}
+
+export interface TrinketItem {
+  name: string
+  category: 'trinket'
+  source: string
+  roll?: number
+}
+
+export interface FirearmItem {
+  name: string
+  category: 'firearm' | 'ammunition'
+  era: 'renaissance' | 'modern' | 'futuristic'
+  weapon_type: 'Martial Ranged' | 'Ammunition'
+  damage_dice: string | null
+  damage_type: string | null
+  properties: string[]
+  cost: string | null
+  weight: string | null
+}
+
+export interface ExplosiveItem {
+  name: string
+  category: 'explosive'
+  era: 'renaissance' | 'modern'
+  cost: string | null
+  weight: string | null
+  description: string
+}
+
+export interface WondrousItem {
+  name: string
+  category: 'wondrous_item'
+  rarity: 'Common' | 'Uncommon' | 'Rare' | 'Very Rare' | 'Legendary' | 'Artifact'
+  attunement: boolean
+  description?: string
+}
+
+export interface CurrencyItem {
+  name: string
+  category: 'currency'
+  abbreviation: string
+  value_in_cp: number
+}
+
+export interface PoisonItem {
+  name: string
+  category: 'poison'
+  poison_type: 'Contact' | 'Ingested' | 'Inhaled' | 'Injury'
+  cost: string
+  description?: string
+}
+
+export interface ToolItem {
+  name: string
+  category: 'tool'
+  tool_category: "Artisan's Tools" | 'Gaming Set' | 'Musical Instrument' | 'Other'
+  cost: string | null
+  weight: string | null
+}
+
+export interface SiegeEquipmentItem {
+  name: string
+  category: 'siege_equipment'
+  ac?: number | null
+  hp?: number | null
+  damage?: string | null
+  damage_type?: string | null
+  range?: string | null
+  attack_bonus?: number | null
+  save?: string | null
+  description?: string
+}
+
+export interface EquipmentData {
+  weapons?: WeaponItem[]
+  armor?: ArmorItem[]
+  adventuring_gear?: AdventuringGearItem[]
+  trinkets?: TrinketItem[]
+  firearms?: FirearmItem[]
+  explosives?: ExplosiveItem[]
+  wondrous_items?: WondrousItem[]
+  currency?: CurrencyItem[]
+  poisons?: PoisonItem[]
+  tools?: ToolItem[]
+  siege_equipment?: SiegeEquipmentItem[]
+}
+
 export interface AsiChoice {
   count: number
   amount: number

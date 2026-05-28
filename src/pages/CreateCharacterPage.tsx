@@ -13,6 +13,24 @@ import { useCharacterStore } from '@/store/characters'
 import type { SetupDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 
+// Ordered top-to-bottom: first match wins
+const FIELD_IDS: Array<[string, string]> = [
+  ['name', 'field-name'],
+  ['race', 'field-race'],
+  ['class', 'field-class'],
+  ['subclass', 'field-subclass'],
+  ['background', 'field-background'],
+]
+
+function scrollToFirstError(errs: string[]) {
+  for (const [keyword, id] of FIELD_IDS) {
+    if (errs.some((e) => e.toLowerCase().includes(keyword))) {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+  }
+}
+
 const SCREEN_TITLES = [
   'Identity & Stats',
   'Background & Details',
@@ -33,6 +51,9 @@ function validateScreen(screen: number, draft: SetupDraft, data: SetupData | nul
       )
       if (hasSubclasses && !draft.subclassSlug) errors.push('Subclass is required')
     }
+    if (draft.hpMethod === 'roll' && draft.hpRolled === null) {
+      errors.push('HP roll is required — click the Roll button')
+    }
     return errors
   }
   if (screen === 2) {
@@ -51,6 +72,9 @@ export default function CreateCharacterPage() {
   const [screen, setScreen] = useState(1)
   const [errors, setErrors] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
+  useEffect(() => {
+    window.scrollTo({ top: 0 })
+  }, [screen])
 
   useEffect(() => {
     loadSetupData()
@@ -69,6 +93,7 @@ export default function CreateCharacterPage() {
     const errs = validateScreen(screen, draft, data)
     if (errs.length) {
       setErrors(errs)
+      scrollToFirstError(errs)
       return
     }
     setErrors([])

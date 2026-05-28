@@ -99,10 +99,29 @@ const backgrounds = buildKeyed('backgrounds',
   ['name', 'slug', 'description', 'skill_proficiencies', 'feature', 'starting_equipment', 'personality_traits', 'ideals', 'bonds', 'flaws']
 )
 
+// damage_dice/damage_type are nullable for special weapons (Net) and ammunition entries
+const EQUIPMENT_CATEGORIES = [
+  { type: 'weapons',          required: ['name', 'weapon_type'] },
+  { type: 'armor',            required: ['name', 'armor_type', 'ac_formula'] },
+  { type: 'adventuring_gear', required: ['name', 'subcategory'] },
+  { type: 'trinkets',         required: ['name', 'source'] },
+  { type: 'firearms',         required: ['name', 'era', 'weapon_type'] },
+  { type: 'explosives',       required: ['name', 'era'] },
+  { type: 'wondrous_items',   required: ['name', 'rarity'] },
+  { type: 'currency',         required: ['name', 'abbreviation', 'value_in_cp'] },
+  { type: 'poisons',          required: ['name', 'poison_type', 'cost'] },
+  { type: 'tools',            required: ['name', 'tool_category'] },
+  { type: 'siege_equipment',  required: ['name'] },
+]
+
 const equipment = (() => {
   const out = {}
-  for (const type of ['weapons', 'armor', 'gear']) {
+  for (const { type, required } of EQUIPMENT_CATEGORIES) {
     const path = `data/equipment/${type}.json`
+    if (!existsSync(path)) {
+      warnings.push(`equipment/${type}.json: file not found — skipping`)
+      continue
+    }
     const entries = readJson(path)
     if (!entries) continue
     if (!Array.isArray(entries)) {
@@ -110,8 +129,12 @@ const equipment = (() => {
       continue
     }
     for (const [i, item] of entries.entries()) {
-      if (!item.name) errors.push(`equipment/${type}.json[${i}]: missing "name"`)
-      if (item._review?.length) warnings.push(`equipment/${type}.json[${i}] (${item.name ?? '?'}): has ${item._review.length} _review note(s)`)
+      const label = `equipment/${type}.json[${i}] (${item.name ?? '?'})`
+      for (const f of required) {
+        if (item[f] === undefined || item[f] === null)
+          errors.push(`${label}: missing required field "${f}"`)
+      }
+      if (item._review?.length) warnings.push(`${label}: has ${item._review.length} _review note(s)`)
     }
     out[type] = entries
   }
@@ -139,4 +162,5 @@ if (rules) writeFileSync('public/data/rules.json', JSON.stringify(rules, null, 2
 
 const entryCount = [races, spells, classes, subclasses, feats, backgrounds]
   .reduce((n, d) => n + Object.keys(d).length, 0)
-console.log(`\n✓ Built ${entryCount} entries across 6 categories + equipment + rules`)
+const equipmentCount = Object.values(equipment).reduce((n, arr) => n + arr.length, 0)
+console.log(`\n✓ Built ${entryCount} entries across 6 categories + ${equipmentCount} equipment items across ${Object.keys(equipment).length} equipment categories + rules`)

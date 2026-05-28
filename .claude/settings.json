@@ -3,7 +3,10 @@
     "allow": [
       "Bash(node -e ' *)",
       "Bash(node scripts/scrape-background.js house-agent)",
-      "Bash(node index.js \"backgrounds:extra\")"
+      "Bash(node index.js \"backgrounds:extra\")",
+      "Bash(node scripts/build-data.js)",
+      "Bash(npx tsc *)",
+      "Bash(git diff *)"
     ]
   }
 }

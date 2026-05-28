@@ -40,7 +40,7 @@ data/                  # Source data — gitignored, local disk only (see Data C
   races/               # 9 .json files
   spells/              # 567 .json files
   subclasses/          # 122 .json files (keyed classSlug:subclassSlug)
-  equipment/           # Three files: weapons.json, armor.json, gear.json (arrays)
+  equipment/           # 11 category files — each a JSON array (see Equipment Categories below)
   rules.json           # Flat rules reference
 public/
   data/                # Compiled output of build-data.js — do not edit by hand
@@ -123,7 +123,23 @@ Append to the `migrations` array in [src/storage/migrations.ts](src/storage/migr
 `scripts/build-data.js` reads `data/**/*.json` → validates → writes `public/data/*.json`.
 
 - Per-entry files (races, classes, spells, feats, backgrounds, subclasses) are keyed by slug (filename without `.json`).
-- Equipment is an exception: `weapons.json`, `armor.json`, `gear.json` are top-level arrays; they merge into a single `equipment.json` output keyed by type.
+- Equipment is an exception: each category file is a top-level array; they merge into a single `equipment.json` output keyed by category name. Files that don't exist on disk are skipped with a warning (no build error).
+
+### Equipment Categories
+
+| File | Category key | Required fields |
+|---|---|---|
+| `weapons.json` | `weapons` | name, weapon_type, damage_dice, damage_type |
+| `armor.json` | `armor` | name, armor_type, ac_formula |
+| `adventuring_gear.json` | `adventuring_gear` | name, subcategory |
+| `trinkets.json` | `trinkets` | name, source |
+| `firearms.json` | `firearms` | name, era, weapon_type, damage_dice, damage_type |
+| `explosives.json` | `explosives` | name, era |
+| `wondrous_items.json` | `wondrous_items` | name, rarity |
+| `currency.json` | `currency` | name, abbreviation, value_in_cp |
+| `poisons.json` | `poisons` | name, poison_type, cost |
+| `tools.json` | `tools` | name, tool_category |
+| `siege_equipment.json` | `siege_equipment` | name |
 - `_review` arrays in any entry produce warnings but do not block the build.
 - Validation errors exit with code 1 — the build stops.
 - Subclass files use `key: "classSlug:subclassSlug"` — the build validates this matches the entry's own `classSlug` + `subclassSlug` fields.
@@ -190,6 +206,7 @@ Defined in [src/styles/globals.css](src/styles/globals.css):
 | 8 | Character sheet view | Pending |
 | 9 | Export / import (full DB + single-character JSON) | Pending |
 | 10 | @media print CSS layer | Pending |
+| 11 | Deployment & sharing (choose Path A or Path B — see Pre-conditions) | Pending |
 
 ## Pre-conditions & Hazards
 
@@ -313,7 +330,7 @@ Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` 
 
 ## Data Content
 
-Current entry counts in `data/` (as of 2026-05-27):
+Current entry counts in `data/` (as of 2026-05-28):
 
 | Category | Count | Notes |
 |---|---|---|
@@ -323,6 +340,17 @@ Current entry counts in `data/` (as of 2026-05-27):
 | races | 9 | |
 | spells | 567 | |
 | subclasses | 122 | Includes Artificer + Blood Hunter subclasses |
+| equipment/weapons | varies | Simple & Martial, melee & ranged |
+| equipment/armor | 14 | Light, Medium, Heavy, Shield |
+| equipment/adventuring_gear | ~100 | Packs, containers, clothing, focuses, usables |
+| equipment/trinkets | 100 | PHB d100 table |
+| equipment/firearms | 13 | Renaissance, Modern, Futuristic |
+| equipment/explosives | 7 | Renaissance & Modern |
+| equipment/wondrous_items | ~60 | SRD items; expand as needed |
+| equipment/currency | 5 | cp, sp, ep, gp, pp |
+| equipment/poisons | 14 | DMG poison table |
+| equipment/tools | 37 | Artisan tools, gaming sets, instruments, other |
+| equipment/siege_equipment | 6 | Ballista, Cannon, Mangonel, Ram, Siege Tower, Trebuchet |
 
 Class roster: `barbarian`, `bard`, `cleric`, `druid`, `fighter`, `monk`, `paladin`, `ranger`, `rogue`, `sorcerer`, `warlock`, `wizard`, `artificer`, `blood-hunter`
 

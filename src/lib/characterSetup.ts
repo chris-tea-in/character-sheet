@@ -128,7 +128,7 @@ const ABILITY_FULL_TO_SHORT: Record<string, AbilityName> = {
 }
 
 export function slugToTitle(slug: string): string {
-  return slug.charAt(0).toUpperCase() + slug.slice(1)
+  return slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
 export const ABILITY_SHORT: Record<AbilityName, string> = {
@@ -145,6 +145,29 @@ export const ALL_LANGUAGES = [
 
 // Traits to omit from the detail view (shown elsewhere on the card)
 const OMIT_TRAITS = new Set(['Age', 'Alignment', 'Languages', 'Size', 'Speed'])
+
+export const RACE_TIER_MAP: Record<string, 'Common' | 'Exotic' | 'Monstrous'> = {
+  // Common (core SRD races)
+  dragonborn: 'Common', dwarf: 'Common', elf: 'Common', gnome: 'Common',
+  'half-elf': 'Common', 'half-orc': 'Common', halfling: 'Common',
+  human: 'Common', tiefling: 'Common',
+  // Exotic
+  aarakocra: 'Exotic', aasimar: 'Exotic', changeling: 'Exotic',
+  'deep-gnome': 'Exotic', duergar: 'Exotic', eladrin: 'Exotic',
+  fairy: 'Exotic', firbolg: 'Exotic',
+  'genasi-air': 'Exotic', 'genasi-earth': 'Exotic',
+  'genasi-fire': 'Exotic', 'genasi-water': 'Exotic',
+  githyanki: 'Exotic', githzerai: 'Exotic', goliath: 'Exotic',
+  harengon: 'Exotic', kenku: 'Exotic', locathah: 'Exotic',
+  owlin: 'Exotic', satyr: 'Exotic', 'sea-elf': 'Exotic',
+  'shadar-kai': 'Exotic', tabaxi: 'Exotic', tortle: 'Exotic',
+  triton: 'Exotic', verdan: 'Exotic',
+  // Monstrous
+  bugbear: 'Monstrous', centaur: 'Monstrous', goblin: 'Monstrous',
+  grung: 'Monstrous', hobgoblin: 'Monstrous', kobold: 'Monstrous',
+  lizardfolk: 'Monstrous', minotaur: 'Monstrous', orc: 'Monstrous',
+  shifter: 'Monstrous', 'yuan-ti': 'Monstrous',
+}
 
 // ---------------------------------------------------------------------------
 // Data → DetailItem mappers
@@ -295,19 +318,36 @@ function applyRaceAsi(
   asiChoices: AbilityName[],
 ): Abilities {
   if (!race) return base
+  const bonuses = getRacialBonuses(race, asiChoices)
   const result = { ...base }
+  for (const [key, val] of Object.entries(bonuses)) {
+    result[key as AbilityName] = (result[key as AbilityName] ?? 0) + val
+  }
+  return result
+}
+
+export function getRacialBonuses(
+  race: Race | undefined,
+  asiChoices: AbilityName[],
+): Partial<Record<AbilityName, number>> {
+  const bonuses: Partial<Record<AbilityName, number>> = {}
+  if (!race) return bonuses
 
   for (const [key, val] of Object.entries(race.base.ability_score_increases)) {
     const short = ABILITY_FULL_TO_SHORT[key] ?? (key as AbilityName)
-    result[short] = (result[short] ?? 0) + val
+    bonuses[short] = (bonuses[short] ?? 0) + val
   }
 
-  const choiceAmount = race.base.asi_choices[0]?.amount ?? 1
-  for (const ability of asiChoices) {
-    result[ability] += choiceAmount
+  let offset = 0
+  for (const pool of race.base.asi_choices) {
+    for (let i = 0; i < pool.count; i++) {
+      const ability = asiChoices[offset + i]
+      if (ability) bonuses[ability] = (bonuses[ability] ?? 0) + pool.amount
+    }
+    offset += pool.count
   }
 
-  return result
+  return bonuses
 }
 
 export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewCharacter {

@@ -14,6 +14,8 @@ import {
   parseHitDie,
   pointBuyCost,
   pointsRemaining,
+  getRacialBonuses,
+  RACE_TIER_MAP,
   raceToDetailItem,
   rollHp,
   slugToTitle,
@@ -24,6 +26,7 @@ import type { AbilityName } from '@/types/character'
 import type { SetupDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import { cn } from '@/lib/utils'
+import { Field } from './Field'
 
 interface Props {
   draft: SetupDraft
@@ -52,7 +55,9 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const selectedRace = data.races[draft.raceSlug]
   const selectedClass = data.classes[draft.classSlug]
   const dieSides = selectedClass ? parseHitDie(selectedClass.hit_die) : 8
-  const conMod = abilityModifier(draft.abilities.con)
+  const racialBonuses = getRacialBonuses(selectedRace, draft.asiChoices)
+  const effectiveCon = draft.abilities.con + (racialBonuses.con ?? 0)
+  const conMod = abilityModifier(effectiveCon)
 
   // Subclasses for the selected class, filtered to those unlocked at current level
   const availableSubclasses = Object.values(data.subclasses).filter(
@@ -60,12 +65,17 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   )
   const showSubclass = availableSubclasses.length > 0
 
-  // Flexible ASI (e.g., half-elf: choose 2 abilities to get +1 each)
-  const asiChoice = selectedRace?.base.asi_choices[0]
+  // Flexible ASI pools (e.g., half-elf: one pool of +1 to 2 abilities)
+  const asiChoicePools = selectedRace?.base.asi_choices ?? []
+  // Flat start index for each pool
+  const asiPoolOffsets = asiChoicePools.map((_, i) =>
+    asiChoicePools.slice(0, i).reduce((sum, p) => sum + p.count, 0),
+  )
 
   const raceEntries: SelectionEntry[] = Object.values(data.races).map((r) => ({
     slug: r.slug,
     detail: raceToDetailItem(r),
+    group: RACE_TIER_MAP[r.slug] ?? 'Common',
   }))
 
   const classEntries: SelectionEntry[] = Object.values(data.classes).map((c) => ({
@@ -115,7 +125,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   return (
     <div className="space-y-6">
       {/* Name */}
-      <Field label="Character Name" error={hasError('name') ? 'Name is required' : undefined}>
+      <Field id="field-name" label="Character Name" error={hasError('name') ? 'Name is required' : undefined}>
         <input
           type="text"
           value={draft.name}
@@ -139,7 +149,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
       </Field>
 
       {/* Race */}
-      <Field label="Race" error={hasError('race') ? 'Race is required' : undefined}>
+      <Field id="field-race" label="Race" error={hasError('race') ? 'Race is required' : undefined}>
         <SelectionButton
           label={selectedRace?.name ?? 'Choose Race'}
           selected={!!draft.raceSlug}
@@ -154,41 +164,49 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
           onClose={() => setRaceListOpen(false)}
           title="Choose Race"
           allowCreateOwn
+          groupOrder={['Common', 'Exotic', 'Monstrous']}
         />
       </Field>
 
-      {/* Flexible ASI (e.g., half-elf: +1 to 2 abilities of your choice) */}
-      {asiChoice && (
-        <Field label={`Racial Bonus: +${asiChoice.amount} to ${asiChoice.count} abilities of your choice`}>
-          <div className="grid grid-cols-2 gap-2">
-            {Array.from({ length: asiChoice.count }, (_, i) => {
-              const chosen = draft.asiChoices[i] ?? ''
-              return (
-                <select
-                  key={i}
-                  value={chosen}
-                  onChange={(e) => {
-                    const next = [...draft.asiChoices]
-                    next[i] = e.target.value as AbilityName
-                    onChange({ asiChoices: next })
-                  }}
-                  className={selectClass}
-                >
-                  <option value="">— choose —</option>
-                  {ABILITY_ORDER.filter(
-                    (a) => a === chosen || !draft.asiChoices.includes(a),
-                  ).map((a) => (
-                    <option key={a} value={a}>{ABILITY_LABELS[a]}</option>
-                  ))}
-                </select>
-              )
-            })}
-          </div>
-        </Field>
-      )}
+      {/* Flexible ASI pools (e.g., half-elf: +1 to 2 abilities of your choice) */}
+      {asiChoicePools.map((pool, poolIdx) => {
+        const startIdx = asiPoolOffsets[poolIdx]
+        const poolLabel = pool.count === 1
+          ? `Racial Bonus: +${pool.amount} to an ability of your choice`
+          : `Racial Bonus: +${pool.amount} to ${pool.count} abilities of your choice`
+        return (
+          <Field key={poolIdx} label={poolLabel}>
+            <div className="grid grid-cols-2 gap-2">
+              {Array.from({ length: pool.count }, (_, i) => {
+                const flatIdx = startIdx + i
+                const chosen = draft.asiChoices[flatIdx] ?? ''
+                return (
+                  <select
+                    key={i}
+                    value={chosen}
+                    onChange={(e) => {
+                      const next = [...draft.asiChoices]
+                      next[flatIdx] = e.target.value as AbilityName
+                      onChange({ asiChoices: next })
+                    }}
+                    className={selectClass}
+                  >
+                    <option value="">— choose —</option>
+                    {ABILITY_ORDER.filter(
+                      (a) => a === chosen || !draft.asiChoices.includes(a),
+                    ).map((a) => (
+                      <option key={a} value={a}>{ABILITY_LABELS[a]}</option>
+                    ))}
+                  </select>
+                )
+              })}
+            </div>
+          </Field>
+        )
+      })}
 
       {/* Class */}
-      <Field label="Class" error={hasError('class') ? 'Class is required' : undefined}>
+      <Field id="field-class" label="Class" error={hasError('class') ? 'Class is required' : undefined}>
         <SelectionButton
           label={selectedClass ? slugToTitle(selectedClass.slug) : 'Choose Class'}
           selected={!!draft.classSlug}
@@ -208,7 +226,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
 
       {/* Subclass (conditional) */}
       {showSubclass && (
-        <Field label="Subclass" error={hasError('subclass') ? 'Subclass is required' : undefined}>
+        <Field id="field-subclass" label="Subclass" error={hasError('subclass') ? 'Subclass is required' : undefined}>
           <SelectionButton
             label={
               draft.subclassSlug
@@ -319,16 +337,18 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
 
         <div className="space-y-2">
           {ABILITY_ORDER.map((ability) => {
-            const score = draft.abilities[ability]
-            const mod = abilityModifier(score)
+            const base = draft.abilities[ability]
+            const bonus = racialBonuses[ability] ?? 0
+            const effective = base + bonus
+            const mod = abilityModifier(effective)
             const canIncrement =
               draft.abilityMethod === 'custom'
-                ? score < 20
-                : score < POINT_BUY_MAX &&
+                ? base < 20
+                : base < POINT_BUY_MAX &&
                   pointsRemaining(draft.abilities) >=
-                    pointBuyCost(score + 1) - pointBuyCost(score)
+                    pointBuyCost(base + 1) - pointBuyCost(base)
             const canDecrement =
-              score > (draft.abilityMethod === 'pointbuy' ? POINT_BUY_MIN : 1)
+              base > (draft.abilityMethod === 'pointbuy' ? POINT_BUY_MIN : 1)
 
             return (
               <div key={ability} className="flex items-center gap-3">
@@ -341,13 +361,17 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
                     onClick={() => decrementAbility(ability)}
                     disabled={!canDecrement}
                   />
-                  <span className="w-8 text-center text-sm font-bold">{score}</span>
+                  <span className="w-8 text-center text-sm font-bold">{effective}</span>
                   <ScoreButton
                     label="+"
                     onClick={() => incrementAbility(ability)}
                     disabled={!canIncrement}
                   />
                 </div>
+                {bonus !== 0
+                  ? <span className="text-xs text-muted-foreground w-16">(base {base}+{bonus})</span>
+                  : <span className="w-16" />
+                }
                 <span
                   className="text-xs w-8"
                   style={{ color: mod >= 0 ? 'var(--color-accent-gold)' : 'var(--color-text-muted)' }}
@@ -369,26 +393,6 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
 // ---------------------------------------------------------------------------
 // Small helper components
 // ---------------------------------------------------------------------------
-
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string
-  error?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-        {label}
-      </label>
-      {children}
-      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
-    </div>
-  )
-}
 
 function SelectionButton({
   label,

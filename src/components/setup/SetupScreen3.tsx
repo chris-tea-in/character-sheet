@@ -1,8 +1,10 @@
 import { normalizeOptionName, toSkillName, ALL_LANGUAGES } from '@/lib/characterSetup'
+import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import type { SetupDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { SkillName } from '@/types/character'
 import { cn } from '@/lib/utils'
+import { Field } from './Field'
 
 interface Props {
   draft: SetupDraft
@@ -53,16 +55,6 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
     }
   }
 
-  const SKILL_DISPLAY: Record<SkillName, string> = {
-    acrobatics: 'Acrobatics', animalHandling: 'Animal Handling',
-    arcana: 'Arcana', athletics: 'Athletics', deception: 'Deception',
-    history: 'History', insight: 'Insight', intimidation: 'Intimidation',
-    investigation: 'Investigation', medicine: 'Medicine', nature: 'Nature',
-    perception: 'Perception', performance: 'Performance', persuasion: 'Persuasion',
-    religion: 'Religion', sleightOfHand: 'Sleight of Hand', stealth: 'Stealth',
-    survival: 'Survival',
-  }
-
   return (
     <div className="space-y-6">
       {/* Skill proficiencies from class */}
@@ -78,7 +70,7 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
               return (
                 <ToggleRow
                   key={skill}
-                  label={SKILL_DISPLAY[skill]}
+                  label={SKILL_DISPLAY_MAP[skill]}
                   checked={isChosen}
                   disabled={isMaxed}
                   onClick={() => toggleSkill(skill)}
@@ -100,7 +92,7 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
         <Field label="Skills from Background (granted)">
           <div className="space-y-1">
             {bgSkills.map((skill) => (
-              <ToggleRow key={skill} label={SKILL_DISPLAY[skill]} checked disabled />
+              <ToggleRow key={skill} label={SKILL_DISPLAY_MAP[skill]} checked disabled />
             ))}
           </div>
         </Field>
@@ -204,19 +196,3 @@ function ToggleRow({
   )
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-        {label}
-      </label>
-      {children}
-    </div>
-  )
-}

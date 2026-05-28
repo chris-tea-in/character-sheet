@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { generateId } from '../lib/uuid'
-import { rollDie, abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP } from '../lib/dice'
+import { rollDie, abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP, SKILL_DISPLAY_MAP } from '../lib/dice'
 import type { Character } from '../types/character'
 import type { RollKind, RollEntry } from '../types/dice'
 
@@ -12,7 +12,7 @@ function buildLabel(kind: RollKind, modifier: number): string {
     case 'raw':
       return `d${kind.die}`
     case 'skill':
-      return `${kind.skill} (${SKILL_ABILITY_MAP[kind.skill].toUpperCase()} ${sign}${modifier})`
+      return `${SKILL_DISPLAY_MAP[kind.skill]} (${SKILL_ABILITY_MAP[kind.skill].toUpperCase()} ${sign}${modifier})`
     case 'save':
       return `${kind.ability.toUpperCase()} save (${sign}${modifier})`
     case 'ability':

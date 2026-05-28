@@ -15,6 +15,7 @@ import { DetailBody } from './DetailBody'
 export interface SelectionEntry {
   slug: string
   detail: DetailItem
+  group?: string
 }
 
 interface SelectionListProps {
@@ -26,9 +27,43 @@ interface SelectionListProps {
   title: string
   allowCreateOwn?: boolean
   onCreateOwn?: () => void
+  groupOrder?: string[]
 }
 
 type View = 'list' | 'detail'
+
+function EntryRow({
+  entry,
+  selected,
+  onClick,
+}: {
+  entry: SelectionEntry
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'w-full text-left px-4 py-3 flex items-center justify-between gap-3',
+        'hover:bg-secondary transition-colors',
+        'border-b border-border last:border-0',
+      )}
+    >
+      <span className="text-sm font-medium">{entry.detail.name}</span>
+      <div className="flex items-center gap-2 flex-none">
+        {entry.detail.subtitle && (
+          <span className="text-xs text-muted-foreground hidden sm:block">
+            {entry.detail.subtitle}
+          </span>
+        )}
+        {selected && (
+          <Check className="h-4 w-4 shrink-0" style={{ color: 'var(--color-accent-gold)' }} />
+        )}
+      </div>
+    </button>
+  )
+}
 
 export function SelectionList({
   entries,
@@ -39,6 +74,7 @@ export function SelectionList({
   title,
   allowCreateOwn,
   onCreateOwn,
+  groupOrder,
 }: SelectionListProps) {
   const [view, setView] = useState<View>('list')
   const [search, setSearch] = useState('')
@@ -65,6 +101,18 @@ export function SelectionList({
     })
     return result
   }, [entries, search, sort])
+
+  const grouped = useMemo(() => {
+    if (!groupOrder || !entries.some((e) => e.group != null)) return null
+    const buckets = new Map<string, SelectionEntry[]>(groupOrder.map((g) => [g, []]))
+    for (const entry of filtered) {
+      const key = entry.group ?? groupOrder[0]
+      buckets.get(key)?.push(entry)
+    }
+    return groupOrder
+      .map((label) => ({ label, entries: buckets.get(label) ?? [] }))
+      .filter((g) => g.entries.length > 0)
+  }, [filtered, entries, groupOrder])
 
   function openDetail(entry: SelectionEntry) {
     setFocused(entry)
@@ -156,29 +204,30 @@ export function SelectionList({
                 <p className="text-sm text-muted-foreground text-center py-8">
                   No results for "{search}"
                 </p>
+              ) : grouped ? (
+                grouped.map(({ label, entries: groupEntries }) => (
+                  <div key={label}>
+                    <div className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b border-border sticky top-0 z-10" style={{ background: 'var(--color-surface)' }}>
+                      {label}
+                    </div>
+                    {groupEntries.map((entry) => (
+                      <EntryRow
+                        key={entry.slug}
+                        entry={entry}
+                        selected={value === entry.slug}
+                        onClick={() => openDetail(entry)}
+                      />
+                    ))}
+                  </div>
+                ))
               ) : (
                 filtered.map((entry) => (
-                  <button
+                  <EntryRow
                     key={entry.slug}
+                    entry={entry}
+                    selected={value === entry.slug}
                     onClick={() => openDetail(entry)}
-                    className={cn(
-                      'w-full text-left px-4 py-3 flex items-center justify-between gap-3',
-                      'hover:bg-secondary transition-colors',
-                      'border-b border-border last:border-0',
-                    )}
-                  >
-                    <span className="text-sm font-medium">{entry.detail.name}</span>
-                    <div className="flex items-center gap-2 flex-none">
-                      {entry.detail.subtitle && (
-                        <span className="text-xs text-muted-foreground hidden sm:block">
-                          {entry.detail.subtitle}
-                        </span>
-                      )}
-                      {value === entry.slug && (
-                        <Check className="h-4 w-4 shrink-0" style={{ color: 'var(--color-accent-gold)' }} />
-                      )}
-                    </div>
-                  </button>
+                  />
                 ))
               )}
 
