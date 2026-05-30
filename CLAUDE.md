@@ -67,11 +67,23 @@ src/
       SetupScreen3.tsx  # Proficiencies (languages, skills, tools, armor/weapon display)
       SetupScreen4.tsx  # Starting equipment
       SetupScreen5.tsx  # Progression system (XP vs Milestone)
+    sheet/
+      AbilityBlock.tsx       # 6-ability grid — StepperField per score, click modifier to roll ability check
+      CombatBlock.tsx        # AC, Speed, Initiative, ProfBonus, HP (current/max/temp), DeathSaves, HitDice, Inspiration
+      ProficienciesBlock.tsx # Tabbed saves/skills — P+E dots, class-lock enforcement, click row to roll
+      EquipmentBlock.tsx     # Weapons (attack roll, finesse/ranged/melee calc, custom override), Armor, Items, Currency
+      SpellBlock.tsx         # Spell slot tracker (pip UI), spell list with prepared toggle, spell attack roll button
+      DescriptionBlock.tsx   # Languages toggle grid + personality/ideals/bonds/flaws/backstory/notes textareas
+      LevelUpDialog.tsx      # Level-up flow — HP roll/manual, spell/cantrip picks, ASI; blocks confirm until done
+      DiceTray.tsx           # Fixed 52px bottom bar — d4/d6/d8/d10/d12/d20/d100 buttons + expandable roll history
+      EditableField.tsx      # Click-to-edit inline field (text/number) + EditableTextarea; commits on blur/Enter
+      StepperField.tsx       # − value + stepper control, reused across all numeric fields
     ui/                 # shadcn/ui primitives (badge, button, dialog, …)
   lib/
     characterSetup.ts   # Setup wizard state, HP calculation, point buy logic
     data.ts             # Typed data-loading helpers (classes, races, spells, etc.)
     dice.ts             # rollDie(), abilityModifier(), proficiencyBonus(), SKILL_ABILITY_MAP
+    spellcasting.ts     # parseClassSlots(), getSpellcastingInfo(), getSpellsKnownIncrease() — warlock vs. standard format
     utils.ts            # shadcn/ui cn() helper
     uuid.ts             # generateId() — UUID v4 using crypto.getRandomValues
   pages/
@@ -201,9 +213,11 @@ Defined in [src/styles/globals.css](src/styles/globals.css):
 | 3 | shadcn/ui + Tailwind CSS setup | Done |
 | 4 | Universal Detail Popup component (view + selection modes) | Done |
 | 5 | Character list page | Done |
-| 6 | Assisted character creation wizard (5 screens) | Done |
-| 7 | Manual character creation form | **Next** |
-| 8 | Character sheet view | Pending |
+| 6 | Assisted character creation wizard (5 screens) incl. spell selection (SetupScreen3) | Done |
+| 6a | Level-up dialog — HP roll/manual entry, spell selection, ASI prompt; blocks confirm until all choices made | Done |
+| 6b | Identity field UX — clicking a set value shows description popup with Back + Change buttons | Done |
+| 7 | ~~Manual character creation form~~ | Dropped |
+| 8 | Character sheet view — dice tray, ability/skill/save rolls, SpellBlock (slot pip tracker + spell list + prepared toggle), weapon cards (attack roll, STR/DEX/finesse + proficiency), spell attack rolls; class-specific weapon extras (e.g. Warlock Agonizing Blast) not implemented | Done |
 | 9 | Export / import (full DB + single-character JSON) | Pending |
 | 10 | @media print CSS layer | Pending |
 | 11 | Deployment & sharing (choose Path A or Path B — see Pre-conditions) | Pending |

@@ -8,6 +8,7 @@ import { SetupScreen3 } from '@/components/setup/SetupScreen3'
 import { SetupScreen4 } from '@/components/setup/SetupScreen4'
 import { SetupScreen5 } from '@/components/setup/SetupScreen5'
 import { INITIAL_DRAFT, draftToNewCharacter } from '@/lib/characterSetup'
+import { getSpellcastingInfo } from '@/lib/spellcasting'
 import { loadSetupData } from '@/lib/data'
 import { useCharacterStore } from '@/store/characters'
 import type { SetupDraft } from '@/lib/characterSetup'
@@ -58,6 +59,20 @@ function validateScreen(screen: number, draft: SetupDraft, data: SetupData | nul
   }
   if (screen === 2) {
     if (!draft.backgroundSlug) return ['Background is required']
+  }
+  if (screen === 3 && data && draft.classSlug) {
+    const cls = data.classes[draft.classSlug]
+    if (cls) {
+      const info = getSpellcastingInfo(cls, draft.level)
+      const errors: string[] = []
+      if (info.cantripsKnown > draft.cantripSlugs.length) {
+        errors.push(`Choose ${info.cantripsKnown - draft.cantripSlugs.length} more cantrip(s)`)
+      }
+      if ((info.casterKind === 'known' || info.casterKind === 'pact') && info.spellsKnown > draft.spellSlugs.length) {
+        errors.push(`Choose ${info.spellsKnown - draft.spellSlugs.length} more spell(s)`)
+      }
+      return errors
+    }
   }
   return []
 }

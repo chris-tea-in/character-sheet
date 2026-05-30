@@ -35,6 +35,23 @@ interface Props {
   onChange: (updates: Partial<SetupDraft>) => void
 }
 
+const CLASS_PREFERRED_ABILITY: Record<string, string> = {
+  barbarian: 'Strength',
+  bard: 'Charisma',
+  'blood-hunter': 'Intelligence',
+  cleric: 'Wisdom',
+  druid: 'Wisdom',
+  fighter: 'Strength / Dexterity',
+  monk: 'Dexterity & Wisdom',
+  paladin: 'Strength & Charisma',
+  ranger: 'Dexterity & Wisdom',
+  rogue: 'Dexterity',
+  sorcerer: 'Charisma',
+  warlock: 'Charisma',
+  wizard: 'Intelligence',
+  artificer: 'Intelligence',
+}
+
 const HP_METHODS = [
   { value: 'average', label: 'Average' },
   { value: 'max', label: 'Maximum' },
@@ -213,6 +230,11 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
           hasError={hasError('class')}
           onClick={() => setClassListOpen(true)}
         />
+        {selectedClass && CLASS_PREFERRED_ABILITY[selectedClass.slug] && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Preferred ability: {CLASS_PREFERRED_ABILITY[selectedClass.slug]}
+          </p>
+        )}
         <SelectionList
           entries={classEntries}
           value={draft.classSlug}

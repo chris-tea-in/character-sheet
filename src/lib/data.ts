@@ -1,4 +1,4 @@
-import type { Race, ClassData, SubclassData, Background } from '@/types/data'
+import type { Race, ClassData, SubclassData, Background, FeatData } from '@/types/data'
 
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path)
@@ -11,6 +11,10 @@ export interface SetupData {
   classes: Record<string, ClassData>
   subclasses: Record<string, SubclassData>
   backgrounds: Record<string, Background>
+}
+
+export async function loadFeatsData(): Promise<Record<string, FeatData>> {
+  return fetchJson<Record<string, FeatData>>('/data/feats.json')
 }
 
 export async function loadSetupData(): Promise<SetupData> {

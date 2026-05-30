@@ -16,6 +16,13 @@ export interface SelectionEntry {
   slug: string
   detail: DetailItem
   group?: string
+  warning?: string
+}
+
+export interface TabConfig {
+  label: string
+  entries: SelectionEntry[]
+  groupOrder?: string[]
 }
 
 interface SelectionListProps {
@@ -28,6 +35,8 @@ interface SelectionListProps {
   allowCreateOwn?: boolean
   onCreateOwn?: () => void
   groupOrder?: string[]
+  multiSelect?: boolean
+  tabs?: TabConfig[]
 }
 
 type View = 'list' | 'detail'
@@ -52,6 +61,14 @@ function EntryRow({
     >
       <span className="text-sm font-medium">{entry.detail.name}</span>
       <div className="flex items-center gap-2 flex-none">
+        {entry.warning && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-none"
+            style={{ background: 'rgba(196, 163, 90, 0.15)', color: 'var(--color-accent-2)' }}
+          >
+            {entry.warning}
+          </span>
+        )}
         {entry.detail.subtitle && (
           <span className="text-xs text-muted-foreground hidden sm:block">
             {entry.detail.subtitle}
@@ -75,11 +92,14 @@ export function SelectionList({
   allowCreateOwn,
   onCreateOwn,
   groupOrder,
+  multiSelect,
+  tabs,
 }: SelectionListProps) {
   const [view, setView] = useState<View>('list')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<'a-z' | 'z-a'>('a-z')
   const [focused, setFocused] = useState<SelectionEntry | null>(null)
+  const [activeTab, setActiveTab] = useState(0)
 
   useEffect(() => {
     if (open) {
@@ -87,32 +107,45 @@ export function SelectionList({
       setSearch('')
       setSort('a-z')
       setFocused(null)
+      setActiveTab(0)
     }
   }, [open])
 
+  const activeEntries = useMemo(
+    () => tabs ? (tabs[activeTab]?.entries ?? []) : entries,
+    [tabs, activeTab, entries],
+  )
+  const activeGroupOrder = useMemo(
+    () => tabs ? tabs[activeTab]?.groupOrder : groupOrder,
+    [tabs, activeTab, groupOrder],
+  )
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
-    const result = entries.filter((e) =>
+    const result = activeEntries.filter((e) =>
       e.detail.name.toLowerCase().includes(q),
     )
     result.sort((a, b) => {
+      const aWarned = !!a.warning
+      const bWarned = !!b.warning
+      if (aWarned !== bWarned) return aWarned ? 1 : -1
       const cmp = a.detail.name.localeCompare(b.detail.name)
       return sort === 'a-z' ? cmp : -cmp
     })
     return result
-  }, [entries, search, sort])
+  }, [activeEntries, search, sort])
 
   const grouped = useMemo(() => {
-    if (!groupOrder || !entries.some((e) => e.group != null)) return null
-    const buckets = new Map<string, SelectionEntry[]>(groupOrder.map((g) => [g, []]))
+    if (!activeGroupOrder || !activeEntries.some((e) => e.group != null)) return null
+    const buckets = new Map<string, SelectionEntry[]>(activeGroupOrder.map((g) => [g, []]))
     for (const entry of filtered) {
-      const key = entry.group ?? groupOrder[0]
+      const key = entry.group ?? activeGroupOrder[0]
       buckets.get(key)?.push(entry)
     }
-    return groupOrder
+    return activeGroupOrder
       .map((label) => ({ label, entries: buckets.get(label) ?? [] }))
       .filter((g) => g.entries.length > 0)
-  }, [filtered, entries, groupOrder])
+  }, [filtered, activeEntries, activeGroupOrder])
 
   function openDetail(entry: SelectionEntry) {
     setFocused(entry)
@@ -122,7 +155,12 @@ export function SelectionList({
   function handleConfirm() {
     if (!focused) return
     onSelect(focused.slug)
-    onClose()
+    if (multiSelect) {
+      setView('list')
+      setFocused(null)
+    } else {
+      onClose()
+    }
   }
 
   return (
@@ -166,6 +204,26 @@ export function SelectionList({
           <>
             <DialogHeader className="flex-none px-4 pt-4 pb-3 border-b border-border space-y-2">
               <DialogTitle>{title}</DialogTitle>
+
+              {tabs && tabs.length > 1 && (
+                <div className="flex gap-1 flex-wrap">
+                  {tabs.map((tab, i) => (
+                    <button
+                      key={tab.label}
+                      onClick={() => { setActiveTab(i); setSearch('') }}
+                      className={cn(
+                        'px-2.5 py-0.5 text-xs rounded-md font-medium transition-colors',
+                        activeTab === i
+                          ? 'bg-secondary text-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                 <input
@@ -202,7 +260,7 @@ export function SelectionList({
             <div className="flex-1 overflow-y-auto">
               {filtered.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  No results for "{search}"
+                  No results{search ? ` for "${search}"` : ''}
                 </p>
               ) : grouped ? (
                 grouped.map(({ label, entries: groupEntries }) => (

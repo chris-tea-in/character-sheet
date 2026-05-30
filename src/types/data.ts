@@ -142,6 +142,12 @@ export interface Race {
   subraces: unknown[]
 }
 
+export interface ClassLevel {
+  proficiency_bonus: number
+  features: string[]
+  class_specific: Record<string, string>
+}
+
 export interface ClassData {
   name: string
   slug: string
@@ -157,7 +163,29 @@ export interface ClassData {
     options: string[]
   }
   starting_equipment: string[]
+  levels: Record<string, ClassLevel>   // keyed by level number string: "1"–"20"
   spellcasting: { ability: string; description: string } | null
+}
+
+export interface SpellData {
+  name: string
+  slug: string
+  level: number
+  school: string
+  casting_time: string
+  range: string
+  components: {
+    verbal: boolean
+    somatic: boolean
+    material: boolean
+    material_text: string | null
+  }
+  duration: string
+  concentration: boolean
+  ritual: boolean
+  description: string
+  at_higher_levels: string | null
+  classes: string[]
 }
 
 export interface SubclassData {
@@ -184,4 +212,11 @@ export interface Background {
   ideals: string[]
   bonds: string[]
   flaws: string[]
+}
+
+export interface FeatData {
+  name: string
+  slug: string
+  prerequisites: string[]
+  description: string
 }

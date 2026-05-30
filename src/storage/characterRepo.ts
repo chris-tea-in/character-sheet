@@ -54,6 +54,7 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     notes: row['notes'] as string,
     equipment: JSON.parse(row['equipment'] as string),
     currency: JSON.parse(row['currency'] as string),
+    feats: JSON.parse(row['feats'] as string ?? '[]'),
     createdAt: row['created_at'] as number,
     updatedAt: row['updated_at'] as number,
   }
@@ -117,9 +118,9 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         armor_class, speed, death_saves, hit_dice_used, inspiration,
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
-        equipment, currency, created_at, updated_at
+        equipment, currency, feats, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race, data.subrace, data.class, data.subclass, data.background,
@@ -136,6 +137,7 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         data.personalityTraits, data.ideals, data.bonds, data.flaws, data.notes,
         JSON.stringify(data.equipment),
         JSON.stringify(data.currency),
+        JSON.stringify(data.feats),
         now, now,
       ],
     )
@@ -163,7 +165,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         armor_class=?, speed=?, death_saves=?, hit_dice_used=?, inspiration=?,
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
-        equipment=?, currency=?, updated_at=?
+        equipment=?, currency=?, feats=?, updated_at=?
       WHERE id=?`,
       [
         merged.name, merged.race, merged.subrace, merged.class, merged.subclass, merged.background,
@@ -180,6 +182,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         merged.personalityTraits, merged.ideals, merged.bonds, merged.flaws, merged.notes,
         JSON.stringify(merged.equipment),
         JSON.stringify(merged.currency),
+        JSON.stringify(merged.feats),
         merged.updatedAt,
         id,
       ],

@@ -28,6 +28,9 @@ export interface EquipmentItem {
   name: string
   quantity: number
   notes?: string
+  customDamage?: string  // overrides catalog damage display
+  customToHit?: string   // overrides calculated to-hit display
+  displayCategory?: 'weapon' | 'armor' | 'item'  // for magic items: which section to show in
 }
 
 export interface CharacterSpell {
@@ -77,6 +80,8 @@ export interface Character {
   equipment: EquipmentItem[]
   currency: Currency
 
+  feats: string[]  // feat slugs (keys from feats.json)
+
   createdAt: number  // unix ms
   updatedAt: number
 }
@@ -102,5 +107,6 @@ export function defaultCharacter(name: string): NewCharacter {
     personalityTraits: '', ideals: '', bonds: '', flaws: '', notes: '',
     equipment: [],
     currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
+    feats: [],
   }
 }

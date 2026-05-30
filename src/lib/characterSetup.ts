@@ -278,6 +278,8 @@ export interface SetupDraft {
   languageProficiencies: string[]
   skillProficiencies: SkillName[]
   toolProficiencies: string[]
+  cantripSlugs: string[]
+  spellSlugs: string[]
   // Screen 5
   progressionType: 'xp' | 'milestone'
 }
@@ -305,6 +307,8 @@ export const INITIAL_DRAFT: SetupDraft = {
   languageProficiencies: [],
   skillProficiencies: [],
   toolProficiencies: [],
+  cantripSlugs: [],
+  spellSlugs: [],
   progressionType: 'milestone',
 }
 
@@ -400,7 +404,10 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
     inspiration: false,
     skillProficiencies,
     savingThrowProficiencies,
-    spells: [],
+    spells: [
+      ...draft.cantripSlugs.map(slug => ({ slug, prepared: false })),
+      ...draft.spellSlugs.map(slug => ({ slug, prepared: false })),
+    ],
     spellSlotsUsed: {},
     personalityTraits: draft.personalityTraits,
     ideals: draft.ideals,
@@ -409,5 +416,6 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
     notes: draft.appearance ? `Appearance: ${draft.appearance}` : '',
     equipment: [],
     currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
+    feats: [],
   }
 }
