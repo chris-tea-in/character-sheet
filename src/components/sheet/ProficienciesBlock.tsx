@@ -1,14 +1,18 @@
 import { useState } from 'react'
+import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { abilityModifier, proficiencyBonus, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '@/lib/dice'
 import { ABILITY_LABELS, ABILITY_ORDER, toSkillName } from '@/lib/characterSetup'
-import { useDiceStore } from '@/store/dice'
+import { useRollDispatch } from '@/lib/useRollDispatch'
+import { SelectionList } from '@/components/SelectionList'
 import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
-import type { ClassData } from '@/types/data'
+import type { ClassData, EquipmentData } from '@/types/data'
+import type { SelectionEntry } from '@/components/SelectionList'
 
 interface Props {
   character: Character
   classRecord: ClassData | null
+  catalog?: EquipmentData | null
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
@@ -19,7 +23,7 @@ const SKILL_ORDER: SkillName[] = [
   'sleightOfHand', 'stealth', 'survival',
 ]
 
-type Tab = 'saves' | 'skills'
+type Tab = 'skills' | 'saves' | 'tools'
 
 // Feats that grant 1 expertise slot each.
 const EXPERTISE_FEATS = new Set(['skill-expert', 'prodigy'])
@@ -81,7 +85,7 @@ function TwoDots({
   return (
     <div className="flex items-center gap-0.5 flex-none">
       {dot(
-        isProficient,
+        isProficient && !isExpertise,
         'P',
         onToggleProf,
         isProficient ? 'Remove proficiency' : 'Add proficiency (+PB)',
@@ -124,9 +128,9 @@ function SaveDot({
   )
 }
 
-export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
+export function ProficienciesBlock({ character, classRecord, catalog, onSave }: Props) {
   const [tab, setTab] = useState<Tab>('skills')
-  const roll = useDiceStore(s => s.roll)
+  const { dispatch } = useRollDispatch(character)
   const pb = proficiencyBonus(character.level)
   const hasClass = !!classRecord
 
@@ -143,11 +147,13 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
       .filter(Boolean) as AbilityName[] ?? []
   )
 
-  // Class skill options — only these are interactive when class is set
+  // Class skill options — only these are interactive when class is set.
+  // "any" means the class allows any skill (e.g. Bard).
+  const rawClassOptions = classRecord?.skill_choices.options ?? []
   const classSkillOptions = new Set<SkillName>(
-    classRecord?.skill_choices.options
-      .map(o => toSkillName(o))
-      .filter(Boolean) as SkillName[] ?? []
+    rawClassOptions.some(o => o.trim().toLowerCase() === 'any')
+      ? SKILL_ORDER
+      : rawClassOptions.map(o => toSkillName(o)).filter(Boolean) as SkillName[]
   )
   const classSkillMax = classRecord?.skill_choices.count ?? Infinity
 
@@ -172,16 +178,15 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
   }
 
   function toggleSkillProf(skill: SkillName) {
+    const isClassOption = classSkillOptions.has(skill)
+    if (hasClass && !isClassOption) return
     const current = character.skillProficiencies[skill]
     const isProficient = current !== undefined
     if (isProficient) {
-      // Remove proficiency (and expertise)
       const updated = { ...character.skillProficiencies }
       delete updated[skill]
       onSave({ skillProficiencies: updated })
     } else {
-      // Add proficiency — check cap for class skills
-      const isClassOption = classSkillOptions.has(skill)
       if (isClassOption && atClassSkillCap) return
       onSave({ skillProficiencies: { ...character.skillProficiencies, [skill]: 'proficient' } })
     }
@@ -230,6 +235,15 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
         >
           Saving Throws
         </button>
+        <button
+          onClick={() => setTab('tools')}
+          className={cn(
+            'px-3 py-1 text-xs rounded-md font-semibold uppercase tracking-wide transition-colors',
+            tab === 'tools' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          Tools
+        </button>
         {tab === 'skills' && classSkillMax !== Infinity && (
           <span
             className="ml-auto text-xs px-2 py-0.5 rounded-full border"
@@ -260,7 +274,6 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
             {ABILITY_ORDER.map(ability => {
               const isProficient = character.savingThrowProficiencies.includes(ability)
               const isClassSave = classSaveSet.has(ability)
-              const locked = hasClass && !isClassSave
               const bonus = saveBonus(ability)
 
               return (
@@ -270,23 +283,23 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
                 >
                   <SaveDot
                     filled={isProficient}
-                    locked={locked}
+                    locked={false}
                     onClick={() => toggleSave(ability)}
                   />
-                  <span className={cn('flex-1 text-sm', locked && 'opacity-50')}>{ABILITY_LABELS[ability]}</span>
+                  <span className="flex-1 text-sm">{ABILITY_LABELS[ability]}</span>
                   {isClassSave && (
                     <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-accent-gold)' }}>
                       class
                     </span>
                   )}
                   <span
-                    className={cn('text-sm font-bold tabular-nums w-8 text-right', locked && 'opacity-50')}
+                    className="text-sm font-bold tabular-nums w-8 text-right"
                     style={{ color: isProficient ? 'var(--color-accent-gold)' : undefined }}
                   >
                     {bonus >= 0 ? `+${bonus}` : `${bonus}`}
                   </span>
                   <button
-                    onClick={() => roll({ type: 'save', ability }, character)}
+                    onClick={() => dispatch({ type: 'save', ability })}
                     className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
                     style={{ background: 'var(--color-accent)', color: '#fff' }}
                   >
@@ -297,9 +310,7 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            {hasClass
-              ? 'Class saves highlighted · others dot-locked · Roll to make a saving throw'
-              : 'Tap dot to toggle proficiency · Roll to make a saving throw'}
+            Class saves shown in gold · tap dot to toggle · Roll to make a saving throw
           </p>
         </>
       )}
@@ -314,8 +325,8 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
               const ability = SKILL_ABILITY_MAP[skill]
               const bonus = skillBonus(skill)
               const isClassOption = classSkillOptions.has(skill)
-              const locked = hasClass && !isClassOption
               const addBlocked = isClassOption && !isProficient && atClassSkillCap
+              const notClassOption = hasClass && !isClassOption
               // Expertise cap blocks adding to non-expertise skills once all slots are used
               const expertiseCapped = atExpertiseCap && !isExpertise
 
@@ -327,23 +338,23 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
                   <TwoDots
                     isProficient={isProficient}
                     isExpertise={isExpertise}
-                    locked={locked || (addBlocked && !isProficient)}
+                    locked={notClassOption || (addBlocked && !isProficient)}
                     expertiseCapped={expertiseCapped}
                     onToggleProf={() => toggleSkillProf(skill)}
                     onToggleExp={() => toggleSkillExp(skill)}
                   />
-                  <span className={cn('flex-1 text-sm min-w-0 truncate', locked && 'opacity-40')}>{SKILL_DISPLAY_MAP[skill]}</span>
-                  <span className={cn('text-[10px] text-muted-foreground uppercase w-7 text-center flex-none', locked && 'opacity-40')}>
+                  <span className={cn('flex-1 text-sm min-w-0 truncate', notClassOption && 'opacity-50')}>{SKILL_DISPLAY_MAP[skill]}</span>
+                  <span className={cn('text-[10px] text-muted-foreground uppercase w-7 text-center flex-none', notClassOption && 'opacity-50')}>
                     {ability.toUpperCase()}
                   </span>
                   <span
-                    className={cn('text-sm font-bold tabular-nums w-8 text-right flex-none', locked && 'opacity-40')}
+                    className={cn('text-sm font-bold tabular-nums w-8 text-right flex-none', notClassOption && 'opacity-50')}
                     style={{ color: isProficient ? 'var(--color-accent-gold)' : undefined }}
                   >
                     {bonus >= 0 ? `+${bonus}` : `${bonus}`}
                   </span>
                   <button
-                    onClick={() => roll({ type: 'skill', skill }, character)}
+                    onClick={() => dispatch({ type: 'skill', skill })}
                     className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
                     style={{ background: 'var(--color-accent)', color: '#fff' }}
                   >
@@ -354,12 +365,111 @@ export function ProficienciesBlock({ character, classRecord, onSave }: Props) {
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            {hasClass
-              ? 'P = prof · E = expertise · class options in gold · Roll to check'
-              : 'P = prof dot · E = expertise dot · Roll to check'}
+            P = prof · E = expertise · class options in gold · Roll to check
           </p>
         </>
       )}
+
+      {tab === 'tools' && (
+        <ToolsTab
+          character={character}
+          catalog={catalog}
+          classRecord={classRecord}
+          onSave={onSave}
+        />
+      )}
     </section>
+  )
+}
+
+// ── Tools tab ────────────────────────────────────────────────────────────────
+
+function ToolsTab({
+  character,
+  catalog,
+  classRecord,
+  onSave,
+}: {
+  character: Character
+  catalog?: EquipmentData | null
+  classRecord: ClassData | null
+  onSave: (changes: Partial<NewCharacter>) => void
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+
+  const catalogTools: SelectionEntry[] = (catalog?.tools ?? []).map(t => ({
+    slug: t.name,
+    detail: {
+      name: t.name,
+      subtitle: t.tool_category,
+      sections: [],
+    },
+    group: t.tool_category,
+  }))
+
+  const granted = new Set([
+    ...(classRecord?.tool_proficiencies ?? []),
+  ])
+
+  const current = character.toolProficiencies ?? []
+
+  function addTool(name: string) {
+    if (!current.includes(name)) {
+      onSave({ toolProficiencies: [...current, name] })
+    }
+    setPickerOpen(false)
+  }
+
+  function removeTool(name: string) {
+    onSave({ toolProficiencies: current.filter(t => t !== name) })
+  }
+
+  return (
+    <>
+      <div className="rounded-lg border border-border bg-card divide-y divide-border">
+        {current.length === 0 && (
+          <p className="px-4 py-3 text-sm text-muted-foreground italic">No tool proficiencies</p>
+        )}
+        {current.map(name => {
+          const isGranted = granted.has(name)
+          return (
+            <div key={name} className="flex items-center gap-3 px-4 py-2.5">
+              <span className="flex-1 text-sm truncate">{name}</span>
+              {isGranted && (
+                <span className="text-[10px] uppercase tracking-wide flex-none" style={{ color: 'var(--color-accent-gold)' }}>
+                  class
+                </span>
+              )}
+              <button
+                onClick={() => removeTool(name)}
+                className="text-muted-foreground hover:text-destructive transition-colors flex-none"
+                aria-label={`Remove ${name}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )
+        })}
+        <button
+          onClick={() => setPickerOpen(true)}
+          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
+          style={{ color: 'var(--color-accent-gold)' }}
+        >
+          + Add tool proficiency
+        </button>
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-1.5">
+        Class-granted tools highlighted · tap ✕ to remove
+      </p>
+
+      <SelectionList
+        entries={catalogTools}
+        value=""
+        title="Add Tool Proficiency"
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={addTool}
+      />
+    </>
   )
 }

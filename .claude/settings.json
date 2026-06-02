@@ -35,7 +35,10 @@
       "Bash(node -e \"const d = require\\('./public/data/classes.json'\\); const b = d['bard']; console.log\\('Bard level 3:', JSON.stringify\\(b.levels['3'], null, 2\\)\\); console.log\\('Bard level 10:', JSON.stringify\\(b.levels['10'], null, 2\\)\\);\")",
       "Bash(node -e \"const data = require\\('./data/equipment/wondrous_items.json'\\); console.log\\('Items:', data.length\\); const names = data.map\\(i=>i.name\\).sort\\(\\); console.log\\('First:', names[0]\\); console.log\\('Last:', names[names.length-1]\\); const dupes = names.filter\\(\\(n,i\\)=>names.indexOf\\(n\\)!==i\\); console.log\\('Dupes:', dupes.length ? dupes : 'none'\\);\")",
       "Bash(node -e \"const spells = require\\('./public/data/spells.json'\\); const bb = Object.entries\\(spells\\).find\\(\\([k,v]\\) => v.name && v.name.toLowerCase\\(\\).includes\\('booming'\\)\\); console.log\\(bb ? JSON.stringify\\(bb[1], null, 2\\) : 'not found'\\); console.log\\('total spells:', Object.keys\\(spells\\).length\\);\")",
-      "Bash(node -e \"const r = require\\('./public/data/races.json'\\); Object.keys\\(r\\).forEach\\(k => console.log\\(k\\)\\)\")"
+      "Bash(node -e \"const r = require\\('./public/data/races.json'\\); Object.keys\\(r\\).forEach\\(k => console.log\\(k\\)\\)\")",
+      "Bash(node -e \"const d = require\\('./public/data/classes.json'\\); const cls = Object.values\\(d\\)[0]; console.log\\(cls.name, JSON.stringify\\(cls.starting_equipment, null, 2\\)\\)\")",
+      "Bash(node -e \"const d = require\\('./public/data/classes.json'\\); Object.entries\\(d\\).forEach\\(\\([k,v]\\) => console.log\\(k + ':', JSON.stringify\\(v.starting_equipment\\)\\)\\)\")",
+      "Bash(node -e \"const d = require\\('./public/data/backgrounds.json'\\); const bg = Object.values\\(d\\)[0]; console.log\\(bg.name, JSON.stringify\\(bg.starting_equipment, null, 2\\)\\)\")"
     ]
   }
 }

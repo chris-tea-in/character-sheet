@@ -71,4 +71,10 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN feats TEXT NOT NULL DEFAULT '[]'`)
     },
   },
+  {
+    version: 4,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN tool_proficiencies TEXT NOT NULL DEFAULT '[]'`)
+    },
+  },
 ]

@@ -1,26 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus, X, Pencil, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { StepperField } from './StepperField'
 import { generateId } from '@/lib/uuid'
-import { abilityModifier, proficiencyBonus } from '@/lib/dice'
-import { useDiceStore } from '@/store/dice'
+import { computeWeaponBonus } from '@/lib/characterStats'
+import { useRollDispatch } from '@/lib/useRollDispatch'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
-import type { ClassData, WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem } from '@/types/data'
+import type { ClassData, WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData } from '@/types/data'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
 
 interface Props {
   character: Character
   classRecord: ClassData | null
   onSave: (changes: Partial<NewCharacter>) => void
-}
-
-interface EquipmentCatalog {
-  weapons?: WeaponItem[]
-  armor?: ArmorItem[]
-  adventuring_gear?: AdventuringGearItem[]
-  wondrous_items?: WondrousItem[]
+  catalog: EquipmentData | null
 }
 
 const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary', 'Artifact'] as const
@@ -33,37 +27,6 @@ const CURRENCY_KEYS: Array<{ key: keyof Currency; label: string }> = [
   { key: 'cp', label: 'CP' },
 ]
 
-function isWeaponProficient(weapon: WeaponItem, classRecord: ClassData | null): boolean {
-  if (!classRecord) return false
-  const profs = classRecord.weapon_proficiencies.map(p => p.toLowerCase())
-  const wtype = weapon.weapon_type.toLowerCase()
-  if (wtype.includes('simple') && profs.some(p => p === 'simple weapons')) return true
-  if (wtype.includes('martial') && (profs.includes('martial weapons') || profs.includes('all weapons'))) return true
-  if (profs.includes(weapon.name.toLowerCase())) return true
-  return false
-}
-
-function weaponBonus(
-  weapon: WeaponItem,
-  character: Character,
-  classRecord: ClassData | null,
-): { toHit: string; damage: string; label: string; modifier: number } {
-  const strMod = abilityModifier(character.abilities.str)
-  const dexMod = abilityModifier(character.abilities.dex)
-  const isFinesse = weapon.properties.some(p => p.toLowerCase().includes('finesse'))
-  const isRanged = weapon.weapon_type.toLowerCase().includes('ranged')
-  const mod = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod
-  const label = isFinesse ? (dexMod > strMod ? 'DEX' : 'STR') : isRanged ? 'DEX' : 'STR'
-  const pb = isWeaponProficient(weapon, classRecord) ? proficiencyBonus(character.level) : 0
-  const modifier = mod + pb
-  const dmgBonus = mod !== 0 ? (mod > 0 ? `+${mod}` : `${mod}`) : ''
-  return {
-    toHit: modifier >= 0 ? `+${modifier}` : `${modifier}`,
-    damage: `${weapon.damage_dice}${dmgBonus} ${weapon.damage_type}`,
-    label,
-    modifier,
-  }
-}
 
 function WeaponRow({
   item,
@@ -80,13 +43,13 @@ function WeaponRow({
   onUpdate: (changes: Partial<EquipmentItem>) => void
   onRemove: () => void
 }) {
-  const roll = useDiceStore(s => s.roll)
-  const calc = weaponBonus(weapon, character, classRecord)
+  const { dispatch } = useRollDispatch(character)
+  const calc = computeWeaponBonus(weapon, character, classRecord)
   const displayToHit = item.customToHit ?? calc.toHit
   const displayDamage = item.customDamage ?? calc.damage
   const rollModifier = item.customToHit !== undefined
     ? (parseInt(item.customToHit.replace(/^\+/, ''), 10) || 0)
-    : calc.modifier
+    : calc.toHitModifier
   const [expanded, setExpanded] = useState(false)
   const [editingStats, setEditingStats] = useState(false)
   const [toHitDraft, setToHitDraft] = useState(displayToHit)
@@ -119,7 +82,7 @@ function WeaponRow({
           <span className="text-muted-foreground">{displayDamage}</span>
         </div>
         <button
-          onClick={() => roll({ type: 'attack', label: item.name, modifier: rollModifier }, character)}
+          onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: calc.damageDice, damageBonus: calc.damageBonus, damageType: calc.damageType })}
           className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
           style={{ background: 'var(--color-accent)', color: '#fff' }}
         >
@@ -449,60 +412,40 @@ function buildGearEntries(gear: AdventuringGearItem[]): SelectionEntry[] {
   }))
 }
 
-export function EquipmentBlock({ character, classRecord, onSave }: Props) {
-  const [catalog, setCatalog] = useState<EquipmentCatalog>({})
+export function EquipmentBlock({ character, classRecord, onSave, catalog }: Props) {
   const [weaponPickerOpen, setWeaponPickerOpen] = useState(false)
   const [armorPickerOpen, setArmorPickerOpen] = useState(false)
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
 
-  useEffect(() => {
-    fetch('/data/equipment.json')
-      .then(r => r.json())
-      .then((data: EquipmentCatalog) => setCatalog(data))
-      .catch(() => {})
-  }, [])
-
   const weaponByName = useMemo(
-    () => new Map((catalog.weapons ?? []).map(w => [w.name.toLowerCase(), w])),
-    [catalog.weapons],
+    () => new Map((catalog?.weapons ?? []).map(w => [w.name.toLowerCase(), w])),
+    [catalog?.weapons],
   )
   const armorByName = useMemo(
-    () => new Map((catalog.armor ?? []).map(a => [a.name.toLowerCase(), a])),
-    [catalog.armor],
+    () => new Map((catalog?.armor ?? []).map(a => [a.name.toLowerCase(), a])),
+    [catalog?.armor],
   )
   const wondrousItemByName = useMemo(
-    () => new Map((catalog.wondrous_items ?? []).map(w => [w.name.toLowerCase(), w])),
-    [catalog.wondrous_items],
+    () => new Map((catalog?.wondrous_items ?? []).map(w => [w.name.toLowerCase(), w])),
+    [catalog?.wondrous_items],
   )
 
-  const weaponEntries = useMemo(() => buildWeaponEntries(catalog.weapons ?? []), [catalog.weapons])
-  const armorEntries = useMemo(() => buildArmorEntries(catalog.armor ?? []), [catalog.armor])
-  const gearEntries = useMemo(() => buildGearEntries(catalog.adventuring_gear ?? []), [catalog.adventuring_gear])
-  const wondrousEntries = useMemo(() => buildWondrousEntries(catalog.wondrous_items ?? []), [catalog.wondrous_items])
+  const weaponEntries = useMemo(() => buildWeaponEntries(catalog?.weapons ?? []), [catalog?.weapons])
+  const armorEntries = useMemo(() => buildArmorEntries(catalog?.armor ?? []), [catalog?.armor])
+  const gearEntries = useMemo(() => buildGearEntries(catalog?.adventuring_gear ?? []), [catalog?.adventuring_gear])
+  const wondrousEntries = useMemo(() => buildWondrousEntries(catalog?.wondrous_items ?? []), [catalog?.wondrous_items])
 
-  const weaponTabs = useMemo((): TabConfig[] => {
-    const rarityTabs = RARITY_ORDER
-      .map(rarity => ({ label: rarity, entries: wondrousEntries.filter(e => e.group === rarity) }))
-      .filter(t => t.entries.length > 0)
-    return [
-      { label: 'Simple', entries: weaponEntries.filter(e => e.group === 'Simple Weapons') },
-      { label: 'Martial', entries: weaponEntries.filter(e => e.group === 'Martial Weapons') },
-      ...rarityTabs,
-    ]
-  }, [weaponEntries, wondrousEntries])
+  const weaponTabs = useMemo((): TabConfig[] => [
+    { label: 'Simple', entries: weaponEntries.filter(e => e.group === 'Simple Weapons') },
+    { label: 'Martial', entries: weaponEntries.filter(e => e.group === 'Martial Weapons') },
+  ], [weaponEntries])
 
-  const armorTabs = useMemo((): TabConfig[] => {
-    const typeTabs: TabConfig[] = [
-      { label: 'Light', entries: armorEntries.filter(e => e.group === 'Light Armor') },
-      { label: 'Medium', entries: armorEntries.filter(e => e.group === 'Medium Armor') },
-      { label: 'Heavy', entries: armorEntries.filter(e => e.group === 'Heavy Armor') },
-      { label: 'Shield', entries: armorEntries.filter(e => e.group === 'Shield Armor') },
-    ].filter(t => t.entries.length > 0)
-    const rarityTabs = RARITY_ORDER
-      .map(rarity => ({ label: rarity, entries: wondrousEntries.filter(e => e.group === rarity) }))
-      .filter(t => t.entries.length > 0)
-    return [...typeTabs, ...rarityTabs]
-  }, [armorEntries, wondrousEntries])
+  const armorTabs = useMemo((): TabConfig[] => [
+    { label: 'Light', entries: armorEntries.filter(e => e.group === 'Light Armor') },
+    { label: 'Medium', entries: armorEntries.filter(e => e.group === 'Medium Armor') },
+    { label: 'Heavy', entries: armorEntries.filter(e => e.group === 'Heavy Armor') },
+    { label: 'Shield', entries: armorEntries.filter(e => e.group === 'Shield Armor') },
+  ].filter(t => t.entries.length > 0), [armorEntries])
 
   const itemsTabs = useMemo((): TabConfig[] => {
     const rarityTabs = RARITY_ORDER
@@ -732,7 +675,7 @@ export function EquipmentBlock({ character, classRecord, onSave }: Props) {
         onClose={() => setWeaponPickerOpen(false)}
         tabs={weaponTabs}
         onSelect={name => {
-          addItem(name, wondrousItemByName.has(name.toLowerCase()) ? 'weapon' : undefined)
+          addItem(name)
           setWeaponPickerOpen(false)
         }}
       />
@@ -744,7 +687,7 @@ export function EquipmentBlock({ character, classRecord, onSave }: Props) {
         onClose={() => setArmorPickerOpen(false)}
         tabs={armorTabs}
         onSelect={name => {
-          addItem(name, wondrousItemByName.has(name.toLowerCase()) ? 'armor' : undefined)
+          addItem(name)
           setArmorPickerOpen(false)
         }}
       />

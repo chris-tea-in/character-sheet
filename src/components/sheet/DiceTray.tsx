@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronUp, ChevronDown, Trash2 } from 'lucide-react'
 import { useDiceStore } from '@/store/dice'
+import { useRollDispatch } from '@/lib/useRollDispatch'
 import type { Character } from '@/types/character'
 import type { DieType } from '@/types/dice'
 
@@ -12,8 +13,8 @@ interface Props {
 
 export function DiceTray({ character }: Props) {
   const rolls = useDiceStore(s => s.rolls)
-  const roll = useDiceStore(s => s.roll)
   const clear = useDiceStore(s => s.clear)
+  const { dispatch } = useRollDispatch(character)
   const [open, setOpen] = useState(false)
   const lastRoll = rolls[0]
 
@@ -58,9 +59,9 @@ export function DiceTray({ character }: Props) {
                       className="font-bold text-base min-w-[2ch] text-right tabular-nums"
                       style={{
                         color:
-                          entry.result.natural === 20 && entry.kind.type !== 'raw'
+                          entry.result.natural === 20 && (entry.kind.type !== 'raw' || entry.kind.die === 20)
                             ? 'var(--color-accent-gold)'
-                            : entry.result.natural === 1 && entry.kind.type !== 'raw'
+                            : entry.result.natural === 1 && (entry.kind.type !== 'raw' || entry.kind.die === 20)
                             ? 'var(--color-accent-red)'
                             : undefined,
                       }}
@@ -84,7 +85,7 @@ export function DiceTray({ character }: Props) {
           {DIE_TYPES.map(die => (
             <button
               key={die}
-              onClick={() => roll({ type: 'raw', die }, character)}
+              onClick={() => dispatch({ type: 'raw', die })}
               className="flex-1 h-8 rounded-md text-xs font-bold hover:bg-secondary transition-colors border border-border"
               style={{ color: 'var(--color-accent-gold)' }}
             >

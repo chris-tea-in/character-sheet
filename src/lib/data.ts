@@ -1,4 +1,4 @@
-import type { Race, ClassData, SubclassData, Background, FeatData } from '@/types/data'
+import type { Race, ClassData, SubclassData, Background, FeatData, SpellData, EquipmentData } from '@/types/data'
 
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path)
@@ -13,16 +13,32 @@ export interface SetupData {
   backgrounds: Record<string, Background>
 }
 
-export async function loadFeatsData(): Promise<Record<string, FeatData>> {
-  return fetchJson<Record<string, FeatData>>('/data/feats.json')
-}
+let setupCache: Promise<SetupData> | null = null
+let featsCache: Promise<Record<string, FeatData>> | null = null
+let spellsCache: Promise<Record<string, SpellData>> | null = null
+let equipmentCache: Promise<EquipmentData> | null = null
 
-export async function loadSetupData(): Promise<SetupData> {
-  const [races, classes, subclasses, backgrounds] = await Promise.all([
+export function loadSetupData(): Promise<SetupData> {
+  setupCache ??= Promise.all([
     fetchJson<Record<string, Race>>('/data/races.json'),
     fetchJson<Record<string, ClassData>>('/data/classes.json'),
     fetchJson<Record<string, SubclassData>>('/data/subclasses.json'),
     fetchJson<Record<string, Background>>('/data/backgrounds.json'),
-  ])
-  return { races, classes, subclasses, backgrounds }
+  ]).then(([races, classes, subclasses, backgrounds]) => ({ races, classes, subclasses, backgrounds }))
+  return setupCache
+}
+
+export function loadFeatsData(): Promise<Record<string, FeatData>> {
+  featsCache ??= fetchJson<Record<string, FeatData>>('/data/feats.json')
+  return featsCache
+}
+
+export function loadSpellsData(): Promise<Record<string, SpellData>> {
+  spellsCache ??= fetchJson<Record<string, SpellData>>('/data/spells.json')
+  return spellsCache
+}
+
+export function loadEquipmentData(): Promise<EquipmentData> {
+  equipmentCache ??= fetchJson<EquipmentData>('/data/equipment.json')
+  return equipmentCache
 }

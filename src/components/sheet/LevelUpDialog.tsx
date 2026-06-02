@@ -8,8 +8,9 @@ import { StepperField } from './StepperField'
 import { abilityModifier, proficiencyBonus } from '@/lib/dice'
 import { parseHitDie, ABILITY_ORDER, ABILITY_SHORT } from '@/lib/characterSetup'
 import { getSpellcastingInfo, getSpellsKnownIncrease, parseClassSlots } from '@/lib/spellcasting'
+import { loadFeatsData, loadSpellsData } from '@/lib/data'
 import type { SpellLevel } from '@/lib/spellcasting'
-import type { ClassData, SpellData } from '@/types/data'
+import type { ClassData, SpellData, FeatData } from '@/types/data'
 import type { AbilityName, Character, NewCharacter } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import { cn } from '@/lib/utils'
@@ -52,10 +53,14 @@ function Section({ title, children, accent }: { title: string; children: React.R
 
 export function LevelUpDialog({ character, classRecord, newLevel, open, onClose, onApply }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
+  const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
   const [hpAdd, setHpAdd] = useState(0)
   const [newSpells, setNewSpells] = useState<string[]>([])
   const [newCantrips, setNewCantrips] = useState<string[]>([])
   const [asiChoices, setAsiChoices] = useState<AbilityName[]>([])  // +1 to each chosen (max 2), or +2 to one
+  const [asiMode, setAsiMode] = useState<'asi' | 'feat'>('asi')
+  const [chosenFeat, setChosenFeat] = useState<string | null>(null)
+  const [featPickerOpen, setFeatPickerOpen] = useState(false)
   const [spellBrowseAll, setSpellBrowseAll] = useState(false)
   const [spellPickerOpen, setSpellPickerOpen] = useState(false)
   const [cantripPickerOpen, setCantripPickerOpen] = useState(false)
@@ -91,8 +96,11 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
     setNewSpells([])
     setNewCantrips([])
     setAsiChoices([])
+    setAsiMode('asi')
+    setChosenFeat(null)
     setSpellBrowseAll(false)
-    fetch('/data/spells.json').then(r => r.json()).then(setAllSpells).catch(() => {})
+    loadSpellsData().then(setAllSpells).catch(() => {})
+    loadFeatsData().then(setAllFeats).catch(() => {})
   }, [open])
 
   // Spell entry lists — use JSON key (not s.slug which has "spell:" prefix)
@@ -165,13 +173,17 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
       changes.spells = [...character.spells, ...addedSpells]
     }
 
-    // Apply ASI
-    if (asiChoices.length > 0) {
-      const newAbilities = { ...character.abilities }
-      for (const ab of asiChoices) {
-        newAbilities[ab] = Math.min(30, (newAbilities[ab] ?? 10) + 1)
+    // Apply ASI or Feat
+    if (isASILevel) {
+      if (asiMode === 'feat' && chosenFeat) {
+        changes.feats = [...character.feats, chosenFeat]
+      } else if (asiMode === 'asi' && asiChoices.length > 0) {
+        const newAbilities = { ...character.abilities }
+        for (const ab of asiChoices) {
+          newAbilities[ab] = Math.min(30, (newAbilities[ab] ?? 10) + 1)
+        }
+        changes.abilities = newAbilities
       }
-      changes.abilities = newAbilities
     }
 
     // Reset used spell slots if profile changed (new slots unlocked)
@@ -184,7 +196,9 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
 
   const spellsStillNeeded = spellIncrease.spells - newSpells.length
   const cantripsStillNeeded = spellIncrease.cantrips - newCantrips.length
-  const asiStillNeeded = isASILevel && asiChoices.length < 2
+  const asiStillNeeded = isASILevel && (
+    asiMode === 'asi' ? asiChoices.length < 2 : chosenFeat === null
+  )
   const canApply = spellsStillNeeded <= 0 && cantripsStillNeeded <= 0 && !asiStillNeeded
 
   return (
@@ -346,43 +360,89 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
               </Section>
             )}
 
-            {/* ASI */}
+            {/* ASI or Feat */}
             {isASILevel && (
               <Section title="Ability Score Improvement" accent>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Choose up to 2 abilities to increase by +1 each (or the same ability twice for +2).
-                </p>
-                <div className="grid grid-cols-3 gap-1">
-                  {ABILITY_ORDER.map(ab => {
-                    const count = asiChoices.filter(x => x === ab).length
-                    const maxed = character.abilities[ab] + count >= 20
-                    const atCap = asiChoices.length >= 2
-                    return (
-                      <button
-                        key={ab}
-                        onClick={() => !maxed && toggleAsi(ab)}
-                        disabled={maxed || (atCap && count === 0)}
-                        className={cn(
-                          'text-xs px-2 py-1.5 rounded border transition-colors text-left',
-                          count > 0 && 'font-bold',
-                        )}
-                        style={{
-                          background: count > 0 ? 'var(--color-accent-gold)' : undefined,
-                          color: count > 0 ? '#000' : undefined,
-                          borderColor: 'var(--color-border-raw)',
-                          opacity: maxed || (atCap && count === 0) ? 0.4 : 1,
-                        }}
-                      >
-                        {ABILITY_SHORT[ab]}
-                        {count > 0 && ` +${count}`}
-                      </button>
-                    )
-                  })}
+                {/* Mode toggle */}
+                <div className="flex gap-1 mb-3">
+                  {(['asi', 'feat'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setAsiMode(mode)}
+                      className="px-3 py-1 text-xs rounded-md capitalize transition-colors"
+                      style={{
+                        background: asiMode === mode ? 'var(--color-accent-gold)' : undefined,
+                        color: asiMode === mode ? '#000' : undefined,
+                        border: '1px solid var(--color-border-raw)',
+                      }}
+                    >
+                      {mode === 'asi' ? 'Ability Score' : 'Take a Feat'}
+                    </button>
+                  ))}
                 </div>
-                {asiChoices.length > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {asiChoices.length}/2 chosen
-                  </p>
+
+                {asiMode === 'asi' && (
+                  <>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Choose up to 2 abilities to increase by +1 each (or the same ability twice for +2).
+                    </p>
+                    <div className="grid grid-cols-3 gap-1">
+                      {ABILITY_ORDER.map(ab => {
+                        const count = asiChoices.filter(x => x === ab).length
+                        const maxed = character.abilities[ab] + count >= 20
+                        const atCap = asiChoices.length >= 2
+                        return (
+                          <button
+                            key={ab}
+                            onClick={() => !maxed && toggleAsi(ab)}
+                            disabled={maxed || (atCap && count === 0)}
+                            className={cn(
+                              'text-xs px-2 py-1.5 rounded border transition-colors text-left',
+                              count > 0 && 'font-bold',
+                            )}
+                            style={{
+                              background: count > 0 ? 'var(--color-accent-gold)' : undefined,
+                              color: count > 0 ? '#000' : undefined,
+                              borderColor: 'var(--color-border-raw)',
+                              opacity: maxed || (atCap && count === 0) ? 0.4 : 1,
+                            }}
+                          >
+                            {ABILITY_SHORT[ab]}
+                            {count > 0 && ` +${count}`}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {asiChoices.length > 0 && (
+                      <p className="text-xs mt-1" style={{ color: 'var(--color-accent-gold)' }}>
+                        {asiChoices.length}/2 chosen
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {asiMode === 'feat' && (
+                  <div className="space-y-2">
+                    {chosenFeat ? (
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="text-xs px-2 py-0.5 rounded-full cursor-pointer"
+                          style={{ background: 'var(--color-accent-gold)', color: '#000' }}
+                          onClick={() => setChosenFeat(null)}
+                        >
+                          {allFeats[chosenFeat]?.name ?? chosenFeat} ✕
+                        </span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setFeatPickerOpen(true)}
+                        className="text-sm hover:opacity-75 transition-opacity"
+                        style={{ color: 'var(--color-accent-gold)' }}
+                      >
+                        + Choose feat
+                      </button>
+                    )}
+                  </div>
                 )}
               </Section>
             )}
@@ -428,6 +488,29 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
           if (newCantrips.length + 1 >= spellIncrease.cantrips) setCantripPickerOpen(false)
         }}
         groupOrder={['Cantrip']}
+      />
+
+      {/* Feat picker */}
+      <SelectionList
+        entries={Object.entries(allFeats)
+          .filter(([key]) => !character.feats.includes(key))
+          .map(([key, feat]) => ({
+            slug: key,
+            detail: {
+              name: feat.name,
+              subtitle: feat.prerequisites.length ? `Prerequisite: ${feat.prerequisites.join(', ')}` : undefined,
+              description: feat.description,
+              sections: [],
+            },
+          }))}
+        value=""
+        title="Choose Feat"
+        open={featPickerOpen}
+        onClose={() => setFeatPickerOpen(false)}
+        onSelect={key => {
+          setChosenFeat(key)
+          setFeatPickerOpen(false)
+        }}
       />
     </>
   )

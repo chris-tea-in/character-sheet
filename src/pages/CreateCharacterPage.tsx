@@ -7,7 +7,7 @@ import { SetupScreen2 } from '@/components/setup/SetupScreen2'
 import { SetupScreen3 } from '@/components/setup/SetupScreen3'
 import { SetupScreen4 } from '@/components/setup/SetupScreen4'
 import { SetupScreen5 } from '@/components/setup/SetupScreen5'
-import { INITIAL_DRAFT, draftToNewCharacter } from '@/lib/characterSetup'
+import { INITIAL_DRAFT, draftToNewCharacter, isEquipmentComplete, isLevelAsiComplete } from '@/lib/characterSetup'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
 import { loadSetupData } from '@/lib/data'
 import { useCharacterStore } from '@/store/characters'
@@ -55,10 +55,18 @@ function validateScreen(screen: number, draft: SetupDraft, data: SetupData | nul
     if (draft.hpMethod === 'roll' && draft.hpRolled === null) {
       errors.push('HP roll is required — click the Roll button')
     }
+    if (data && !isLevelAsiComplete(draft, data)) {
+      errors.push('Complete all ability score improvement or feat choices')
+    }
     return errors
   }
   if (screen === 2) {
     if (!draft.backgroundSlug) return ['Background is required']
+  }
+  if (screen === 4 && data) {
+    if (!isEquipmentComplete(draft, data)) {
+      return ['Complete all starting equipment choices before continuing']
+    }
   }
   if (screen === 3 && data && draft.classSlug) {
     const cls = data.classes[draft.classSlug]
@@ -227,6 +235,16 @@ export default function CreateCharacterPage() {
           )}
           {screen === 5 && (
             <SetupScreen5 draft={draft} onChange={updateDraft} />
+          )}
+
+          {!isLastScreen && (
+            <div className="mt-8 pt-4 border-t border-border">
+              <p className="text-[11px] text-muted-foreground">
+                <span className="uppercase tracking-wide font-medium">Up next</span>
+                <span className="mx-2 opacity-40">—</span>
+                {SCREEN_TITLES[screen]}
+              </p>
+            </div>
           )}
         </div>
       </main>

@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { abilityModifier, proficiencyBonus } from '@/lib/dice'
-import { useDiceStore } from '@/store/dice'
+import { deriveCharacterStats } from '@/lib/characterStats'
+import { useRollDispatch } from '@/lib/useRollDispatch'
 import { StepperField } from './StepperField'
 import type { Character, NewCharacter } from '@/types/character'
 import type { DieType } from '@/types/dice'
+import type { EquipmentData } from '@/types/data'
 
 interface Props {
   character: Character
   onSave: (changes: Partial<NewCharacter>) => void
   hitDie: number
+  catalog: EquipmentData | null
 }
 
 function StatCard({
@@ -33,17 +36,18 @@ function StatCard({
 
 function HpSection({
   character,
+  adjustedMaxHp,
   onSave,
 }: {
   character: Character
+  adjustedMaxHp: number
   onSave: (changes: Partial<NewCharacter>) => void
 }) {
   const { currentHp, maxHp, tempHp } = character
 
   function changeHp(delta: number) {
-    const newHp = Math.min(maxHp, Math.max(-99, currentHp + delta))
+    const newHp = Math.min(adjustedMaxHp, Math.max(-99, currentHp + delta))
     const changes: Partial<NewCharacter> = { currentHp: newHp }
-    // Revived from 3-failure death — auto-reset death saves
     if (newHp > 0 && currentHp <= 0 && character.deathSaves.failures >= 3) {
       changes.deathSaves = { successes: 0, failures: 0 }
     }
@@ -103,6 +107,11 @@ function HpSection({
             max={999}
             size="sm"
           />
+          {adjustedMaxHp !== maxHp && (
+            <span className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>
+              +{adjustedMaxHp - maxHp} (feat)
+            </span>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-1">
@@ -216,15 +225,16 @@ function DeathSaves({
   )
 }
 
-export function CombatBlock({ character, onSave, hitDie }: Props) {
-  const roll = useDiceStore(s => s.roll)
+export function CombatBlock({ character, onSave, hitDie, catalog }: Props) {
+  const { dispatch } = useRollDispatch(character)
   const initMod = abilityModifier(character.abilities.dex)
   const pb = proficiencyBonus(character.level)
   const totalHitDice = character.level
+  const { effectiveAC, adjustedMaxHp } = deriveCharacterStats(character, catalog ?? undefined)
 
   function rollHitDie() {
     if (character.hitDiceUsed >= totalHitDice) return
-    roll({ type: 'raw', die: hitDie as DieType }, character)
+    dispatch({ type: 'raw', die: hitDie as DieType })
     onSave({ hitDiceUsed: character.hitDiceUsed + 1 })
   }
 
@@ -237,13 +247,22 @@ export function CombatBlock({ character, onSave, hitDie }: Props) {
       {/* Stats row */}
       <div className="flex gap-2 flex-wrap">
         <StatCard label="AC">
-          <StepperField
-            value={character.armorClass}
-            onSave={v => onSave({ armorClass: Math.max(1, v) })}
-            min={1}
-            max={30}
-            size="sm"
-          />
+          {effectiveAC !== null ? (
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-lg font-bold" style={{ color: 'var(--color-accent-gold)' }}>
+                {effectiveAC}
+              </span>
+              <span className="text-[9px] text-muted-foreground">from armor</span>
+            </div>
+          ) : (
+            <StepperField
+              value={character.armorClass}
+              onSave={v => onSave({ armorClass: Math.max(1, v) })}
+              min={1}
+              max={30}
+              size="sm"
+            />
+          )}
         </StatCard>
         <StatCard label="Speed">
           <div className="flex items-center gap-0.5">
@@ -266,7 +285,7 @@ export function CombatBlock({ character, onSave, hitDie }: Props) {
       </div>
 
       {/* HP */}
-      <HpSection character={character} onSave={onSave} />
+      <HpSection character={character} adjustedMaxHp={adjustedMaxHp} onSave={onSave} />
 
       {/* Death saves — directly below HP */}
       <DeathSaves

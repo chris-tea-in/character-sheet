@@ -5,6 +5,7 @@ import { getSpellcastingInfo } from '@/lib/spellcasting'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import type { SetupDraft } from '@/lib/characterSetup'
+import { loadSpellsData } from '@/lib/data'
 import type { SetupData } from '@/lib/data'
 import type { SkillName } from '@/types/character'
 import type { SpellData } from '@/types/data'
@@ -66,10 +67,11 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
 
-  // Skill choices from class
-  const skillOptions: SkillName[] = (cls?.skill_choices.options ?? [])
-    .map((o) => toSkillName(o))
-    .filter(Boolean) as SkillName[]
+  // Skill choices from class — "any" means all 18 skills are valid (e.g. Bard)
+  const rawSkillOpts = cls?.skill_choices.options ?? []
+  const skillOptions: SkillName[] = rawSkillOpts.some(o => o.trim().toLowerCase() === 'any')
+    ? (Object.keys(SKILL_DISPLAY_MAP) as SkillName[])
+    : rawSkillOpts.map((o) => toSkillName(o)).filter(Boolean) as SkillName[]
   const skillCount = cls?.skill_choices.count ?? 0
 
   // Skills already granted by background (read-only)
@@ -124,7 +126,7 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
 
   useEffect(() => {
     if (!isCaster) return
-    fetch('/data/spells.json').then(r => r.json()).then(setAllSpells).catch(() => {})
+    loadSpellsData().then(setAllSpells).catch(() => {})
   }, [isCaster])
 
   const selectedSet = useMemo(
@@ -148,10 +150,12 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
         if (s.level === 0 || s.level > maxSpellLevel) return false
         if (selectedSet.has(key)) return false
         if (!browseAll && !classMatches(s.classes, draft.classSlug)) return false
+        const cap = slotsByLevel[s.level]
+        if (cap !== undefined && (selectedSpellLevelCounts[s.level] ?? 0) >= cap) return false
         return true
       })
       .map(([key, s]) => toSpellEntry(key, s)),
-  [allSpells, selectedSet, browseAll, draft.classSlug, maxSpellLevel])
+  [allSpells, selectedSet, browseAll, draft.classSlug, maxSpellLevel, slotsByLevel, selectedSpellLevelCounts])
 
   function toggleSkill(skill: SkillName) {
     const current = draft.skillProficiencies
@@ -407,6 +411,11 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
         open={pickerMode === 'spell'}
         onClose={() => setPickerMode(null)}
         onSelect={key => {
+          const spellLevel = allSpells[key]?.level
+          if (spellLevel !== undefined) {
+            const cap = slotsByLevel[spellLevel]
+            if (cap !== undefined && (selectedSpellLevelCounts[spellLevel] ?? 0) >= cap) return
+          }
           const newSpells = [...draft.spellSlugs, key]
           onChange({ spellSlugs: newSpells })
           if (newSpells.length >= (spellInfo?.spellsKnown ?? 0)) setPickerMode(null)

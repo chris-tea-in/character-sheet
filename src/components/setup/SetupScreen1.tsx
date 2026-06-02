@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Dices } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList, type SelectionEntry } from '@/components/SelectionList'
@@ -20,11 +20,14 @@ import {
   rollHp,
   slugToTitle,
   subclassToDetailItem,
+  getClassAsiLevels,
 } from '@/lib/characterSetup'
+import { loadFeatsData } from '@/lib/data'
 import { abilityModifier } from '@/lib/dice'
 import type { AbilityName } from '@/types/character'
-import type { SetupDraft } from '@/lib/characterSetup'
+import type { SetupDraft, LevelAsiChoice } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
+import type { FeatData } from '@/types/data'
 import { cn } from '@/lib/utils'
 import { Field } from './Field'
 
@@ -68,6 +71,8 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const [raceListOpen, setRaceListOpen] = useState(false)
   const [classListOpen, setClassListOpen] = useState(false)
   const [subclassListOpen, setSubclassListOpen] = useState(false)
+  const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
+  const [featPickerForSlot, setFeatPickerForSlot] = useState<number | null>(null)
 
   const selectedRace = data.races[draft.raceSlug]
   const selectedClass = data.classes[draft.classSlug]
@@ -75,6 +80,36 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const racialBonuses = getRacialBonuses(selectedRace, draft.asiChoices)
   const effectiveCon = draft.abilities.con + (racialBonuses.con ?? 0)
   const conMod = abilityModifier(effectiveCon)
+
+  // ASI levels for current class + level
+  const asiLevels = selectedClass ? getClassAsiLevels(selectedClass, draft.level) : []
+
+  useEffect(() => {
+    if (asiLevels.length > 0) loadFeatsData().then(setAllFeats).catch(() => {})
+  }, [asiLevels.length])
+
+  function updateAsiChoice(slotIdx: number, patch: Partial<LevelAsiChoice>) {
+    const current: LevelAsiChoice = draft.levelAsiChoices[slotIdx] ?? { mode: 'asi', asiAbilities: [], featSlug: '' }
+    const next = [...draft.levelAsiChoices]
+    next[slotIdx] = { ...current, ...patch }
+    onChange({ levelAsiChoices: next })
+  }
+
+  function toggleAsiAbility(slotIdx: number, ab: AbilityName) {
+    const choice = draft.levelAsiChoices[slotIdx] ?? { mode: 'asi', asiAbilities: [], featSlug: '' }
+    const current = choice.asiAbilities
+    if (current.includes(ab)) {
+      const idx = current.lastIndexOf(ab)
+      updateAsiChoice(slotIdx, { asiAbilities: current.filter((_, i) => i !== idx) })
+    } else if (current.length < 2) {
+      updateAsiChoice(slotIdx, { asiAbilities: [...current, ab] })
+    }
+  }
+
+  const featEntries = Object.entries(allFeats).map(([slug, f]) => ({
+    slug,
+    detail: { name: f.name, description: f.description, sections: f.prerequisites.length ? [{ label: 'Prerequisites', value: f.prerequisites }] : [] },
+  }))
 
   // Subclasses for the selected class, filtered to those unlocked at current level
   const availableSubclasses = Object.values(data.subclasses).filter(
@@ -156,7 +191,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
       <Field label="Level">
         <select
           value={draft.level}
-          onChange={(e) => onChange({ level: Number(e.target.value), subclassSlug: '' })}
+          onChange={(e) => onChange({ level: Number(e.target.value), subclassSlug: '', levelAsiChoices: [] })}
           className={cn(selectClass, 'w-32')}
         >
           {Array.from({ length: 20 }, (_, i) => i + 1).map((l) => (
@@ -238,7 +273,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
         <SelectionList
           entries={classEntries}
           value={draft.classSlug}
-          onSelect={(slug) => onChange({ classSlug: slug, subclassSlug: '', hpRolled: null })}
+          onSelect={(slug) => onChange({ classSlug: slug, subclassSlug: '', hpRolled: null, levelAsiChoices: [] })}
           open={classListOpen}
           onClose={() => setClassListOpen(false)}
           title="Choose Class"
@@ -330,6 +365,102 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
         )}
       </Field>
 
+      {/* Class-level ASI / Feat choices */}
+      {asiLevels.length > 0 && (
+        <Field label={`Ability Score Improvements (${asiLevels.length})`}>
+          <div className="space-y-4">
+            {asiLevels.map((lvl, slotIdx) => {
+              const choice = draft.levelAsiChoices[slotIdx] ?? { mode: 'asi', asiAbilities: [], featSlug: '' }
+              return (
+                <div key={lvl} className="rounded-lg border border-border bg-card overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+                    <span
+                      className="text-xs font-semibold uppercase tracking-wide"
+                      style={{ color: 'var(--color-accent-gold)' }}
+                    >
+                      Level {lvl}
+                    </span>
+                    <div className="flex gap-1">
+                      {(['asi', 'feat'] as const).map(m => (
+                        <button
+                          key={m}
+                          onClick={() => updateAsiChoice(slotIdx, { mode: m, asiAbilities: [], featSlug: '' })}
+                          className="px-2.5 py-0.5 text-xs rounded font-medium border transition-colors"
+                          style={choice.mode === m
+                            ? { background: 'var(--color-accent-gold)', color: '#000', borderColor: 'var(--color-accent-gold)' }
+                            : { borderColor: 'var(--color-border)', color: 'var(--color-text-muted)' }}
+                        >
+                          {m === 'asi' ? 'Ability Score' : 'Feat'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="px-3 py-3">
+                    {choice.mode === 'asi' ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Choose up to 2 — pick the same ability twice for +2, or two different for +1/+1.{' '}
+                          <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+                            {choice.asiAbilities.length}/2
+                          </span>
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {ABILITY_ORDER.map(ab => {
+                            const count = choice.asiAbilities.filter(x => x === ab).length
+                            const capped = choice.asiAbilities.length >= 2 && count === 0
+                            return (
+                              <button
+                                key={ab}
+                                onClick={() => toggleAsiAbility(slotIdx, ab)}
+                                disabled={capped}
+                                className={cn(
+                                  'px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors',
+                                  count > 0
+                                    ? 'text-black border-transparent'
+                                    : capped
+                                      ? 'text-muted-foreground border-border opacity-40 cursor-not-allowed'
+                                      : 'text-muted-foreground border-border hover:text-foreground',
+                                )}
+                                style={count > 0 ? { background: 'var(--color-accent-gold)', borderColor: 'var(--color-accent-gold)' } : {}}
+                              >
+                                {ABILITY_SHORT[ab]}{count === 2 ? ' +2' : count === 1 ? ' +1' : ''}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {choice.featSlug ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm flex-1">{allFeats[choice.featSlug]?.name ?? choice.featSlug}</span>
+                            <button
+                              onClick={() => updateAsiChoice(slotIdx, { featSlug: '' })}
+                              className="text-xs text-muted-foreground hover:text-foreground px-1"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setFeatPickerForSlot(slotIdx)}
+                            className="text-sm hover:opacity-75 transition-opacity"
+                            style={{ color: 'var(--color-accent-gold)' }}
+                          >
+                            + Choose feat
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Field>
+      )}
+
       {/* Ability Scores */}
       <Field label="Ability Scores">
         <div className="flex gap-1 flex-wrap mb-3">
@@ -408,6 +539,19 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
           })}
         </div>
       </Field>
+      <SelectionList
+        entries={featEntries}
+        value=""
+        title="Choose Feat"
+        open={featPickerForSlot !== null}
+        onClose={() => setFeatPickerForSlot(null)}
+        onSelect={slug => {
+          if (featPickerForSlot !== null) {
+            updateAsiChoice(featPickerForSlot, { featSlug: slug })
+            setFeatPickerForSlot(null)
+          }
+        }}
+      />
     </div>
   )
 }

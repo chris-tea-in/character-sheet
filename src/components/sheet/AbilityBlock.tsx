@@ -1,7 +1,7 @@
 import { abilityModifier } from '@/lib/dice'
 import { ABILITY_ORDER, ABILITY_SHORT } from '@/lib/characterSetup'
 import { StepperField } from './StepperField'
-import { useDiceStore } from '@/store/dice'
+import { useRollDispatch } from '@/lib/useRollDispatch'
 import type { AbilityName, Character, NewCharacter } from '@/types/character'
 
 interface Props {
@@ -20,7 +20,7 @@ function AbilityBox({
   character: Character
   onSaveScore: (v: number) => void
 }) {
-  const roll = useDiceStore(s => s.roll)
+  const { dispatch } = useRollDispatch(character)
   const mod = abilityModifier(score)
 
   return (
@@ -39,7 +39,7 @@ function AbilityBox({
       />
 
       <button
-        onClick={() => roll({ type: 'ability', ability }, character)}
+        onClick={() => dispatch({ type: 'ability', ability })}
         className="text-sm font-bold hover:opacity-75 transition-opacity leading-none"
         style={{ color: 'var(--color-accent-gold)' }}
         title="Roll ability check"

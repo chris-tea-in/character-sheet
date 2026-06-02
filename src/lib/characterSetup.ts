@@ -1,7 +1,8 @@
 import { abilityModifier, rollDie } from '@/lib/dice'
-import type { AbilityName, Abilities, NewCharacter, SkillName, SkillProficiency } from '@/types/character'
+import { generateId } from '@/lib/uuid'
+import type { AbilityName, Abilities, NewCharacter, SkillName, SkillProficiency, EquipmentItem } from '@/types/character'
 import type { DetailItem } from '@/types/detail-item'
-import type { Race, ClassData, SubclassData, Background } from '@/types/data'
+import type { Race, ClassData, SubclassData, Background, EquipmentGrant } from '@/types/data'
 import type { SetupData } from '@/lib/data'
 
 // ---------------------------------------------------------------------------
@@ -252,6 +253,41 @@ export function backgroundToDetailItem(bg: Background): DetailItem {
 // SetupDraft — in-progress character creation state
 // ---------------------------------------------------------------------------
 
+export interface LevelAsiChoice {
+  mode: 'asi' | 'feat'
+  asiAbilities: AbilityName[]  // each gives +1; pick same ability twice for +2
+  featSlug: string
+}
+
+export function getClassAsiLevels(classRecord: ClassData, level: number): number[] {
+  return Object.entries(classRecord.levels)
+    .filter(([lvl, data]) =>
+      Number(lvl) <= level &&
+      data.features.some(f => f.toLowerCase().includes('ability score improvement'))
+    )
+    .map(([lvl]) => Number(lvl))
+    .sort((a, b) => a - b)
+}
+
+export function isLevelAsiComplete(draft: SetupDraft, data: SetupData): boolean {
+  if (!draft.classSlug) return true
+  const cls = data.classes[draft.classSlug]
+  if (!cls) return true
+  const count = getClassAsiLevels(cls, draft.level).length
+  for (let i = 0; i < count; i++) {
+    const choice = draft.levelAsiChoices[i]
+    if (!choice) return false
+    if (choice.mode === 'asi' && choice.asiAbilities.length < 2) return false
+    if (choice.mode === 'feat' && !choice.featSlug) return false
+  }
+  return true
+}
+
+export interface EquipmentChoices {
+  optionPicks: Record<number, number>  // grantIndex → chosen option index (for 'choice' grants)
+  openPicks: Record<string, string>    // `${grantIndex}:${slotIndex}` → item name (for sentinel items)
+}
+
 export interface SetupDraft {
   // Screen 1
   name: string
@@ -280,6 +316,10 @@ export interface SetupDraft {
   toolProficiencies: string[]
   cantripSlugs: string[]
   spellSlugs: string[]
+  // Screen 1 — class ASI/feat picks (one entry per ASI level at or below character level)
+  levelAsiChoices: LevelAsiChoice[]
+  // Screen 4
+  equipmentChoices: EquipmentChoices
   // Screen 5
   progressionType: 'xp' | 'milestone'
 }
@@ -309,7 +349,59 @@ export const INITIAL_DRAFT: SetupDraft = {
   toolProficiencies: [],
   cantripSlugs: [],
   spellSlugs: [],
+  levelAsiChoices: [],
+  equipmentChoices: { optionPicks: {}, openPicks: {} },
   progressionType: 'milestone',
+}
+
+// ---------------------------------------------------------------------------
+// Equipment helpers
+// ---------------------------------------------------------------------------
+
+export function isEquipmentComplete(draft: SetupDraft, data: SetupData): boolean {
+  const cls = data.classes[draft.classSlug]
+  if (!cls) return true
+  const { optionPicks, openPicks } = draft.equipmentChoices
+  for (let gi = 0; gi < cls.starting_equipment.length; gi++) {
+    const grant = cls.starting_equipment[gi]
+    if (grant.type === 'choice' && optionPicks[gi] === undefined) return false
+    const items = grant.type === 'fixed'
+      ? grant.items
+      : (grant.options[optionPicks[gi] ?? 0]?.items ?? [])
+    for (let si = 0; si < items.length; si++) {
+      if (items[si].startsWith('@') && !openPicks[`${gi}:${si}`]) return false
+    }
+  }
+  return true
+}
+
+function resolveGrantItems(
+  grants: EquipmentGrant[],
+  choices: EquipmentChoices,
+): string[] {
+  const names: string[] = []
+  for (let gi = 0; gi < grants.length; gi++) {
+    const grant = grants[gi]
+    const items = grant.type === 'fixed'
+      ? grant.items
+      : (grant.options[choices.optionPicks[gi] ?? 0]?.items ?? [])
+    for (let si = 0; si < items.length; si++) {
+      const item = items[si]
+      if (item.startsWith('@')) {
+        const resolved = choices.openPicks[`${gi}:${si}`]
+        if (resolved) names.push(resolved)
+      } else {
+        names.push(item)
+      }
+    }
+  }
+  return names
+}
+
+function namesToEquipmentItems(names: string[]): EquipmentItem[] {
+  const counts = new Map<string, number>()
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1)
+  return [...counts.entries()].map(([name, quantity]) => ({ id: generateId(), name, quantity }))
 }
 
 // ---------------------------------------------------------------------------
@@ -359,7 +451,20 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
 
-  const abilities = applyRaceAsi(draft.abilities, race, draft.asiChoices)
+  const racialAbilities = applyRaceAsi(draft.abilities, race, draft.asiChoices)
+
+  // Apply class-level ASI choices
+  const abilities = { ...racialAbilities }
+  const asiLevels = cls ? getClassAsiLevels(cls, draft.level) : []
+  for (let i = 0; i < asiLevels.length; i++) {
+    const choice = draft.levelAsiChoices[i]
+    if (choice?.mode === 'asi') {
+      for (const ab of choice.asiAbilities) {
+        abilities[ab] = Math.min(20, (abilities[ab] ?? 10) + 1)
+      }
+    }
+  }
+
   const conMod = abilityModifier(abilities.con)
   const dieSides = cls ? parseHitDie(cls.hit_die) : 8
   const maxHp = computeMaxHp(dieSides, draft.level, draft.hpMethod, conMod, draft.hpRolled, draft.hpCustom)
@@ -414,8 +519,20 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
     bonds: draft.bonds,
     flaws: draft.flaws,
     notes: draft.appearance ? `Appearance: ${draft.appearance}` : '',
-    equipment: [],
+    feats: draft.levelAsiChoices
+      .filter(c => c?.mode === 'feat' && c.featSlug)
+      .map(c => c.featSlug),
+    equipment: namesToEquipmentItems([
+      ...resolveGrantItems(cls?.starting_equipment ?? [], draft.equipmentChoices),
+      ...(bg?.starting_equipment ?? []),
+    ]),
     currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
-    feats: [],
+    toolProficiencies: [
+      ...new Set([
+        ...(cls?.tool_proficiencies ?? []),
+        ...(bg?.tool_proficiencies ?? []),
+        ...draft.toolProficiencies,
+      ]),
+    ],
   }
 }

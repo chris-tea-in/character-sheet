@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
 import { abilityModifier, proficiencyBonus } from '@/lib/dice'
-import { useDiceStore } from '@/store/dice'
+import { useRollDispatch } from '@/lib/useRollDispatch'
+import { loadSpellsData } from '@/lib/data'
 import type { SpellLevel } from '@/lib/spellcasting'
 import type { ClassData, SpellData } from '@/types/data'
 import type { Character, CharacterSpell, NewCharacter, AbilityName } from '@/types/character'
@@ -175,13 +176,10 @@ const ABILITY_KEY_MAP: Record<string, AbilityName> = {
 export function SpellBlock({ character, classRecord, onSave }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
-  const roll = useDiceStore(s => s.roll)
+  const { dispatch } = useRollDispatch(character)
 
   useEffect(() => {
-    fetch('/data/spells.json')
-      .then(r => r.json())
-      .then(setAllSpells)
-      .catch(() => {})
+    loadSpellsData().then(setAllSpells).catch(() => {})
   }, [])
 
   const { profile, casterKind } = getSpellcastingInfo(classRecord, character.level)
@@ -366,9 +364,8 @@ export function SpellBlock({ character, classRecord, onSave }: Props) {
                       isPreparedCaster={isPreparedCaster}
                       onTogglePrepared={() => togglePrepared(normalizeSlug(cs.slug))}
                       onRemove={() => removeSpell(normalizeSlug(cs.slug))}
-                      onRoll={() => roll(
+                      onRoll={() => dispatch(
                         { type: 'attack', label: allSpells[normalizeSlug(cs.slug)]?.name ?? normalizeSlug(cs.slug), modifier: spellAttackMod },
-                        character,
                       )}
                     />
                   ))}

@@ -119,6 +119,15 @@ export interface EquipmentData {
   siege_equipment?: SiegeEquipmentItem[]
 }
 
+export interface EquipmentOption {
+  label: string
+  items: string[]  // catalog item names; "@any_simple", "@any_simple_melee", "@any_martial", "@any_martial_melee", "@any_musical_instrument", "@arcane_focus", "@druidic_focus", "@holy_symbol" are open-pick sentinels
+}
+
+export type EquipmentGrant =
+  | { type: 'fixed'; items: string[] }
+  | { type: 'choice'; options: EquipmentOption[] }
+
 export interface AsiChoice {
   count: number
   amount: number
@@ -162,7 +171,7 @@ export interface ClassData {
     count: number
     options: string[]
   }
-  starting_equipment: string[]
+  starting_equipment: EquipmentGrant[]
   levels: Record<string, ClassLevel>   // keyed by level number string: "1"–"20"
   spellcasting: { ability: string; description: string } | null
 }

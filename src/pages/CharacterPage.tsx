@@ -14,11 +14,12 @@ import { SpellBlock } from '@/components/sheet/SpellBlock'
 import { DescriptionBlock } from '@/components/sheet/DescriptionBlock'
 import { EquipmentBlock } from '@/components/sheet/EquipmentBlock'
 import { DiceTray } from '@/components/sheet/DiceTray'
+import { DiceRollModal } from '@/components/sheet/DiceRollModal'
 import { StepperField } from '@/components/sheet/StepperField'
 import { LevelUpDialog } from '@/components/sheet/LevelUpDialog'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { useCharacterStore } from '@/store/characters'
-import { loadSetupData } from '@/lib/data'
+import { loadSetupData, loadEquipmentData } from '@/lib/data'
 import {
   parseHitDie, RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
   subclassToDetailItem, backgroundToDetailItem, getRacialBonuses,
@@ -27,7 +28,7 @@ import {
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { ALL_LANGUAGES, toSkillName } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
-import type { ClassData, Race, Background } from '@/types/data'
+import type { ClassData, Race, Background, EquipmentData } from '@/types/data'
 import type { AbilityName, Abilities, NewCharacter, SkillName } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
@@ -184,9 +185,10 @@ function ClassPromptDialog({
   onApply: (skillProficiencies: Partial<Record<SkillName, 'proficient'>>) => void
   onSkip: () => void
 }) {
-  const skillOptions = classData.skill_choices.options
-    .map(o => toSkillName(o))
-    .filter(Boolean) as SkillName[]
+  const rawOpts = classData.skill_choices.options
+  const skillOptions: SkillName[] = rawOpts.some(o => o.trim().toLowerCase() === 'any')
+    ? (Object.keys(SKILL_DISPLAY_MAP) as SkillName[])
+    : rawOpts.map(o => toSkillName(o)).filter(Boolean) as SkillName[]
   const count = classData.skill_choices.count
   const [selected, setSelected] = useState<SkillName[]>([])
 
@@ -406,6 +408,7 @@ export default function CharacterPage() {
 
   const [setupData, setSetupData] = useState<SetupData | null>(null)
   const [classRecord, setClassRecord] = useState<ClassData | null>(null)
+  const [equipmentCatalog, setEquipmentCatalog] = useState<EquipmentData | null>(null)
   const [activeList, setActiveList] = useState<IdentityList>(null)
   const [racePrompt, setRacePrompt] = useState<RacePrompt | null>(null)
   const [classPrompt, setClassPrompt] = useState<ClassData | null>(null)
@@ -419,6 +422,7 @@ export default function CharacterPage() {
         if (character?.class) setClassRecord(data.classes[character.class] ?? null)
       })
       .catch(() => {})
+    loadEquipmentData().then(setEquipmentCatalog).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -490,6 +494,11 @@ export default function CharacterPage() {
     const changes: Partial<NewCharacter> = { class: slug, subclass: null, skillProficiencies: {} }
     if (cls) {
       changes.savingThrowProficiencies = classSavesToAbilities(cls.saving_throw_proficiencies)
+      const grantedTools = cls.tool_proficiencies ?? []
+      if (grantedTools.length > 0) {
+        const existing = character?.toolProficiencies ?? []
+        changes.toolProficiencies = [...new Set([...existing, ...grantedTools])]
+      }
     }
     save(changes)
     setActiveList(null)
@@ -504,9 +513,14 @@ export default function CharacterPage() {
   }
 
   function handleBackgroundSelect(slug: string) {
-    save({ background: slug })
-    setActiveList(null)
     const bg = setupData?.backgrounds[slug]
+    const changes: Partial<NewCharacter> = { background: slug }
+    if (bg && bg.tool_proficiencies.length > 0) {
+      const existing = character?.toolProficiencies ?? []
+      changes.toolProficiencies = [...new Set([...existing, ...bg.tool_proficiencies])]
+    }
+    save(changes)
+    setActiveList(null)
     if (bg) setBackgroundPrompt(bg)
   }
 
@@ -561,10 +575,10 @@ export default function CharacterPage() {
           />
 
           <AbilityBlock character={character} onSave={save} />
-          <CombatBlock character={character} onSave={save} hitDie={hitDie} />
-          <ProficienciesBlock character={character} classRecord={classRecord} onSave={save} />
+          <CombatBlock character={character} onSave={save} hitDie={hitDie} catalog={equipmentCatalog} />
+          <ProficienciesBlock character={character} classRecord={classRecord} catalog={equipmentCatalog} onSave={save} />
           <FeatsBlock character={character} onSave={save} />
-          <EquipmentBlock character={character} classRecord={classRecord} onSave={save} />
+          <EquipmentBlock character={character} classRecord={classRecord} onSave={save} catalog={equipmentCatalog} />
           {classRecord && <SpellBlock character={character} classRecord={classRecord} onSave={save} />}
           <DescriptionBlock character={character} onSave={save} />
 
@@ -664,6 +678,7 @@ export default function CharacterPage() {
       )}
 
       <DiceTray character={character} />
+      <DiceRollModal />
     </div>
   )
 }

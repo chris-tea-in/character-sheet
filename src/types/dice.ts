@@ -7,7 +7,7 @@ export type RollKind =
   | { type: 'skill';  skill: SkillName }
   | { type: 'save';   ability: AbilityName }
   | { type: 'ability'; ability: AbilityName }
-  | { type: 'attack'; label: string; modifier: number }
+  | { type: 'attack'; label: string; modifier: number; damageDice?: string; damageBonus?: number; damageType?: string }
 
 export interface RollResult {
   natural:  number

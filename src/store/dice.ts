@@ -22,14 +22,31 @@ function buildLabel(kind: RollKind, modifier: number): string {
   }
 }
 
+export interface ModalState {
+  entry: RollEntry
+  phase: 'result' | 'hit' | 'damage'
+  damageDice?: string
+  damageBonus?: number
+  damageType?: string
+  isCrit: boolean
+  // damage phase result — populated after the player rolls damage
+  damageRolls?: number[]
+  damageTotal?: number
+}
+
 interface DiceState {
   rolls: RollEntry[]
-  roll: (kind: RollKind, character: Character) => void
+  roll: (kind: RollKind, character: Character) => RollEntry
   clear: () => void
+  modal: ModalState | null
+  openModal: (state: ModalState) => void
+  closeModal: () => void
+  setModalDamage: (rolls: number[], total: number) => void
 }
 
 export const useDiceStore = create<DiceState>()((set) => ({
   rolls: [],
+  modal: null,
 
   roll: (kind, character) => {
     const natural = kind.type === 'raw' ? rollDie(kind.die) : rollDie(20)
@@ -62,7 +79,15 @@ export const useDiceStore = create<DiceState>()((set) => ({
     }
 
     set(s => ({ rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS) }))
+    return entry
   },
 
   clear: () => set({ rolls: [] }),
+
+  openModal: (state) => set({ modal: state }),
+
+  closeModal: () => set({ modal: null }),
+
+  setModalDamage: (rolls, total) =>
+    set(s => s.modal ? { modal: { ...s.modal, phase: 'damage', damageRolls: rolls, damageTotal: total } } : {}),
 }))
