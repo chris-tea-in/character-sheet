@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Dices } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Dices, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList, type SelectionEntry } from '@/components/SelectionList'
 import {
@@ -10,7 +10,7 @@ import {
   POINT_BUY_MAX,
   POINT_BUY_MIN,
   classToDetailItem,
-  computeMaxHp,
+  computeMulticlassHp,
   parseHitDie,
   pointBuyCost,
   pointsRemaining,
@@ -23,9 +23,11 @@ import {
   getClassAsiLevels,
 } from '@/lib/characterSetup'
 import { loadFeatsData } from '@/lib/data'
+import { featHasChoiceAsi, featChoiceAsiOptions, meetsFeatPrerequisites, type FeatPrereqContext } from '@/lib/characterStats'
+import { DetailPopup } from '@/components/DetailPopup'
 import { abilityModifier } from '@/lib/dice'
 import type { AbilityName } from '@/types/character'
-import type { SetupDraft, LevelAsiChoice } from '@/lib/characterSetup'
+import type { SetupDraft, LevelAsiChoice, ExtraClassDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { FeatData } from '@/types/data'
 import { cn } from '@/lib/utils'
@@ -73,6 +75,10 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const [subclassListOpen, setSubclassListOpen] = useState(false)
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
   const [featPickerForSlot, setFeatPickerForSlot] = useState<number | null>(null)
+  const [featDetailSlot, setFeatDetailSlot] = useState<number | null>(null)
+  // Extra class pickers — keyed by extra class index
+  const [extraClassPickerOpen, setExtraClassPickerOpen] = useState<number | null>(null)
+  const [extraSubclassPickerOpen, setExtraSubclassPickerOpen] = useState<number | null>(null)
 
   const selectedRace = data.races[draft.raceSlug]
   const selectedClass = data.classes[draft.classSlug]
@@ -81,8 +87,21 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const effectiveCon = draft.abilities.con + (racialBonuses.con ?? 0)
   const conMod = abilityModifier(effectiveCon)
 
+  // Total level = primary level + sum of extra class levels
+  const totalLevel = draft.level + draft.extraClasses.reduce((s, c) => s + c.level, 0)
+  const extraClassesForHp = draft.extraClasses.map(ec => ({
+    dieSides: parseHitDie(data.classes[ec.classSlug]?.hit_die ?? 'd8'),
+    level: ec.level,
+  }))
+
   // ASI levels for current class + level
   const asiLevels = selectedClass ? getClassAsiLevels(selectedClass, draft.level) : []
+
+  // Classes already chosen (to exclude from extra class pickers)
+  const chosenClassSlugs = new Set([
+    draft.classSlug,
+    ...draft.extraClasses.map(ec => ec.classSlug),
+  ])
 
   useEffect(() => {
     if (asiLevels.length > 0) loadFeatsData().then(setAllFeats).catch(() => {})
@@ -106,10 +125,33 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
     }
   }
 
-  const featEntries = Object.entries(allFeats).map(([slug, f]) => ({
+  const featPrereqCtx = useMemo((): FeatPrereqContext => {
+    const allClassSlugs = [draft.classSlug, ...draft.extraClasses.map(ec => ec.classSlug)].filter(Boolean)
+    return {
+      level: totalLevel,
+      classSlugs: allClassSlugs,
+      raceSlug: draft.raceSlug,
+      abilities: draft.abilities,
+      knownFeatSlugs: draft.levelAsiChoices.map(c => c.featSlug).filter(Boolean),
+      hasSpellcasting: selectedClass?.spellcasting !== null && selectedClass?.spellcasting !== undefined,
+      hasPactMagic: allClassSlugs.includes('warlock'),
+      armorProficiencies: selectedClass?.armor_proficiencies ?? [],
+      weaponProficiencies: selectedClass?.weapon_proficiencies ?? [],
+      backgroundSlug: draft.backgroundSlug,
+    }
+  }, [draft, selectedClass, totalLevel])
+
+  const featEntries = useMemo(() => Object.entries(allFeats).map(([slug, f]) => ({
     slug,
-    detail: { name: f.name, description: f.description, sections: f.prerequisites.length ? [{ label: 'Prerequisites', value: f.prerequisites }] : [] },
-  }))
+    warning: f.prerequisites.length && !meetsFeatPrerequisites(f, featPrereqCtx)
+      ? 'Req not met'
+      : undefined,
+    detail: {
+      name: f.name,
+      description: f.description,
+      sections: f.prerequisites.length ? [{ label: 'Prerequisites', value: f.prerequisites }] : [],
+    },
+  })), [allFeats, featPrereqCtx])
 
   // Subclasses for the selected class, filtered to those unlocked at current level
   const availableSubclasses = Object.values(data.subclasses).filter(
@@ -169,7 +211,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   }
 
   const computedHp = selectedClass
-    ? computeMaxHp(dieSides, draft.level, draft.hpMethod, conMod, draft.hpRolled, draft.hpCustom)
+    ? computeMulticlassHp(dieSides, draft.level, extraClassesForHp, draft.hpMethod, conMod, draft.hpRolled, draft.hpCustom)
     : null
 
   const hasError = (field: string) => errors.some((e) => e.toLowerCase().includes(field.toLowerCase()))
@@ -188,16 +230,23 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
       </Field>
 
       {/* Level */}
-      <Field label="Level">
-        <select
-          value={draft.level}
-          onChange={(e) => onChange({ level: Number(e.target.value), subclassSlug: '', levelAsiChoices: [] })}
-          className={cn(selectClass, 'w-32')}
-        >
-          {Array.from({ length: 20 }, (_, i) => i + 1).map((l) => (
-            <option key={l} value={l}>{l}</option>
-          ))}
-        </select>
+      <Field label={draft.extraClasses.length > 0 ? 'Primary Class Level' : 'Level'}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={draft.level}
+            onChange={(e) => onChange({ level: Number(e.target.value), subclassSlug: '', levelAsiChoices: [] })}
+            className={cn(selectClass, 'w-32')}
+          >
+            {Array.from({ length: Math.max(1, 20 - draft.extraClasses.reduce((s, c) => s + c.level, 0)) }, (_, i) => i + 1).map((l) => (
+              <option key={l} value={l}>{l}</option>
+            ))}
+          </select>
+          {draft.extraClasses.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              Total level: <strong className="text-foreground">{totalLevel}</strong>
+            </span>
+          )}
+        </div>
       </Field>
 
       {/* Race */}
@@ -273,7 +322,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
         <SelectionList
           entries={classEntries}
           value={draft.classSlug}
-          onSelect={(slug) => onChange({ classSlug: slug, subclassSlug: '', hpRolled: null, levelAsiChoices: [] })}
+          onSelect={(slug) => onChange({ classSlug: slug, subclassSlug: '', hpRolled: null, levelAsiChoices: [], skillProficiencies: [] })}
           open={classListOpen}
           onClose={() => setClassListOpen(false)}
           title="Choose Class"
@@ -291,6 +340,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
                 : 'Choose Subclass'
             }
             selected={!!draft.subclassSlug}
+            hasError={hasError('subclass')}
             onClick={() => setSubclassListOpen(true)}
           />
           <SelectionList
@@ -305,8 +355,94 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
         </Field>
       )}
 
+      {/* Multiclass — extra classes */}
+      {draft.classSlug && (
+        <Field label="Multiclass">
+          <div className="space-y-3">
+            {draft.extraClasses.map((ec, idx) => {
+              const ecClass = data.classes[ec.classSlug]
+              const ecSubclasses = Object.values(data.subclasses).filter(
+                s => s.classSlug === ec.classSlug && ec.level >= s.choiceLevel,
+              )
+              const maxEcLevel = 20 - draft.level - draft.extraClasses.filter((_, i) => i !== idx).reduce((s, c) => s + c.level, 0)
+              return (
+                <div
+                  key={idx}
+                  className="rounded-lg border border-border bg-card overflow-hidden"
+                >
+                  <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+                      {ecClass ? slugToTitle(ecClass.slug) : 'Choose Class'}
+                    </span>
+                    <button
+                      onClick={() => {
+                        onChange({ extraClasses: draft.extraClasses.filter((_, i) => i !== idx) })
+                      }}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="px-3 py-3 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <SelectionButton
+                        label={ecClass ? slugToTitle(ecClass.slug) : 'Choose Class'}
+                        selected={!!ec.classSlug}
+                        onClick={() => setExtraClassPickerOpen(idx)}
+                      />
+                      <div className="flex items-center gap-1 flex-none">
+                        <span className="text-xs text-muted-foreground">Level</span>
+                        <select
+                          value={ec.level}
+                          onChange={(e) => {
+                            const next = [...draft.extraClasses]
+                            next[idx] = { ...ec, level: Number(e.target.value), subclassSlug: '' }
+                            onChange({ extraClasses: next })
+                          }}
+                          className={cn(selectClass, 'w-20')}
+                        >
+                          {Array.from({ length: Math.max(1, maxEcLevel) }, (_, i) => i + 1).map(l => (
+                            <option key={l} value={l}>{l}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    {ecSubclasses.length > 0 && (
+                      <SelectionButton
+                        label={
+                          ec.subclassSlug
+                            ? (data.subclasses[`${ec.classSlug}:${ec.subclassSlug}`]?.name ?? ec.subclassSlug)
+                            : 'Choose Subclass (optional)'
+                        }
+                        selected={!!ec.subclassSlug}
+                        onClick={() => setExtraSubclassPickerOpen(idx)}
+                      />
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+
+            {totalLevel < 20 && (
+              <button
+                onClick={() => {
+                  onChange({
+                    extraClasses: [...draft.extraClasses, { classSlug: '', subclassSlug: '', level: 1 }],
+                  })
+                  setExtraClassPickerOpen(draft.extraClasses.length)
+                }}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add class
+              </button>
+            )}
+          </div>
+        </Field>
+      )}
+
       {/* HP Method */}
-      <Field label="Hit Points">
+      <Field label="Hit Points" error={hasError('HP roll') ? 'Click the Roll button to set your HP' : undefined}>
         <div className="flex gap-1 flex-wrap mb-2">
           {HP_METHODS.map((m) => (
             <button
@@ -331,6 +467,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
               size="sm"
               onClick={handleRollHp}
               disabled={!selectedClass}
+              className={cn(hasError('HP roll') && 'border-destructive')}
             >
               <Dices className="h-4 w-4" />
               {draft.hpRolled === null ? `Roll ${selectedClass?.hit_die ?? 'd8'}` : 'Re-roll'}
@@ -359,7 +496,12 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
             Max HP: <strong className="text-foreground">{computedHp}</strong>
             {' '}
             <span className="text-xs">
-              ({selectedClass?.hit_die}, CON {conMod >= 0 ? `+${conMod}` : conMod})
+              ({selectedClass?.hit_die}
+              {draft.extraClasses.map((ec, i) => {
+                const ecHitDie = data.classes[ec.classSlug]?.hit_die
+                return ecHitDie ? ` + ${ecHitDie}` : ''
+              }).join('')}
+              , CON {conMod >= 0 ? `+${conMod}` : conMod})
             </span>
           </p>
         )}
@@ -367,7 +509,11 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
 
       {/* Class-level ASI / Feat choices */}
       {asiLevels.length > 0 && (
-        <Field label={`Ability Score Improvements (${asiLevels.length})`}>
+        <Field
+          id="field-asi"
+          label={`Ability Score Improvements (${asiLevels.length})`}
+          error={hasError('improvement') ? 'Complete all ability score improvement or feat choices' : undefined}
+        >
           <div className="space-y-4">
             {asiLevels.map((lvl, slotIdx) => {
               const choice = draft.levelAsiChoices[slotIdx] ?? { mode: 'asi', asiAbilities: [], featSlug: '' }
@@ -433,15 +579,56 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
                     ) : (
                       <div className="space-y-2">
                         {choice.featSlug ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm flex-1">{allFeats[choice.featSlug]?.name ?? choice.featSlug}</span>
-                            <button
-                              onClick={() => updateAsiChoice(slotIdx, { featSlug: '' })}
-                              className="text-xs text-muted-foreground hover:text-foreground px-1"
-                            >
-                              ✕
-                            </button>
-                          </div>
+                          <>
+                            <div className="flex items-center gap-2">
+                              <button
+                                className="text-sm font-medium hover:opacity-80 transition-opacity text-left"
+                                style={{ color: 'var(--color-accent-gold)' }}
+                                onClick={() => setFeatDetailSlot(slotIdx)}
+                              >
+                                {allFeats[choice.featSlug]?.name ?? choice.featSlug}
+                              </button>
+                              <span className="flex-1" />
+                              <button
+                                onClick={() => setFeatPickerForSlot(slotIdx)}
+                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                Change
+                              </button>
+                              <button
+                                onClick={() => updateAsiChoice(slotIdx, { featSlug: '', featAsiAbility: undefined })}
+                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            {allFeats[choice.featSlug] && featHasChoiceAsi(allFeats[choice.featSlug]) && (
+                              <div className="space-y-1">
+                                <p className="text-xs text-muted-foreground">Choose ability to increase by 1:</p>
+                                <div className="flex gap-1 flex-wrap">
+                                  {featChoiceAsiOptions(allFeats[choice.featSlug]).map(opt => {
+                                    const ab = ({ strength:'str', dexterity:'dex', constitution:'con', intelligence:'int', wisdom:'wis', charisma:'cha' } as Record<string, AbilityName>)[opt.toLowerCase()]
+                                    if (!ab) return null
+                                    const selected = choice.featAsiAbility === ab
+                                    return (
+                                      <button
+                                        key={opt}
+                                        onClick={() => updateAsiChoice(slotIdx, { featAsiAbility: ab })}
+                                        className="px-2 py-1 text-xs rounded border transition-colors"
+                                        style={{
+                                          background: selected ? 'var(--color-accent-gold)' : undefined,
+                                          color: selected ? '#000' : undefined,
+                                          borderColor: 'var(--color-border)',
+                                        }}
+                                      >
+                                        {ABILITY_SHORT[ab]}{selected ? ' +1' : ''}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </>
                         ) : (
                           <button
                             onClick={() => setFeatPickerForSlot(slotIdx)}
@@ -541,17 +728,79 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
       </Field>
       <SelectionList
         entries={featEntries}
-        value=""
+        value={featPickerForSlot !== null ? (draft.levelAsiChoices[featPickerForSlot]?.featSlug ?? '') : ''}
         title="Choose Feat"
         open={featPickerForSlot !== null}
         onClose={() => setFeatPickerForSlot(null)}
         onSelect={slug => {
           if (featPickerForSlot !== null) {
-            updateAsiChoice(featPickerForSlot, { featSlug: slug })
+            updateAsiChoice(featPickerForSlot, { featSlug: slug, featAsiAbility: undefined })
             setFeatPickerForSlot(null)
           }
         }}
       />
+
+      {featDetailSlot !== null && (() => {
+        const slug = draft.levelAsiChoices[featDetailSlot]?.featSlug
+        const feat = slug ? allFeats[slug] : null
+        if (!feat) return null
+        return (
+          <DetailPopup
+            item={{
+              name: feat.name,
+              subtitle: feat.prerequisites.length
+                ? `Prerequisite: ${feat.prerequisites.join(', ')}`
+                : undefined,
+              description: feat.description,
+              sections: [],
+            }}
+            mode="view"
+            open
+            onClose={() => setFeatDetailSlot(null)}
+          />
+        )
+      })()}
+
+      {/* Extra class pickers */}
+      {draft.extraClasses.map((ec, idx) => {
+        const availableForExtra = Object.values(data.classes)
+          .filter(c => !chosenClassSlugs.has(c.slug) || c.slug === ec.classSlug)
+          .map(c => ({ slug: c.slug, detail: classToDetailItem(c) }))
+        const ecSubclassEntries = Object.values(data.subclasses)
+          .filter(s => s.classSlug === ec.classSlug && ec.level >= s.choiceLevel)
+          .map(s => ({ slug: s.subclassSlug, detail: subclassToDetailItem(s) }))
+        return (
+          <span key={idx}>
+            <SelectionList
+              entries={availableForExtra}
+              value={ec.classSlug}
+              title={`Choose Class (slot ${idx + 1})`}
+              open={extraClassPickerOpen === idx}
+              onClose={() => setExtraClassPickerOpen(null)}
+              onSelect={slug => {
+                const next = [...draft.extraClasses]
+                next[idx] = { ...ec, classSlug: slug, subclassSlug: '' }
+                onChange({ extraClasses: next })
+                setExtraClassPickerOpen(null)
+              }}
+            />
+            <SelectionList
+              entries={ecSubclassEntries}
+              value={ec.subclassSlug}
+              title="Choose Subclass"
+              open={extraSubclassPickerOpen === idx}
+              onClose={() => setExtraSubclassPickerOpen(null)}
+              onSelect={slug => {
+                const next = [...draft.extraClasses]
+                next[idx] = { ...ec, subclassSlug: slug }
+                onChange({ extraClasses: next })
+                setExtraSubclassPickerOpen(null)
+              }}
+              allowCreateOwn
+            />
+          </span>
+        )
+      })}
     </div>
   )
 }

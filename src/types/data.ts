@@ -5,23 +5,40 @@ import type { AbilityName } from './character'
 export interface WeaponItem {
   name: string
   category: 'weapon'
-  weapon_type: 'Simple Melee' | 'Simple Ranged' | 'Martial Melee' | 'Martial Ranged'
-  damage_dice: string
-  damage_type: string
+  weapon_type: 'Simple Melee' | 'Simple Ranged' | 'Martial Melee' | 'Martial Ranged' | 'Varies'
+  damage_dice: string | null
+  damage_type: string | null
   properties: string[]
-  cost: string | null
-  weight: string | null
+  cost?: string | null
+  weight?: string | null
+  // magical weapon fields
+  magical?: boolean
+  rarity?: string
+  attunement?: boolean
+  source?: string
+  description?: string
+  base_weapon_type?: string | null
+  bonus?: number | null
+  special_properties?: string[]
 }
 
 export interface ArmorItem {
   name: string
   category: 'armor' | 'shield'
-  armor_type: 'Light' | 'Medium' | 'Heavy' | 'Shield'
+  armor_type: 'Light' | 'Medium' | 'Heavy' | 'Shield' | 'Varies'
   ac_formula: string
   stealth_disadvantage: boolean
   strength_requirement: number | null
-  cost: string | null
-  weight: string | null
+  cost?: string | null
+  weight?: string | null
+  // magical armor fields
+  magical?: boolean
+  rarity?: string
+  attunement?: boolean
+  source?: string
+  description?: string
+  base_armor_type?: string | null
+  bonus?: number | null
 }
 
 export interface AdventuringGearItem {
@@ -64,8 +81,10 @@ export interface ExplosiveItem {
 export interface WondrousItem {
   name: string
   category: 'wondrous_item'
-  rarity: 'Common' | 'Uncommon' | 'Rare' | 'Very Rare' | 'Legendary' | 'Artifact'
+  rarity: 'Common' | 'Uncommon' | 'Rare' | 'Very Rare' | 'Legendary' | 'Artifact' | 'Varies'
   attunement: boolean
+  attunement_note?: string
+  source?: string
   description?: string
 }
 
@@ -223,9 +242,17 @@ export interface Background {
   flaws: string[]
 }
 
+export type FeatEffect =
+  | { type: 'asi'; subtype: 'fixed'; ability: string; amount: number }
+  | { type: 'asi'; subtype: 'choice'; options: string[]; amount: number }
+  | { type: 'initiative'; amount: number }
+  | { type: 'speed'; amount: number }
+  | { type: 'save_proficiency'; ability: string }  // ability name or 'asi_choice'
+
 export interface FeatData {
   name: string
   slug: string
   prerequisites: string[]
   description: string
+  effects?: FeatEffect[]
 }

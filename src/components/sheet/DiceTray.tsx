@@ -50,11 +50,17 @@ export function DiceTray({ character }: Props) {
                     className="flex items-center gap-2 text-sm py-1"
                   >
                     <span className="text-muted-foreground flex-1 truncate">{entry.label}</span>
-                    {entry.result.modifier !== 0 && (
+                    {entry.result.natural2 !== undefined ? (
+                      <span className="text-muted-foreground text-xs tabular-nums">
+                        ({entry.result.natural}
+                        <span className="opacity-40 line-through ml-0.5">{entry.result.natural2}</span>
+                        {entry.result.modifier !== 0 && <>{entry.result.modifier >= 0 ? '+' : ''}{entry.result.modifier}</>})
+                      </span>
+                    ) : entry.result.modifier !== 0 ? (
                       <span className="text-muted-foreground text-xs">
                         ({entry.result.natural}{entry.result.modifier >= 0 ? '+' : ''}{entry.result.modifier})
                       </span>
-                    )}
+                    ) : null}
                     <span
                       className="font-bold text-base min-w-[2ch] text-right tabular-nums"
                       style={{

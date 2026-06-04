@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { abilityModifier, proficiencyBonus, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '@/lib/dice'
 import { ABILITY_LABELS, ABILITY_ORDER, toSkillName } from '@/lib/characterSetup'
 import { useRollDispatch } from '@/lib/useRollDispatch'
+import { getCharacterAdvantages } from '@/lib/characterStats'
 import { SelectionList } from '@/components/SelectionList'
 import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
 import type { ClassData, EquipmentData } from '@/types/data'
@@ -132,6 +133,7 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
   const [tab, setTab] = useState<Tab>('skills')
   const { dispatch } = useRollDispatch(character)
   const pb = proficiencyBonus(character.level)
+  const advantages = useMemo(() => getCharacterAdvantages(character), [character])
   const hasClass = !!classRecord
 
   // Class-granted saves — only these are interactive when class is set
@@ -299,11 +301,12 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
                     {bonus >= 0 ? `+${bonus}` : `${bonus}`}
                   </span>
                   <button
-                    onClick={() => dispatch({ type: 'save', ability })}
+                    onClick={() => dispatch({ type: 'save', ability, advantage: advantages.saves.has(ability) })}
                     className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
                     style={{ background: 'var(--color-accent)', color: '#fff' }}
+                    title={advantages.saves.has(ability) ? 'Rolling with advantage' : undefined}
                   >
-                    Roll
+                    {advantages.saves.has(ability) ? 'Roll (Adv)' : 'Roll'}
                   </button>
                 </div>
               )
@@ -354,18 +357,19 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
                     {bonus >= 0 ? `+${bonus}` : `${bonus}`}
                   </span>
                   <button
-                    onClick={() => dispatch({ type: 'skill', skill })}
+                    onClick={() => dispatch({ type: 'skill', skill, advantage: advantages.skills.has(skill) })}
                     className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
                     style={{ background: 'var(--color-accent)', color: '#fff' }}
+                    title={advantages.skills.has(skill) ? 'Rolling with advantage' : undefined}
                   >
-                    Roll
+                    {advantages.skills.has(skill) ? 'Roll (Adv)' : 'Roll'}
                   </button>
                 </div>
               )
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            P = prof · E = expertise · class options in gold · Roll to check
+            P = prof · E = expertise · class options in gold · (Adv) = advantage from feat/race/item
           </p>
         </>
       )}

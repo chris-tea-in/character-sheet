@@ -49,7 +49,7 @@ export function SetupScreen2({ draft, data, errors, onChange }: Props) {
         <SelectionList
           entries={bgEntries}
           value={draft.backgroundSlug}
-          onSelect={(slug) => onChange({ backgroundSlug: slug })}
+          onSelect={(slug) => onChange({ backgroundSlug: slug, languageProficiencies: [] })}
           open={bgListOpen}
           onClose={() => setBgListOpen(false)}
           title="Choose Background"

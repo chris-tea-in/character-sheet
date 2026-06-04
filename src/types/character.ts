@@ -1,5 +1,11 @@
 export type AbilityName = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha'
 
+export interface ClassEntry {
+  classSlug: string
+  subclassSlug: string | null
+  level: number
+}
+
 export type SkillName =
   | 'acrobatics' | 'animalHandling' | 'arcana' | 'athletics'
   | 'deception' | 'history' | 'insight' | 'intimidation'
@@ -43,10 +49,11 @@ export interface Character {
   name: string
   race: string        // slug into races.json
   subrace: string | null
-  class: string       // slug into classes.json
-  subclass: string | null
+  class: string       // primary class slug (classes[0].classSlug)
+  subclass: string | null  // primary subclass (classes[0].subclassSlug)
   background: string  // slug into backgrounds.json
-  level: number
+  level: number       // total character level (sum of all classes[i].level)
+  classes: ClassEntry[]  // all classes; classes[0] = primary
   xp: number
   progressionType: 'xp' | 'milestone'
   alignment: string
@@ -60,6 +67,7 @@ export interface Character {
   tempHp: number
   armorClass: number
   speed: number
+  initiativeBonus: number
 
   deathSaves: DeathSaves
   hitDiceUsed: number
@@ -81,6 +89,7 @@ export interface Character {
   currency: Currency
 
   feats: string[]  // feat slugs (keys from feats.json)
+  featChoices: Record<string, { asiAbility?: AbilityName }>  // per-feat player choices (e.g. choice ASI)
   toolProficiencies: string[]  // tool names (free-form, from equipment catalog)
 
   createdAt: number  // unix ms
@@ -96,10 +105,11 @@ export function defaultCharacter(name: string): NewCharacter {
     class: '', subclass: null,
     background: '',
     level: 1, xp: 0, progressionType: 'milestone', alignment: '',
+    classes: [],
     languages: [], backstory: '',
     abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
     maxHp: 0, currentHp: 0, tempHp: 0,
-    armorClass: 10, speed: 30,
+    armorClass: 10, speed: 30, initiativeBonus: 0,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0, inspiration: false,
     skillProficiencies: {},
@@ -109,6 +119,7 @@ export function defaultCharacter(name: string): NewCharacter {
     equipment: [],
     currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
     feats: [],
+    featChoices: {},
     toolProficiencies: [],
   }
 }

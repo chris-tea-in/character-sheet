@@ -63,7 +63,7 @@ function toSpellEntry(key: string, s: SpellData): SelectionEntry {
   }
 }
 
-export function SetupScreen3({ draft, data, onChange }: Props) {
+export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
 
@@ -92,6 +92,7 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
   const spellInfo = cls ? getSpellcastingInfo(cls, draft.level) : null
   const isCaster = !!spellInfo && spellInfo.profile.kind !== 'none'
   const isKnown = spellInfo?.casterKind === 'known' || spellInfo?.casterKind === 'pact'
+  const isPrepared = spellInfo?.casterKind === 'prepared'
 
   const maxSpellLevel = useMemo(() => {
     if (!spellInfo) return 1
@@ -120,6 +121,7 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
     }
     return counts
   }, [draft.spellSlugs, allSpells])
+  const [customLangInput, setCustomLangInput] = useState('')
   const [pickerMode, setPickerMode] = useState<'cantrip' | 'spell' | null>(null)
   const [browseAll, setBrowseAll] = useState(false)
   const [viewingSpell, setViewingSpell] = useState<string | null>(null)
@@ -173,6 +175,18 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
     } else if (current.length < langChoiceCount) {
       onChange({ languageProficiencies: [...current, lang] })
     }
+  }
+
+  const customLangs = draft.languageProficiencies.filter(
+    l => !ALL_LANGUAGES.includes(l) && !raceLanguages.includes(l),
+  )
+
+  function addCustomLang() {
+    const trimmed = customLangInput.trim()
+    if (!trimmed || draft.languageProficiencies.length >= langChoiceCount) return
+    if (draft.languageProficiencies.includes(trimmed)) return
+    onChange({ languageProficiencies: [...draft.languageProficiencies, trimmed] })
+    setCustomLangInput('')
   }
 
   const viewingSpellDetail: DetailItem | null = useMemo(() => {
@@ -272,7 +286,34 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
                 />
               )
             })}
+            {customLangs.map((lang) => (
+              <ToggleRow
+                key={lang}
+                label={lang}
+                checked
+                onClick={() => toggleLanguage(lang)}
+              />
+            ))}
           </div>
+          {draft.languageProficiencies.length < langChoiceCount && (
+            <div className="flex gap-2 mt-2">
+              <input
+                type="text"
+                value={customLangInput}
+                onChange={(e) => setCustomLangInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addCustomLang() }}
+                placeholder="Other language…"
+                className="flex-1 px-3 py-1.5 text-sm rounded-md border border-border bg-secondary placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <button
+                onClick={addCustomLang}
+                disabled={!customLangInput.trim()}
+                className="px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Add
+              </button>
+            </div>
+          )}
         </Field>
       ) : (
         <Field label="Languages">
@@ -287,7 +328,10 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
       {/* ── Spells ── */}
 
       {isCaster && spellInfo && spellInfo.cantripsKnown > 0 && (
-        <Field label={`Cantrips — choose ${spellInfo.cantripsKnown}`}>
+        <Field
+          label={`Cantrips — choose ${spellInfo.cantripsKnown}`}
+          error={errors.find(e => e.toLowerCase().includes('cantrip'))}
+        >
           <p className="text-xs text-muted-foreground mb-2">
             {draft.cantripSlugs.length}/{spellInfo.cantripsKnown} selected
           </p>
@@ -324,7 +368,10 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
       )}
 
       {isCaster && isKnown && spellInfo && spellInfo.spellsKnown > 0 && (
-        <Field label={`Spells Known — choose ${spellInfo.spellsKnown}`}>
+        <Field
+          label={`Spells Known — choose ${spellInfo.spellsKnown}`}
+          error={errors.find(e => e.toLowerCase().includes('more spell'))}
+        >
           <p className="text-xs text-muted-foreground mb-1">
             {draft.spellSlugs.length}/{spellInfo.spellsKnown} selected
             {maxSpellLevel > 0 && ` · up to level ${maxSpellLevel} spells`}
@@ -379,11 +426,62 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
         </Field>
       )}
 
-      {isCaster && spellInfo?.casterKind === 'prepared' && (
-        <Field label="Spells">
-          <p className="text-sm text-muted-foreground">
-            You prepare spells from your class list after each long rest — no fixed spells to select now.
+      {isCaster && isPrepared && spellInfo && (
+        <Field label="Prepared Spells">
+          <p className="text-xs text-muted-foreground mb-2">
+            You prepare spells from your class list after each long rest — these can all be changed later.
           </p>
+          <p className="text-xs text-muted-foreground mb-1">
+            {draft.spellSlugs.length} prepared
+            {maxSpellLevel > 0 && ` · up to level ${maxSpellLevel} spells`}
+          </p>
+          {Object.keys(slotsByLevel).length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {Object.entries(slotsByLevel)
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .map(([lvl, cap]) => {
+                  const used = selectedSpellLevelCounts[Number(lvl)] ?? 0
+                  return (
+                    <span
+                      key={lvl}
+                      className="text-[11px]"
+                      style={{ color: 'var(--color-text-muted)', opacity: used >= cap ? 0.45 : 1 }}
+                    >
+                      {ORDINALS[Number(lvl)]}: {used}/{cap}
+                    </span>
+                  )
+                })}
+            </div>
+          )}
+          <div className="space-y-1">
+            {draft.spellSlugs.map(key => (
+              <SelectedSpellRow
+                key={key}
+                label={allSpells[key]?.name ?? key}
+                onView={() => setViewingSpell(key)}
+                onRemove={() => onChange({ spellSlugs: draft.spellSlugs.filter(s => s !== key) })}
+              />
+            ))}
+          </div>
+          {Object.entries(slotsByLevel).some(([lvl, cap]) => (selectedSpellLevelCounts[Number(lvl)] ?? 0) < cap) && (
+            <div className="mt-2 space-y-1">
+              <button
+                onClick={() => setPickerMode('spell')}
+                className="text-sm hover:opacity-75"
+                style={{ color: 'var(--color-accent-gold)' }}
+              >
+                + Choose spell
+              </button>
+              <div>
+                <button
+                  onClick={() => setBrowseAll(b => !b)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                >
+                  {browseAll ? 'Show class spells only' : 'Browse all classes'}
+                </button>
+              </div>
+            </div>
+          )}
         </Field>
       )}
 
@@ -418,7 +516,7 @@ export function SetupScreen3({ draft, data, onChange }: Props) {
           }
           const newSpells = [...draft.spellSlugs, key]
           onChange({ spellSlugs: newSpells })
-          if (newSpells.length >= (spellInfo?.spellsKnown ?? 0)) setPickerMode(null)
+          if (spellInfo?.spellsKnown && newSpells.length >= spellInfo.spellsKnown) setPickerMode(null)
         }}
         groupOrder={LEVEL_GROUP_ORDER}
         multiSelect

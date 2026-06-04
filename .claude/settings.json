@@ -38,7 +38,32 @@
       "Bash(node -e \"const r = require\\('./public/data/races.json'\\); Object.keys\\(r\\).forEach\\(k => console.log\\(k\\)\\)\")",
       "Bash(node -e \"const d = require\\('./public/data/classes.json'\\); const cls = Object.values\\(d\\)[0]; console.log\\(cls.name, JSON.stringify\\(cls.starting_equipment, null, 2\\)\\)\")",
       "Bash(node -e \"const d = require\\('./public/data/classes.json'\\); Object.entries\\(d\\).forEach\\(\\([k,v]\\) => console.log\\(k + ':', JSON.stringify\\(v.starting_equipment\\)\\)\\)\")",
-      "Bash(node -e \"const d = require\\('./public/data/backgrounds.json'\\); const bg = Object.values\\(d\\)[0]; console.log\\(bg.name, JSON.stringify\\(bg.starting_equipment, null, 2\\)\\)\")"
+      "Bash(node -e \"const d = require\\('./public/data/backgrounds.json'\\); const bg = Object.values\\(d\\)[0]; console.log\\(bg.name, JSON.stringify\\(bg.starting_equipment, null, 2\\)\\)\")",
+      "Bash(cat >> *)",
+      "Bash(node -e \"const d=require\\('./public/data/feats.json'\\); console.log\\(JSON.stringify\\(d['durable'], null, 2\\)\\)\")",
+      "Bash(node -e \"const w = require\\('./data/equipment/weapons.json'\\); console.log\\('Total weapons:', w.length\\); const magical = w.filter\\(x => x.rarity || x.magical || x.attunement\\); console.log\\('Magical entries:', magical.length\\); if\\(magical.length\\) console.log\\(JSON.stringify\\(magical.slice\\(0,3\\), null, 2\\)\\);\")",
+      "Bash(node -e \"const w = require\\('./data/equipment/wondrous_items.json'\\); console.log\\('Total wondrous:', w.length\\); const weapons = w.filter\\(x => x.weapon_type || \\(x.name && /sword|axe|bow|blade|spear|dagger|mace|staff|wand|rod|flail|hammer|lance|pike|trident|whip/i.test\\(x.name\\)\\)\\); console.log\\('Weapon-like entries:', weapons.length\\); if\\(weapons.length\\) console.log\\(JSON.stringify\\(weapons.slice\\(0,5\\), null, 2\\)\\);\")",
+      "Bash(node -e \"const w = require\\('./data/equipment/weapons.json'\\); console.log\\(JSON.stringify\\(w.slice\\(0,3\\), null, 2\\)\\);\")",
+      "Bash(cd c:/Users/buyp1/Workspace/dnd-character-sheet && rm data/equipment/_magical_weapons_batch*.json && echo \"Cleaned up\")",
+      "Bash(cd c:/Users/buyp1/Workspace/dnd-character-sheet && rm data/equipment/_armor_batch_*.json && echo \"Cleaned up\")",
+      "Bash(git stash *)",
+      "Read(//c/Users/buyp1/Workspace/dnd-character-sheet/data/equipment/**)",
+      "Bash(node -e \"const fs=require\\('fs'\\); const files=fs.readdirSync\\('data/feats'\\); const prereqs=new Set\\(\\); files.forEach\\(f=>{ try{ const d=JSON.parse\\(fs.readFileSync\\('data/feats/'+f\\)\\); \\(d.prerequisites||[]\\).forEach\\(p=>prereqs.add\\(p\\)\\); }catch\\(e\\){} }\\); [...prereqs].sort\\(\\).forEach\\(p=>console.log\\(JSON.stringify\\(p\\)\\)\\);\")",
+      "Bash(node -e \"const f = require\\('./public/data/feats.json'\\); const entries = Object.entries\\(f\\).filter\\(\\([k,v]\\) => JSON.stringify\\(v\\).toLowerCase\\(\\).includes\\('advantage'\\)\\); console.log\\(JSON.stringify\\(entries.map\\(\\([k,v]\\) => \\({slug: k, desc: v.description?.substring\\(0,300\\)}\\)\\), null, 2\\)\\)\")",
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\buyp1\\\\.claude\\\\projects\" -Recurse -Filter \"*.jsonl\")",
+      "Bash(Sort-Object LastWriteTime -Descending)",
+      "Bash(Select-Object -First 50)",
+      "Bash(Select-Object FullName, LastWriteTime)",
+      "Bash(cd \"c:\\Users\\buyp1\\Workspace\\dnd-character-sheet\" && npx tsc *)",
+      "Bash(cd c:\\Users\\buyp1\\Workspace\\dnd-character-sheet && npx tsc *)",
+      "Bash(cd c:\\Users\\buyp1\\Workspace\\dnd-character-sheet; npx tsc *)",
+      "Bash(magick --version)",
+      "Bash(convert --version)",
+      "Bash(node -e \"const fs=require\\('fs'\\); const buf=fs.readFileSync\\('dnd-icon.png'\\); const view=new DataView\\(buf.buffer\\); const w=view.getUint32\\(16\\); const h=view.getUint32\\(20\\); console.log\\(w+'x'+h\\);\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\buyp1\\.claude\\skill-observations",
+      "C:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\data\\equipment"
     ]
   }
 }

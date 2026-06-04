@@ -124,7 +124,7 @@ function sentinelEntries(sentinel: string, catalog: EquipmentData): SelectionEnt
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function SetupScreen4({ draft, data, onChange }: Props) {
+export function SetupScreen4({ draft, data, errors, onChange }: Props) {
   const cls = data.classes[draft.classSlug]
   const bg  = data.backgrounds[draft.backgroundSlug]
 
@@ -133,6 +133,7 @@ export function SetupScreen4({ draft, data, onChange }: Props) {
 
   useEffect(() => { loadEquipmentData().then(setCatalog).catch(() => {}) }, [])
 
+  const showErrors = errors.length > 0
   const classGrants: EquipmentGrant[] = cls?.starting_equipment ?? []
   const bgItems: string[]             = bg?.starting_equipment ?? []
   const { optionPicks, openPicks }    = draft.equipmentChoices
@@ -182,6 +183,7 @@ export function SetupScreen4({ draft, data, onChange }: Props) {
                     grant={grant}
                     grantIdx={gi}
                     choices={draft.equipmentChoices}
+                    showErrors={showErrors}
                     onPickOption={(oi) => setOptionPick(gi, oi)}
                     onOpenPicker={(si, sentinel) => setActivePick({ grantIdx: gi, slotIdx: si, sentinel })}
                     onClearPick={(si) => clearOpenPick(gi, si)}
@@ -236,6 +238,7 @@ function GrantRow({
   grant,
   grantIdx,
   choices,
+  showErrors,
   onPickOption,
   onOpenPicker,
   onClearPick,
@@ -243,6 +246,7 @@ function GrantRow({
   grant: EquipmentGrant
   grantIdx: number
   choices: EquipmentChoices
+  showErrors: boolean
   onPickOption: (optionIdx: number) => void
   onOpenPicker: (slotIdx: number, sentinel: string) => void
   onClearPick: (slotIdx: number) => void
@@ -257,6 +261,7 @@ function GrantRow({
           items={grant.items}
           grantIdx={grantIdx}
           openPicks={openPicks}
+          showErrors={showErrors}
           onOpenPicker={onOpenPicker}
           onClearPick={onClearPick}
         />
@@ -266,11 +271,12 @@ function GrantRow({
 
   const selectedIdx = optionPicks[grantIdx]
   const selectedOption = selectedIdx !== undefined ? grant.options[selectedIdx] : null
+  const choiceError = showErrors && selectedIdx === undefined
 
   return (
     <div className="space-y-2">
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Choose one</p>
-      <div className="space-y-1">
+      <div className={cn('space-y-1 rounded-md', choiceError && 'ring-1 ring-destructive p-1')}>
         {grant.options.map((option, oi) => (
           <button
             key={oi}
@@ -299,6 +305,7 @@ function GrantRow({
             items={selectedOption.items}
             grantIdx={grantIdx}
             openPicks={openPicks}
+            showErrors={showErrors}
             onOpenPicker={onOpenPicker}
             onClearPick={onClearPick}
           />
@@ -314,12 +321,14 @@ function ItemList({
   items,
   grantIdx,
   openPicks,
+  showErrors,
   onOpenPicker,
   onClearPick,
 }: {
   items: string[]
   grantIdx: number
   openPicks: Record<string, string>
+  showErrors: boolean
   onOpenPicker: (slotIdx: number, sentinel: string) => void
   onClearPick: (slotIdx: number) => void
 }) {
@@ -362,12 +371,15 @@ function ItemList({
           <button
             key={si}
             onClick={() => onOpenPicker(si, item)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-left transition-colors hover:bg-secondary/50"
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-left transition-colors hover:bg-secondary/50',
+              showErrors && 'border border-destructive',
+            )}
             style={{ color: 'var(--color-accent-gold)' }}
           >
             <span
               className="w-4 h-4 rounded border-2 border-dashed flex-none"
-              style={{ borderColor: 'var(--color-accent-gold)' }}
+              style={{ borderColor: showErrors ? 'var(--color-destructive, #e94560)' : 'var(--color-accent-gold)' }}
             />
             Choose {sentinelLabel(item)}
           </button>

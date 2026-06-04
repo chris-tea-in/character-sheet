@@ -36,6 +36,7 @@ export default function App({ dbResult }: AppProps) {
         <Route path="/" element={<CharacterListPage />} />
         <Route path="/create" element={<CreateCharacterPage />} />
         <Route path="/character/:id" element={<CharacterPage />} />
+        <Route path="/character/:id/edit" element={<CreateCharacterPage />} />
       </Routes>
     </>
   )

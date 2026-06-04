@@ -1,36 +1,30 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
 import { SetupScreen1 } from '@/components/setup/SetupScreen1'
 import { SetupScreen2 } from '@/components/setup/SetupScreen2'
 import { SetupScreen3 } from '@/components/setup/SetupScreen3'
 import { SetupScreen4 } from '@/components/setup/SetupScreen4'
 import { SetupScreen5 } from '@/components/setup/SetupScreen5'
-import { INITIAL_DRAFT, draftToNewCharacter, isEquipmentComplete, isLevelAsiComplete } from '@/lib/characterSetup'
+import {
+  INITIAL_DRAFT,
+  characterToDraft,
+  draftToNewCharacter,
+  isEquipmentComplete,
+  isLevelAsiComplete,
+} from '@/lib/characterSetup'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
-import { loadSetupData } from '@/lib/data'
+import { loadSetupData, loadFeatsData, loadSpellsData } from '@/lib/data'
 import { useCharacterStore } from '@/store/characters'
 import type { SetupDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
+import type { FeatData } from '@/types/data'
+import type { NewCharacter } from '@/types/character'
 
-// Ordered top-to-bottom: first match wins
-const FIELD_IDS: Array<[string, string]> = [
-  ['name', 'field-name'],
-  ['race', 'field-race'],
-  ['class', 'field-class'],
-  ['subclass', 'field-subclass'],
-  ['background', 'field-background'],
-]
-
-function scrollToFirstError(errs: string[]) {
-  for (const [keyword, id] of FIELD_IDS) {
-    if (errs.some((e) => e.toLowerCase().includes(keyword))) {
-      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      return
-    }
-  }
-}
 
 const SCREEN_TITLES = [
   'Identity & Stats',
@@ -40,7 +34,13 @@ const SCREEN_TITLES = [
   'Progression',
 ]
 
-function validateScreen(screen: number, draft: SetupDraft, data: SetupData | null): string[] {
+function validateScreen(
+  screen: number,
+  draft: SetupDraft,
+  data: SetupData | null,
+  allFeats?: Record<string, FeatData>,
+  isEditMode?: boolean,
+): string[] {
   if (screen === 1) {
     const errors: string[] = []
     if (!draft.name.trim()) errors.push('Name is required')
@@ -55,7 +55,7 @@ function validateScreen(screen: number, draft: SetupDraft, data: SetupData | nul
     if (draft.hpMethod === 'roll' && draft.hpRolled === null) {
       errors.push('HP roll is required — click the Roll button')
     }
-    if (data && !isLevelAsiComplete(draft, data)) {
+    if (data && !isLevelAsiComplete(draft, data, allFeats)) {
       errors.push('Complete all ability score improvement or feat choices')
     }
     return errors
@@ -63,7 +63,8 @@ function validateScreen(screen: number, draft: SetupDraft, data: SetupData | nul
   if (screen === 2) {
     if (!draft.backgroundSlug) return ['Background is required']
   }
-  if (screen === 4 && data) {
+  // Skip equipment validation in edit mode (equipment managed on sheet)
+  if (screen === 4 && data && !isEditMode) {
     if (!isEquipmentComplete(draft, data)) {
       return ['Complete all starting equipment choices before continuing']
     }
@@ -87,25 +88,52 @@ function validateScreen(screen: number, draft: SetupDraft, data: SetupData | nul
 
 export default function CreateCharacterPage() {
   const navigate = useNavigate()
+  const { id: editId } = useParams<{ id: string }>()
+  const isEditMode = !!editId
+
   const createCharacter = useCharacterStore((s) => s.create)
+  const updateCharacter = useCharacterStore((s) => s.update)
+  const characters = useCharacterStore((s) => s.characters)
 
   const [data, setData] = useState<SetupData | null>(null)
+  const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
   const [draft, setDraft] = useState<SetupDraft>(INITIAL_DRAFT)
   const [screen, setScreen] = useState(1)
   const [errors, setErrors] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const [draftReady, setDraftReady] = useState(!isEditMode)
+  const [doneConfirmOpen, setDoneConfirmOpen] = useState(false)
+
   useEffect(() => {
     window.scrollTo({ top: 0 })
   }, [screen])
 
   useEffect(() => {
-    loadSetupData()
-      .then(setData)
-      .catch((err: unknown) =>
-        setLoadError(err instanceof Error ? err.message : 'Failed to load data'),
-      )
-  }, [])
+    const loadAll = async () => {
+      try {
+        const [setupData, feats] = await Promise.all([
+          loadSetupData(),
+          loadFeatsData().catch(() => ({})),
+        ])
+        setData(setupData)
+        setAllFeats(feats)
+
+        if (isEditMode) {
+          // Load spell data to correctly split cantrips vs leveled spells
+          const spellData = await loadSpellsData().catch(() => ({}))
+          const existing = characters.find(c => c.id === editId)
+          if (existing) {
+            setDraft(characterToDraft(existing, spellData))
+          }
+          setDraftReady(true)
+        }
+      } catch (err: unknown) {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load data')
+      }
+    }
+    loadAll()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function updateDraft(updates: Partial<SetupDraft>) {
     setDraft((prev) => ({ ...prev, ...updates }))
@@ -113,10 +141,10 @@ export default function CreateCharacterPage() {
   }
 
   function handleNext() {
-    const errs = validateScreen(screen, draft, data)
+    const errs = validateScreen(screen, draft, data, allFeats, isEditMode)
     if (errs.length) {
       setErrors(errs)
-      scrollToFirstError(errs)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
     setErrors([])
@@ -126,26 +154,83 @@ export default function CreateCharacterPage() {
   function handleBack() {
     setErrors([])
     if (screen === 1) {
-      navigate('/')
+      navigate(isEditMode ? `/character/${editId}` : '/')
     } else {
       setScreen((s) => s - 1)
     }
   }
 
-  async function handleFinish() {
-    const errs = validateScreen(screen, draft, data)
-    if (errs.length) {
-      setErrors(errs)
-      return
+  async function handleFinish(skipValidation = false) {
+    if (!skipValidation) {
+      const errs = validateScreen(screen, draft, data, allFeats, isEditMode)
+      if (errs.length) {
+        setErrors(errs)
+        return
+      }
     }
     if (!data) return
     setSubmitting(true)
     try {
-      const newChar = draftToNewCharacter(draft, data)
-      const created = await createCharacter(newChar)
-      navigate(`/character/${created.id}`)
+      const feats = await loadFeatsData().catch(() => ({}))
+      const newCharData = draftToNewCharacter(draft, data, feats)
+
+      if (isEditMode && editId) {
+        const existing = characters.find(c => c.id === editId)
+        if (!existing) throw new Error('Character not found')
+
+        // Merge: use new data for identity/stats, preserve combat state and equipment
+        const mergedSpells = mergeSpells(existing.spells, newCharData.spells)
+
+        const changes: Partial<NewCharacter> = {
+          name: newCharData.name,
+          race: newCharData.race,
+          subrace: newCharData.subrace,
+          class: newCharData.class,
+          subclass: newCharData.subclass,
+          classes: newCharData.classes,
+          background: newCharData.background,
+          level: newCharData.level,
+          xp: existing.xp,
+          progressionType: newCharData.progressionType,
+          alignment: newCharData.alignment,
+          languages: newCharData.languages,
+          backstory: newCharData.backstory,
+          abilities: newCharData.abilities,
+          maxHp: newCharData.maxHp,
+          // Preserve current HP (clamped to new max)
+          currentHp: Math.min(existing.currentHp, newCharData.maxHp),
+          tempHp: existing.tempHp,
+          armorClass: newCharData.armorClass,
+          speed: newCharData.speed,
+          initiativeBonus: newCharData.initiativeBonus,
+          // Preserve combat state
+          deathSaves: existing.deathSaves,
+          hitDiceUsed: existing.hitDiceUsed,
+          inspiration: existing.inspiration,
+          skillProficiencies: newCharData.skillProficiencies,
+          savingThrowProficiencies: newCharData.savingThrowProficiencies,
+          spells: mergedSpells,
+          spellSlotsUsed: existing.spellSlotsUsed,
+          personalityTraits: newCharData.personalityTraits,
+          ideals: newCharData.ideals,
+          bonds: newCharData.bonds,
+          flaws: newCharData.flaws,
+          notes: newCharData.notes,
+          // Preserve equipment and currency (managed on sheet)
+          equipment: existing.equipment,
+          currency: existing.currency,
+          feats: newCharData.feats,
+          featChoices: newCharData.featChoices,
+          toolProficiencies: newCharData.toolProficiencies,
+        }
+        updateCharacter(editId, changes)
+        navigate(`/character/${editId}`)
+      } else {
+        const created = await createCharacter(newCharData)
+        navigate(`/character/${created.id}`)
+      }
     } catch {
-      setErrors(['Failed to create character. Please try again.'])
+      setErrors([isEditMode ? 'Failed to save changes.' : 'Failed to create character.'])
       setSubmitting(false)
     }
   }
@@ -155,13 +240,15 @@ export default function CreateCharacterPage() {
       <div className="min-h-dvh flex items-center justify-center p-6">
         <div className="text-center space-y-3">
           <p className="text-destructive">{loadError}</p>
-          <Button variant="outline" onClick={() => navigate('/')}>Go back</Button>
+          <Button variant="outline" onClick={() => navigate(isEditMode ? `/character/${editId}` : '/')}>
+            Go back
+          </Button>
         </div>
       </div>
     )
   }
 
-  if (!data) {
+  if (!data || !draftReady) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
         <p className="text-muted-foreground text-sm">Loading…</p>
@@ -185,12 +272,20 @@ export default function CreateCharacterPage() {
           </button>
           <div className="flex-1 min-w-0">
             <p className="text-xs text-muted-foreground">
-              Step {screen} of {SCREEN_TITLES.length}
+              {isEditMode ? 'Editing character · ' : ''}Step {screen} of {SCREEN_TITLES.length}
             </p>
             <h1 className="text-base font-semibold leading-tight truncate">
               {SCREEN_TITLES[screen - 1]}
             </h1>
           </div>
+          {isEditMode && (
+            <button
+              onClick={() => setDoneConfirmOpen(true)}
+              className="flex-none text-sm font-medium px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
+              Done
+            </button>
+          )}
         </div>
 
         {/* Progress bar */}
@@ -231,7 +326,14 @@ export default function CreateCharacterPage() {
             <SetupScreen3 draft={draft} data={data} errors={errors} onChange={updateDraft} />
           )}
           {screen === 4 && (
-            <SetupScreen4 draft={draft} data={data} errors={errors} onChange={updateDraft} />
+            <>
+              {isEditMode && (
+                <p className="text-sm text-muted-foreground mb-4 p-3 rounded-lg border border-border">
+                  Equipment is managed directly on your character sheet. Any changes here will not affect your existing inventory.
+                </p>
+              )}
+              <SetupScreen4 draft={draft} data={data} errors={errors} onChange={updateDraft} />
+            </>
           )}
           {screen === 5 && (
             <SetupScreen5 draft={draft} onChange={updateDraft} />
@@ -249,6 +351,38 @@ export default function CreateCharacterPage() {
         </div>
       </main>
 
+      {/* Done confirmation — save or discard edits */}
+      <Dialog open={doneConfirmOpen} onOpenChange={setDoneConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Save changes?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Apply your edits to the character sheet, or discard them and return without changing anything.
+          </p>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setDoneConfirmOpen(false)
+                navigate(`/character/${editId}`)
+              }}
+            >
+              Discard changes
+            </Button>
+            <Button
+              onClick={async () => {
+                setDoneConfirmOpen(false)
+                await handleFinish(true)
+              }}
+              disabled={submitting}
+            >
+              {submitting ? 'Saving…' : 'Save changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Footer nav */}
       <footer className="flex-none border-t border-border px-4 py-3">
         <div className="max-w-2xl mx-auto flex justify-between gap-3">
@@ -257,7 +391,9 @@ export default function CreateCharacterPage() {
           </Button>
           {isLastScreen ? (
             <Button onClick={handleFinish} disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create Character'}
+              {submitting
+                ? (isEditMode ? 'Saving…' : 'Creating…')
+                : (isEditMode ? 'Save Changes' : 'Create Character')}
             </Button>
           ) : (
             <Button onClick={handleNext}>Next</Button>
@@ -266,4 +402,20 @@ export default function CreateCharacterPage() {
       </footer>
     </div>
   )
+}
+
+// Merge existing spells with new ones: prefer existing (preserves prepared state),
+// add new slugs that aren't already present, remove slugs absent from newSpells.
+function mergeSpells(
+  existing: Array<{ slug: string; prepared: boolean }>,
+  incoming: Array<{ slug: string; prepared: boolean }>,
+): Array<{ slug: string; prepared: boolean }> {
+  const normalize = (s: string) => s.replace(/^spell:/, '')
+  const incomingKeys = new Set(incoming.map(s => normalize(s.slug)))
+  // Keep existing spells that are still in the incoming list
+  const kept = existing.filter(s => incomingKeys.has(normalize(s.slug)))
+  const existingKeys = new Set(kept.map(s => normalize(s.slug)))
+  // Add incoming spells that weren't already kept
+  const added = incoming.filter(s => !existingKeys.has(normalize(s.slug)))
+  return [...kept, ...added]
 }

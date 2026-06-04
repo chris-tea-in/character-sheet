@@ -10,6 +10,17 @@
 
 ---
 
+## Level-Up Dialog Bugs (found in code review 2026-06-03)
+
+| Priority | Bug | Status |
+|---|---|---|
+| 1 | **Level-up HP gate missing** — `canApply` has no `hpAdd > 0` guard; a player can confirm level-up without rolling or entering HP, permanently gaining +0 max HP with no warning. | ✅ Fixed — defaults to average HP on open |
+| 2 | **ASI apply cap is 30, not 20** — `Math.min(30, ...)` in `handleApply` allows scores above 20 if the button-disable check diverges from apply logic. | ✅ Fixed — `Math.min(20, ...)` |
+| 3 | **Multiclass old-level mismatch** — `parseClassSlots` and `getSpellsKnownIncrease` receive `character.level` (total) as the "old class level". For a multiclass character whose class level is lower than total, the spell-slot diff display and spell-known delta are wrong. | ✅ Fixed — derives class-specific level from `character.classes` |
+| 4 | **HP roll uses `Math.random()` not `rollDie()`** — `rollHp()` uses the weaker PRNG instead of the app-standard `rollDie()` from `src/lib/dice.ts`. | ✅ Fixed — uses `rollDie(hitDie as DieType)` |
+
+---
+
 ## Character Sheet Bugs
 
 | Priority | Bug | Status |
@@ -48,6 +59,7 @@
 | Duplication | Files affected | Fix |
 |---|---|---|
 | `ORDINALS`, `spellGroup`, `componentStr` | `SetupScreen3`, `SpellBlock`, `LevelUpDialog` | New `src/lib/spells.ts` |
+| Ability full-name → short map (`"strength" → "str"`) defined 5+ times | `characterSetup.ts`, `characterStats.ts`, `LevelUpDialog.tsx`, `CharacterPage.tsx`, `SetupScreen1.tsx`, `FeatsBlock.tsx`, `ProficienciesBlock.tsx` | Export `toAbilityName()` from `characterSetup.ts` and use everywhere |
 | `formatBonus(n)` — `+N` / `-N` formatting | `ProficienciesBlock` ×2, `AbilityBlock`, `EquipmentBlock`, `dice.ts` | Add to `src/lib/dice.ts` |
 | Roll button markup | `ProficienciesBlock` ×2, `EquipmentBlock`, `SpellBlock` | `<RollButton>` in `src/components/sheet/` |
 | `saveBonus` / `skillBonus` logic | `ProficienciesBlock` | Move to `characterStats.ts` pre-emptively |

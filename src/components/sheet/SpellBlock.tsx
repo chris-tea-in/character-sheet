@@ -3,6 +3,7 @@ import { Plus, X, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
+import type { SpellcastingProfile, CasterKind } from '@/lib/spellcasting'
 import { abilityModifier, proficiencyBonus } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { loadSpellsData } from '@/lib/data'
@@ -14,6 +15,9 @@ import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
 interface Props {
   character: Character
   classRecord: ClassData
+  classLevel: number                           // primary class level (may differ from character.level when multiclassed)
+  overrideSlotProfile?: SpellcastingProfile    // multiclass combined slots; overrides per-class profile when provided
+  overrideCasterKind?: CasterKind              // multiclass: casterKind from the actual spellcasting class, not the primary class
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
@@ -173,7 +177,7 @@ const ABILITY_KEY_MAP: Record<string, AbilityName> = {
   strength: 'str', dexterity: 'dex', constitution: 'con',
 }
 
-export function SpellBlock({ character, classRecord, onSave }: Props) {
+export function SpellBlock({ character, classRecord, classLevel, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
   const { dispatch } = useRollDispatch(character)
@@ -182,9 +186,11 @@ export function SpellBlock({ character, classRecord, onSave }: Props) {
     loadSpellsData().then(setAllSpells).catch(() => {})
   }, [])
 
-  const { profile, casterKind } = getSpellcastingInfo(classRecord, character.level)
-  if (profile.kind === 'none') return null
+  const { profile: rawProfile, casterKind: rawCasterKind } = getSpellcastingInfo(classRecord, classLevel)
+  const profile = overrideSlotProfile ?? rawProfile
+  if (profile.kind === 'none' && rawProfile.kind === 'none') return null
 
+  const casterKind = overrideCasterKind ?? rawCasterKind
   const isPreparedCaster = casterKind === 'prepared'
   const spellAbilKey = ABILITY_KEY_MAP[classRecord.spellcasting?.ability?.toLowerCase() ?? ''] ?? 'int'
   const spellAttackMod = abilityModifier(character.abilities[spellAbilKey]) + proficiencyBonus(character.level)

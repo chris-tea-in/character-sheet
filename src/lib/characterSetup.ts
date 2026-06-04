@@ -1,8 +1,9 @@
 import { abilityModifier, rollDie } from '@/lib/dice'
 import { generateId } from '@/lib/uuid'
-import type { AbilityName, Abilities, NewCharacter, SkillName, SkillProficiency, EquipmentItem } from '@/types/character'
+import { computeFeatStatDelta, applyFeatAsi, featHasChoiceAsi } from '@/lib/characterStats'
+import type { AbilityName, Abilities, Character, NewCharacter, SkillName, SkillProficiency, EquipmentItem } from '@/types/character'
 import type { DetailItem } from '@/types/detail-item'
-import type { Race, ClassData, SubclassData, Background, EquipmentGrant } from '@/types/data'
+import type { Race, ClassData, SubclassData, Background, EquipmentGrant, FeatData, SpellData } from '@/types/data'
 import type { SetupData } from '@/lib/data'
 
 // ---------------------------------------------------------------------------
@@ -64,6 +65,36 @@ export function computeMaxHp(
       break
   }
   return Math.max(1, baseHp + conModifier * level)
+}
+
+export function computeMulticlassHp(
+  primaryDieSides: number,
+  primaryLevel: number,
+  extraClasses: Array<{ dieSides: number; level: number }>,
+  method: 'roll' | 'average' | 'max' | 'custom',
+  conModifier: number,
+  hpRolled: number | null,
+  hpCustom: number,
+): number {
+  const totalLevel = primaryLevel + extraClasses.reduce((s, c) => s + c.level, 0)
+  if (extraClasses.length === 0) {
+    return computeMaxHp(primaryDieSides, primaryLevel, method, conModifier, hpRolled, hpCustom)
+  }
+  if (method === 'custom') return Math.max(1, hpCustom)
+  if (method === 'roll') {
+    return Math.max(1, (hpRolled ?? primaryDieSides) + conModifier * totalLevel)
+  }
+  if (method === 'max') {
+    const base = primaryDieSides * primaryLevel + extraClasses.reduce((s, c) => s + c.dieSides * c.level, 0)
+    return Math.max(1, base + conModifier * totalLevel)
+  }
+  // average: primary class level 1 = max die; all other levels (any class) = floor(die/2)+1
+  const primaryAvg = Math.floor(primaryDieSides / 2) + 1
+  const primaryHp = primaryDieSides + primaryAvg * Math.max(0, primaryLevel - 1)
+  const extraHp = extraClasses.reduce((s, c) => {
+    return s + (Math.floor(c.dieSides / 2) + 1) * c.level
+  }, 0)
+  return Math.max(1, primaryHp + extraHp + conModifier * totalLevel)
 }
 
 export function rollHp(dieSides: number, level: number): number {
@@ -257,6 +288,7 @@ export interface LevelAsiChoice {
   mode: 'asi' | 'feat'
   asiAbilities: AbilityName[]  // each gives +1; pick same ability twice for +2
   featSlug: string
+  featAsiAbility?: AbilityName  // for feats with a choice ASI
 }
 
 export function getClassAsiLevels(classRecord: ClassData, level: number): number[] {
@@ -269,7 +301,11 @@ export function getClassAsiLevels(classRecord: ClassData, level: number): number
     .sort((a, b) => a - b)
 }
 
-export function isLevelAsiComplete(draft: SetupDraft, data: SetupData): boolean {
+export function isLevelAsiComplete(
+  draft: SetupDraft,
+  data: SetupData,
+  allFeats?: Record<string, FeatData>,
+): boolean {
   if (!draft.classSlug) return true
   const cls = data.classes[draft.classSlug]
   if (!cls) return true
@@ -278,9 +314,24 @@ export function isLevelAsiComplete(draft: SetupDraft, data: SetupData): boolean 
     const choice = draft.levelAsiChoices[i]
     if (!choice) return false
     if (choice.mode === 'asi' && choice.asiAbilities.length < 2) return false
-    if (choice.mode === 'feat' && !choice.featSlug) return false
+    if (choice.mode === 'feat') {
+      if (!choice.featSlug) return false
+      if (allFeats) {
+        const feat = allFeats[choice.featSlug]
+        if (feat && featHasChoiceAsi(feat) && !choice.featAsiAbility) return false
+      }
+    }
   }
   return true
+}
+
+// Stores per-feat ASI choices made during setup (choice ASI feats only)
+export type SetupFeatChoices = Record<string, { asiAbility?: AbilityName }>
+
+export interface ExtraClassDraft {
+  classSlug: string
+  subclassSlug: string
+  level: number
 }
 
 export interface EquipmentChoices {
@@ -318,10 +369,14 @@ export interface SetupDraft {
   spellSlugs: string[]
   // Screen 1 — class ASI/feat picks (one entry per ASI level at or below character level)
   levelAsiChoices: LevelAsiChoice[]
+  // Feat ASI choices made during setup (keyed by feat slug)
+  setupFeatChoices: SetupFeatChoices
   // Screen 4
   equipmentChoices: EquipmentChoices
   // Screen 5
   progressionType: 'xp' | 'milestone'
+  // Multiclassing (Screen 1)
+  extraClasses: ExtraClassDraft[]
 }
 
 export const INITIAL_DRAFT: SetupDraft = {
@@ -350,8 +405,10 @@ export const INITIAL_DRAFT: SetupDraft = {
   cantripSlugs: [],
   spellSlugs: [],
   levelAsiChoices: [],
+  setupFeatChoices: {},
   equipmentChoices: { optionPicks: {}, openPicks: {} },
   progressionType: 'milestone',
+  extraClasses: [],
 }
 
 // ---------------------------------------------------------------------------
@@ -446,15 +503,23 @@ export function getRacialBonuses(
   return bonuses
 }
 
-export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewCharacter {
+export function draftToNewCharacter(
+  draft: SetupDraft,
+  data: SetupData,
+  allFeats?: Record<string, FeatData>,
+): NewCharacter {
   const race = data.races[draft.raceSlug]
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
 
   const racialAbilities = applyRaceAsi(draft.abilities, race, draft.asiChoices)
 
-  // Apply class-level ASI choices
+  // Apply class-level ASI choices and feat stat effects
   const abilities = { ...racialAbilities }
+  const featChoices: Record<string, { asiAbility?: AbilityName }> = {}
+  let featSpeedBonus = 0
+  let featInitiativeBonus = 0
+  const featSaveProficiencies: AbilityName[] = []
   const asiLevels = cls ? getClassAsiLevels(cls, draft.level) : []
   for (let i = 0; i < asiLevels.length; i++) {
     const choice = draft.levelAsiChoices[i]
@@ -462,12 +527,48 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
       for (const ab of choice.asiAbilities) {
         abilities[ab] = Math.min(20, (abilities[ab] ?? 10) + 1)
       }
+    } else if (choice?.mode === 'feat' && choice.featSlug && allFeats) {
+      const feat = allFeats[choice.featSlug]
+      if (feat) {
+        const hasStatEffect = (feat.effects ?? []).length > 0
+        if (choice.featAsiAbility) {
+          featChoices[choice.featSlug] = { asiAbility: choice.featAsiAbility }
+        } else if (hasStatEffect) {
+          featChoices[choice.featSlug] = {}
+        }
+        const delta = computeFeatStatDelta(choice.featSlug, feat, featChoices)
+        if (Object.keys(delta.abilities).length > 0) {
+          const updated = applyFeatAsi(abilities as Abilities, delta.abilities)
+          Object.assign(abilities, updated)
+        }
+        featSpeedBonus += delta.speed
+        featInitiativeBonus += delta.initiativeBonus
+        if (delta.saveProficiency) featSaveProficiencies.push(delta.saveProficiency)
+      }
     }
   }
 
   const conMod = abilityModifier(abilities.con)
   const dieSides = cls ? parseHitDie(cls.hit_die) : 8
-  const maxHp = computeMaxHp(dieSides, draft.level, draft.hpMethod, conMod, draft.hpRolled, draft.hpCustom)
+  const extraClassesForHp = draft.extraClasses.map(ec => ({
+    dieSides: parseHitDie(data.classes[ec.classSlug]?.hit_die ?? 'd8'),
+    level: ec.level,
+  }))
+  const totalLevel = draft.level + draft.extraClasses.reduce((s, c) => s + c.level, 0)
+  const maxHp = computeMulticlassHp(
+    dieSides, draft.level, extraClassesForHp,
+    draft.hpMethod, conMod, draft.hpRolled, draft.hpCustom,
+  )
+
+  // Build classes array: primary + extras
+  const classes = [
+    { classSlug: draft.classSlug, subclassSlug: draft.subclassSlug || null, level: draft.level },
+    ...draft.extraClasses.map(ec => ({
+      classSlug: ec.classSlug,
+      subclassSlug: ec.subclassSlug || null,
+      level: ec.level,
+    })),
+  ]
 
   const skillProficiencies: Partial<Record<SkillName, SkillProficiency>> = {}
   for (const skill of draft.skillProficiencies) {
@@ -478,9 +579,10 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
     if (key) skillProficiencies[key] = 'proficient'
   }
 
-  const savingThrowProficiencies = (cls?.saving_throw_proficiencies ?? [])
-    .map(toAbilityName)
-    .filter(Boolean) as AbilityName[]
+  const savingThrowProficiencies = [
+    ...((cls?.saving_throw_proficiencies ?? []).map(toAbilityName).filter(Boolean) as AbilityName[]),
+    ...featSaveProficiencies.filter(a => !(cls?.saving_throw_proficiencies ?? []).map(toAbilityName).includes(a)),
+  ]
 
   const raceLanguages = race?.base.languages ?? []
   const languages = [...new Set([...raceLanguages, ...draft.languageProficiencies])]
@@ -492,7 +594,8 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
     class: draft.classSlug,
     subclass: draft.subclassSlug || null,
     background: draft.backgroundSlug,
-    level: draft.level,
+    level: totalLevel,
+    classes,
     xp: 0,
     progressionType: draft.progressionType,
     alignment: draft.alignment,
@@ -503,7 +606,8 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
     currentHp: maxHp,
     tempHp: 0,
     armorClass: 10 + abilityModifier(abilities.dex),
-    speed: race?.base.speed ?? 30,
+    speed: (race?.base.speed ?? 30) + featSpeedBonus,
+    initiativeBonus: featInitiativeBonus,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0,
     inspiration: false,
@@ -522,6 +626,7 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
     feats: draft.levelAsiChoices
       .filter(c => c?.mode === 'feat' && c.featSlug)
       .map(c => c.featSlug),
+    featChoices,
     equipment: namesToEquipmentItems([
       ...resolveGrantItems(cls?.starting_equipment ?? [], draft.equipmentChoices),
       ...(bg?.starting_equipment ?? []),
@@ -534,5 +639,68 @@ export function draftToNewCharacter(draft: SetupDraft, data: SetupData): NewChar
         ...draft.toolProficiencies,
       ]),
     ],
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Character → SetupDraft (for the Edit Character flow)
+// ---------------------------------------------------------------------------
+
+export function characterToDraft(
+  character: Character,
+  spellData?: Record<string, SpellData>,
+): SetupDraft {
+  const primaryClass = character.classes?.[0]
+  const primaryLevel = primaryClass?.level ?? character.level
+
+  // Split spells into cantrips vs leveled using spell data when available
+  const cantripSlugs: string[] = []
+  const spellSlugs: string[] = []
+  for (const s of character.spells) {
+    const key = s.slug.replace(/^spell:/, '')
+    if (spellData) {
+      if ((spellData[key]?.level ?? 1) === 0) cantripSlugs.push(key)
+      else spellSlugs.push(key)
+    } else {
+      spellSlugs.push(key)
+    }
+  }
+
+  return {
+    name: character.name,
+    level: primaryLevel,
+    raceSlug: character.race,
+    classSlug: character.class,
+    subclassSlug: primaryClass?.subclassSlug ?? character.subclass ?? '',
+    hpMethod: 'custom',
+    hpCustom: character.maxHp,
+    hpRolled: null,
+    abilityMethod: 'custom',
+    abilities: { ...character.abilities },
+    asiChoices: [],
+    backgroundSlug: character.background,
+    alignment: character.alignment,
+    personalityTraits: character.personalityTraits,
+    ideals: character.ideals,
+    bonds: character.bonds,
+    flaws: character.flaws,
+    backstory: character.backstory,
+    appearance: character.notes?.startsWith('Appearance: ')
+      ? character.notes.slice('Appearance: '.length)
+      : '',
+    languageProficiencies: character.languages,
+    skillProficiencies: Object.keys(character.skillProficiencies) as SkillName[],
+    toolProficiencies: character.toolProficiencies ?? [],
+    cantripSlugs,
+    spellSlugs,
+    levelAsiChoices: [],
+    setupFeatChoices: {},
+    equipmentChoices: { optionPicks: {}, openPicks: {} },
+    progressionType: character.progressionType,
+    extraClasses: (character.classes ?? []).slice(1).map(c => ({
+      classSlug: c.classSlug,
+      subclassSlug: c.subclassSlug ?? '',
+      level: c.level,
+    })),
   }
 }

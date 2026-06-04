@@ -47,11 +47,12 @@ function ResultBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const { entry } = modal
-  const { natural, modifier, total } = entry.result
+  const { natural, natural2, modifier, total } = entry.result
   const isRaw = entry.kind.type === 'raw'
   const isRawD20 = entry.kind.type === 'raw' && entry.kind.die === 20
   const isNat20 = (!isRaw || isRawD20) && natural === 20
   const isNat1 = (!isRaw || isRawD20) && natural === 1
+  const hasAdvantage = natural2 !== undefined
 
   const totalColor = isNat20
     ? 'var(--color-accent-gold)'
@@ -64,13 +65,33 @@ function ResultBody() {
       <p className="text-sm text-muted-foreground">{entry.label}</p>
 
       <div className="flex flex-col items-center gap-1">
+        {hasAdvantage && (
+          <div className="flex items-center gap-3 mb-1">
+            <div className="flex flex-col items-center">
+              <span
+                className="text-3xl font-black tabular-nums"
+                style={{ color: totalColor }}
+              >
+                {natural}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">kept</span>
+            </div>
+            <span className="text-muted-foreground text-lg">|</span>
+            <div className="flex flex-col items-center opacity-40">
+              <span className="text-3xl font-black tabular-nums line-through">
+                {natural2}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">dropped</span>
+            </div>
+          </div>
+        )}
         {!isRaw && modifier !== 0 && (
           <p className="text-xs text-muted-foreground">
             {natural}{modifier >= 0 ? ' + ' : ' − '}{Math.abs(modifier)}
           </p>
         )}
         <span
-          className="text-6xl font-black tabular-nums"
+          className={hasAdvantage ? 'text-5xl font-black tabular-nums' : 'text-6xl font-black tabular-nums'}
           style={{ color: totalColor }}
         >
           {total}

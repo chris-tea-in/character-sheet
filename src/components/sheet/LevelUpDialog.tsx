@@ -4,12 +4,18 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { SelectionList } from '@/components/SelectionList'
+import { DetailPopup } from '@/components/DetailPopup'
 import { StepperField } from './StepperField'
-import { abilityModifier, proficiencyBonus } from '@/lib/dice'
+import { abilityModifier, proficiencyBonus, rollDie } from '@/lib/dice'
 import { parseHitDie, ABILITY_ORDER, ABILITY_SHORT } from '@/lib/characterSetup'
 import { getSpellcastingInfo, getSpellsKnownIncrease, parseClassSlots } from '@/lib/spellcasting'
+import {
+  computeFeatStatDelta, applyFeatAsi, featHasChoiceAsi, featChoiceAsiOptions,
+  meetsFeatPrerequisites, type FeatPrereqContext,
+} from '@/lib/characterStats'
 import { loadFeatsData, loadSpellsData } from '@/lib/data'
 import type { SpellLevel } from '@/lib/spellcasting'
+import type { DieType } from '@/types/dice'
 import type { ClassData, SpellData, FeatData } from '@/types/data'
 import type { AbilityName, Character, NewCharacter } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
@@ -18,13 +24,19 @@ import { cn } from '@/lib/utils'
 interface Props {
   character: Character
   classRecord: ClassData
-  newLevel: number
+  newLevel: number       // new level for THIS class (used for feature/spell lookups)
+  newTotalLevel?: number // new total character level (stored as character.level); defaults to newLevel
   open: boolean
   onClose: () => void
   onApply: (changes: Partial<NewCharacter>) => void
 }
 
 const LEVEL_GROUP_ORDER = ['Cantrip', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
+
+const ABILITY_FROM_FULL: Record<string, AbilityName> = {
+  strength: 'str', dexterity: 'dex', constitution: 'con',
+  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
+}
 
 function spellLevelGroup(level: number): string {
   if (level === 0) return 'Cantrip'
@@ -51,7 +63,8 @@ function Section({ title, children, accent }: { title: string; children: React.R
   )
 }
 
-export function LevelUpDialog({ character, classRecord, newLevel, open, onClose, onApply }: Props) {
+export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel, open, onClose, onApply }: Props) {
+  const storedLevel = newTotalLevel ?? newLevel
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
   const [hpAdd, setHpAdd] = useState(0)
@@ -60,7 +73,9 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
   const [asiChoices, setAsiChoices] = useState<AbilityName[]>([])  // +1 to each chosen (max 2), or +2 to one
   const [asiMode, setAsiMode] = useState<'asi' | 'feat'>('asi')
   const [chosenFeat, setChosenFeat] = useState<string | null>(null)
+  const [featAsiChoice, setFeatAsiChoice] = useState<AbilityName | null>(null)
   const [featPickerOpen, setFeatPickerOpen] = useState(false)
+  const [featDetailOpen, setFeatDetailOpen] = useState(false)
   const [spellBrowseAll, setSpellBrowseAll] = useState(false)
   const [spellPickerOpen, setSpellPickerOpen] = useState(false)
   const [cantripPickerOpen, setCantripPickerOpen] = useState(false)
@@ -70,16 +85,19 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
   const avgHpIncrease = Math.floor(hitDie / 2) + 1 + conMod
 
   const oldProf = proficiencyBonus(character.level)
-  const newProf = proficiencyBonus(newLevel)
+  const newProf = proficiencyBonus(storedLevel)
 
   const newEntry = classRecord.levels?.[String(newLevel)]
   const newFeatures = newEntry?.features ?? []
   const isASILevel = newFeatures.some(f => f.toLowerCase().includes('ability score improvement'))
 
+  // For multiclass characters use this class's own level, not the total character level
+  const currentClassLevel = character.classes?.find(c => c.classSlug === classRecord.slug)?.level ?? character.level
+
   const newSpellInfo = getSpellcastingInfo(classRecord, newLevel)
-  const oldProfile = parseClassSlots(classRecord, character.level)
+  const oldProfile = parseClassSlots(classRecord, currentClassLevel)
   const newProfile = parseClassSlots(classRecord, newLevel)
-  const spellIncrease = getSpellsKnownIncrease(classRecord, character.level, newLevel)
+  const spellIncrease = getSpellsKnownIncrease(classRecord, currentClassLevel, newLevel)
 
   const newMaxSpellLevel = useMemo(() => {
     if (newProfile.kind === 'slots') {
@@ -90,14 +108,30 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
     return 1
   }, [newProfile])
 
+  const featPrereqCtx = useMemo((): FeatPrereqContext => ({
+    level: storedLevel,
+    classSlugs: character.classes.length > 0
+      ? character.classes.map(c => c.classSlug)
+      : [character.class],
+    raceSlug: character.race,
+    abilities: character.abilities,
+    knownFeatSlugs: character.feats,
+    hasSpellcasting: classRecord.spellcasting !== null,
+    hasPactMagic: character.classes.some(c => c.classSlug === 'warlock') || character.class === 'warlock',
+    armorProficiencies: classRecord.armor_proficiencies,
+    weaponProficiencies: classRecord.weapon_proficiencies,
+    backgroundSlug: character.background,
+  }), [storedLevel, character, classRecord])
+
   useEffect(() => {
     if (!open) return
-    setHpAdd(0)
+    setHpAdd(Math.max(1, avgHpIncrease))
     setNewSpells([])
     setNewCantrips([])
     setAsiChoices([])
     setAsiMode('asi')
     setChosenFeat(null)
+    setFeatAsiChoice(null)
     setSpellBrowseAll(false)
     loadSpellsData().then(setAllSpells).catch(() => {})
     loadFeatsData().then(setAllFeats).catch(() => {})
@@ -142,8 +176,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
   const cantripEntries = useMemo(() => buildSpellEntries(0), [allSpells, alreadyKnown, spellBrowseAll, character.class])
 
   function rollHp() {
-    const result = Math.max(1, Math.floor(Math.random() * hitDie) + 1 + conMod)
-    setHpAdd(result)
+    setHpAdd(Math.max(1, rollDie(hitDie as DieType) + conMod))
   }
 
   function toggleAsi(ab: AbilityName) {
@@ -159,7 +192,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
 
   function handleApply() {
     const changes: Partial<NewCharacter> = {
-      level: newLevel,
+      level: storedLevel,
       maxHp: character.maxHp + hpAdd,
       currentHp: character.currentHp + hpAdd,
     }
@@ -176,28 +209,65 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
     // Apply ASI or Feat
     if (isASILevel) {
       if (asiMode === 'feat' && chosenFeat) {
+        const feat = allFeats[chosenFeat]
+        const newFeatChoices = { ...character.featChoices }
+        const hasStatEffect = feat && (feat.effects ?? []).length > 0
+        if (featAsiChoice) {
+          newFeatChoices[chosenFeat] = { asiAbility: featAsiChoice }
+        } else if (hasStatEffect) {
+          newFeatChoices[chosenFeat] = {}  // sentinel: effects were applied via new code
+        }
+        if (feat) {
+          const delta = computeFeatStatDelta(chosenFeat, feat, newFeatChoices)
+          if (Object.keys(delta.abilities).length > 0)
+            changes.abilities = applyFeatAsi(character.abilities, delta.abilities)
+          if (delta.speed !== 0)
+            changes.speed = character.speed + delta.speed
+          if (delta.initiativeBonus !== 0)
+            changes.initiativeBonus = (character.initiativeBonus ?? 0) + delta.initiativeBonus
+          if (delta.saveProficiency && !character.savingThrowProficiencies.includes(delta.saveProficiency))
+            changes.savingThrowProficiencies = [...character.savingThrowProficiencies, delta.saveProficiency]
+        }
         changes.feats = [...character.feats, chosenFeat]
+        changes.featChoices = newFeatChoices
       } else if (asiMode === 'asi' && asiChoices.length > 0) {
         const newAbilities = { ...character.abilities }
         for (const ab of asiChoices) {
-          newAbilities[ab] = Math.min(30, (newAbilities[ab] ?? 10) + 1)
+          newAbilities[ab] = Math.min(20, (newAbilities[ab] ?? 10) + 1)
         }
         changes.abilities = newAbilities
       }
     }
 
-    // Reset used spell slots if profile changed (new slots unlocked)
-    if (newProfile.kind !== 'none') {
+    // Reset used spell slots only when slots actually expanded
+    const slotsExpanded =
+      newProfile.kind !== 'none' && (
+        oldProfile.kind === 'none' ||
+        oldProfile.kind !== newProfile.kind ||
+        (newProfile.kind === 'pact' && oldProfile.kind === 'pact' &&
+          (newProfile.slotCount > oldProfile.slotCount || newProfile.slotLevel > oldProfile.slotLevel)) ||
+        (newProfile.kind === 'slots' && oldProfile.kind === 'slots' &&
+          (Object.entries(newProfile.slotsByLevel) as [string, number][]).some(
+            ([lvl, n]) => n > (oldProfile.slotsByLevel[parseInt(lvl) as SpellLevel] ?? 0),
+          ))
+      )
+    if (slotsExpanded) {
       changes.spellSlotsUsed = {}
     }
 
     onApply(changes)
   }
 
+  const chosenFeatData = chosenFeat ? allFeats[chosenFeat] : null
+  const chosenFeatNeedsAsiChoice = chosenFeatData ? featHasChoiceAsi(chosenFeatData) : false
+  const chosenFeatAsiOptions = chosenFeatData ? featChoiceAsiOptions(chosenFeatData) : []
+
   const spellsStillNeeded = spellIncrease.spells - newSpells.length
   const cantripsStillNeeded = spellIncrease.cantrips - newCantrips.length
   const asiStillNeeded = isASILevel && (
-    asiMode === 'asi' ? asiChoices.length < 2 : chosenFeat === null
+    asiMode === 'asi'
+      ? asiChoices.length < 2
+      : chosenFeat === null || (chosenFeatNeedsAsiChoice && featAsiChoice === null)
   )
   const canApply = spellsStillNeeded <= 0 && cantripsStillNeeded <= 0 && !asiStillNeeded
 
@@ -424,15 +494,59 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
                 {asiMode === 'feat' && (
                   <div className="space-y-2">
                     {chosenFeat ? (
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="text-xs px-2 py-0.5 rounded-full cursor-pointer"
-                          style={{ background: 'var(--color-accent-gold)', color: '#000' }}
-                          onClick={() => setChosenFeat(null)}
-                        >
-                          {allFeats[chosenFeat]?.name ?? chosenFeat} ✕
-                        </span>
-                      </div>
+                      <>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="text-xs px-2 py-0.5 rounded-full font-medium hover:opacity-80 transition-opacity"
+                            style={{ background: 'var(--color-accent-gold)', color: '#000' }}
+                            onClick={() => setFeatDetailOpen(true)}
+                          >
+                            {allFeats[chosenFeat]?.name ?? chosenFeat}
+                          </button>
+                          <span className="flex-1" />
+                          <button
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            onClick={() => setFeatPickerOpen(true)}
+                          >
+                            Change
+                          </button>
+                          <button
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            onClick={() => { setChosenFeat(null); setFeatAsiChoice(null) }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        {chosenFeatNeedsAsiChoice && (
+                          <div className="space-y-1">
+                            <p className="text-xs text-muted-foreground">Choose ability to increase by 1:</p>
+                            <div className="grid grid-cols-3 gap-1">
+                              {chosenFeatAsiOptions.map(opt => {
+                                const ab = ABILITY_FROM_FULL[opt.toLowerCase()]
+                                if (!ab) return null
+                                const current = character.abilities[ab] ?? 10
+                                const selected = featAsiChoice === ab
+                                return (
+                                  <button
+                                    key={opt}
+                                    disabled={current >= 20}
+                                    onClick={() => setFeatAsiChoice(ab)}
+                                    className="text-xs px-2 py-1.5 rounded border transition-colors"
+                                    style={{
+                                      background: selected ? 'var(--color-accent-gold)' : undefined,
+                                      color: selected ? '#000' : undefined,
+                                      borderColor: 'var(--color-border-raw)',
+                                      opacity: current >= 20 ? 0.4 : 1,
+                                    }}
+                                  >
+                                    {ABILITY_SHORT[ab]}{selected && ' +1'}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <button
                         onClick={() => setFeatPickerOpen(true)}
@@ -496,6 +610,9 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
           .filter(([key]) => !character.feats.includes(key))
           .map(([key, feat]) => ({
             slug: key,
+            warning: feat.prerequisites.length && !meetsFeatPrerequisites(feat, featPrereqCtx)
+              ? 'Req not met'
+              : undefined,
             detail: {
               name: feat.name,
               subtitle: feat.prerequisites.length ? `Prerequisite: ${feat.prerequisites.join(', ')}` : undefined,
@@ -503,15 +620,33 @@ export function LevelUpDialog({ character, classRecord, newLevel, open, onClose,
               sections: [],
             },
           }))}
-        value=""
+        value={chosenFeat ?? ''}
         title="Choose Feat"
         open={featPickerOpen}
         onClose={() => setFeatPickerOpen(false)}
         onSelect={key => {
           setChosenFeat(key)
+          setFeatAsiChoice(null)
           setFeatPickerOpen(false)
         }}
       />
+
+      {/* Feat detail popup */}
+      {chosenFeat && chosenFeatData && (
+        <DetailPopup
+          item={{
+            name: chosenFeatData.name,
+            subtitle: chosenFeatData.prerequisites.length
+              ? `Prerequisite: ${chosenFeatData.prerequisites.join(', ')}`
+              : undefined,
+            description: chosenFeatData.description,
+            sections: [],
+          }}
+          mode="view"
+          open={featDetailOpen}
+          onClose={() => setFeatDetailOpen(false)}
+        />
+      )}
     </>
   )
 }

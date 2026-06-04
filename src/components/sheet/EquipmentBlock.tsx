@@ -17,7 +17,37 @@ interface Props {
   catalog: EquipmentData | null
 }
 
-const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary', 'Artifact'] as const
+const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary', 'Artifact', 'Unique'] as const
+
+const ITEM_TYPE_ORDER = [
+  'Rings', 'Rods', 'Scrolls', 'Staffs', 'Wands',
+  'Amulets & Jewelry', 'Bags & Containers', 'Belts',
+  'Books & Tomes', 'Cloaks & Robes', 'Footwear',
+  'Gloves & Bracers', 'Headwear', 'Instruments',
+  'Tattoos', 'Other Wondrous',
+] as const
+
+const WONDROUS_RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary', 'Artifact', 'Varies'] as const
+
+function getWondrousItemType(name: string): string {
+  const n = name.toLowerCase()
+  if (/ring/.test(n) || /signet$/.test(n) || n === 'band of loyalty') return 'Rings'
+  if (/staff/.test(n)) return 'Staffs'
+  if (n.startsWith('wand') || n === 'spindle of fate' || n === 'radiance') return 'Wands'
+  if (/\brod\b/.test(n) || /scepter/.test(n)) return 'Rods'
+  if (/scroll/.test(n)) return 'Scrolls'
+  if (/tattoo/.test(n)) return 'Tattoos'
+  if (/^instrument/.test(n) || /^pipes? of/.test(n) || /lyre/.test(n) || /\bharp\b/.test(n) || /^horn of/.test(n) || /\bdrum\b/.test(n) || /concertina/.test(n)) return 'Instruments'
+  if (/^helm/.test(n) || /^hat/.test(n) || /^headband/.test(n) || /^circlet/.test(n) || /^crown/.test(n) || /^cap /.test(n) || /^goggles/.test(n) || /^mask/.test(n) || n === 'dread helm' || /nimbus coronet/.test(n) || n === 'skull helm' || n === 'peregrine mask') return 'Headwear'
+  if (/^cloak/.test(n) || /^robe/.test(n) || /^cape/.test(n) || /^mantle/.test(n) || /piwafwi/.test(n) || /shroud/.test(n)) return 'Cloaks & Robes'
+  if (/^boots/.test(n) || /^slippers/.test(n) || /^horseshoes/.test(n) || /greaves/.test(n)) return 'Footwear'
+  if (/^gauntlets/.test(n) || /^gloves/.test(n) || /^bracers/.test(n) || /^bracelet/.test(n) || /^bracer/.test(n) || /\bclaws\b/.test(n)) return 'Gloves & Bracers'
+  if (/^belt/.test(n) || /girdle/.test(n)) return 'Belts'
+  if (/^amulet/.test(n) || /^necklace/.test(n) || /^medallion/.test(n) || /^periapt/.test(n) || /^brooch/.test(n) || /^scarab/.test(n) || /^talisman/.test(n) || /^badge/.test(n) || /\binsignia\b/.test(n) || /\bemblem\b/.test(n) || /^charm of/.test(n)) return 'Amulets & Jewelry'
+  if (/^bag/.test(n) || /quiver/.test(n) || /haversack/.test(n) || n === 'portable hole' || n === 'chest of preserving') return 'Bags & Containers'
+  if (/^tome/.test(n) || /^manual/.test(n) || /^book/.test(n) || /^grimoire/.test(n) || /^libram/.test(n) || /^codex/.test(n) || /compendium/.test(n) || /\barchive\b/.test(n) || /treatise/.test(n) || /manuscript/.test(n) || /primer$/.test(n) || /^atlas/.test(n)) return 'Books & Tomes'
+  return 'Other Wondrous'
+}
 
 const CURRENCY_KEYS: Array<{ key: keyof Currency; label: string }> = [
   { key: 'pp', label: 'PP' },
@@ -352,6 +382,57 @@ function MagicItemRow({
   )
 }
 
+function MagicArmorRow({
+  item,
+  armor,
+  onRemove,
+}: {
+  item: EquipmentItem
+  armor: ArmorItem
+  onRemove: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const rarityColor = RARITY_COLORS[armor.rarity ?? ''] ?? 'var(--color-text-muted)'
+
+  return (
+    <div className="border-b border-border last:border-0">
+      <div className="flex items-center gap-2 py-2">
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex-1 text-left text-sm font-medium hover:opacity-75 transition-opacity truncate min-w-0"
+        >
+          {item.name}
+        </button>
+        <div className="flex items-center gap-2 text-xs flex-none">
+          <span className="font-semibold" style={{ color: rarityColor }}>
+            {armor.rarity}
+          </span>
+          {armor.bonus != null && (
+            <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>+{armor.bonus}</span>
+          )}
+          {armor.attunement && (
+            <span className="text-muted-foreground">(Attune)</span>
+          )}
+        </div>
+      </div>
+      {expanded && (
+        <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
+          {armor.description && <p>{armor.description}</p>}
+          <div className="flex justify-end">
+            <button
+              onClick={onRemove}
+              className="flex items-center gap-1 hover:text-destructive transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+              <span>Remove</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function buildWondrousEntries(items: WondrousItem[]): SelectionEntry[] {
   return items.map(w => ({
     slug: w.name,
@@ -360,6 +441,7 @@ function buildWondrousEntries(items: WondrousItem[]): SelectionEntry[] {
       subtitle: `${w.rarity}${w.attunement ? ' · Requires Attunement' : ''}`,
       sections: [
         ...(w.description ? [{ label: 'Description', value: w.description }] : []),
+        ...(w.source ? [{ label: 'Source', value: w.source }] : []),
       ],
     },
     group: w.rarity,
@@ -367,34 +449,71 @@ function buildWondrousEntries(items: WondrousItem[]): SelectionEntry[] {
 }
 
 function buildWeaponEntries(weapons: WeaponItem[]): SelectionEntry[] {
-  return weapons.map(w => ({
-    slug: w.name,
-    detail: {
-      name: w.name,
-      subtitle: `${w.weapon_type} · ${w.damage_dice} ${w.damage_type}`,
-      sections: [
-        { label: 'Properties', value: w.properties.length ? w.properties : ['None'] },
-        ...(w.cost ? [{ label: 'Cost', value: w.cost }] : []),
-      ],
-    },
-    group: w.weapon_type.includes('Simple') ? 'Simple Weapons' : 'Martial Weapons',
-  }))
+  return weapons.map(w => {
+    if (w.magical) {
+      return {
+        slug: w.name,
+        detail: {
+          name: w.name,
+          subtitle: `${w.rarity}${w.bonus != null ? ` · +${w.bonus}` : ''}${w.attunement ? ' · Requires Attunement' : ''}`,
+          sections: [
+            ...(w.base_weapon_type ? [{ label: 'Base Weapon', value: w.base_weapon_type }] : []),
+            ...(w.damage_dice ? [{ label: 'Damage', value: `${w.damage_dice}${w.damage_type ? ` ${w.damage_type}` : ''}` }] : []),
+            ...(w.bonus != null ? [{ label: 'Bonus', value: `+${w.bonus}` }] : []),
+            ...(w.source ? [{ label: 'Source', value: w.source }] : []),
+            ...(w.description ? [{ label: 'Description', value: w.description }] : []),
+            ...(w.special_properties?.length ? [{ label: 'Properties', value: w.special_properties }] : []),
+          ],
+        },
+        group: w.rarity ?? 'Unknown',
+      }
+    }
+    return {
+      slug: w.name,
+      detail: {
+        name: w.name,
+        subtitle: `${w.weapon_type} · ${w.damage_dice} ${w.damage_type}`,
+        sections: [
+          { label: 'Properties', value: w.properties.length ? w.properties : ['None'] },
+          ...(w.cost ? [{ label: 'Cost', value: w.cost }] : []),
+        ],
+      },
+      group: w.weapon_type.includes('Simple') ? 'Simple Weapons' : 'Martial Weapons',
+    }
+  })
 }
 
 function buildArmorEntries(armor: ArmorItem[]): SelectionEntry[] {
-  return armor.map(a => ({
-    slug: a.name,
-    detail: {
-      name: a.name,
-      subtitle: `${a.armor_type} Armor · AC ${a.ac_formula}`,
-      sections: [
-        ...(a.stealth_disadvantage ? [{ label: 'Stealth', value: 'Disadvantage' }] : []),
-        ...(a.strength_requirement ? [{ label: 'STR Required', value: String(a.strength_requirement) }] : []),
-        ...(a.cost ? [{ label: 'Cost', value: a.cost }] : []),
-      ],
-    },
-    group: `${a.armor_type} Armor`,
-  }))
+  return armor.map(a => {
+    if (a.magical) {
+      return {
+        slug: a.name,
+        detail: {
+          name: a.name,
+          subtitle: `${a.rarity}${a.bonus != null ? ` · +${a.bonus}` : ''}${a.attunement ? ' · Requires Attunement' : ''}`,
+          sections: [
+            ...(a.base_armor_type ? [{ label: 'Base Armor', value: a.base_armor_type }] : []),
+            ...(a.source ? [{ label: 'Source', value: a.source }] : []),
+            ...(a.description ? [{ label: 'Description', value: a.description }] : []),
+          ],
+        },
+        group: a.rarity ?? 'Unknown',
+      }
+    }
+    return {
+      slug: a.name,
+      detail: {
+        name: a.name,
+        subtitle: `${a.armor_type} Armor · AC ${a.ac_formula}`,
+        sections: [
+          ...(a.stealth_disadvantage ? [{ label: 'Stealth', value: 'Disadvantage' }] : []),
+          ...(a.strength_requirement ? [{ label: 'STR Required', value: String(a.strength_requirement) }] : []),
+          ...(a.cost ? [{ label: 'Cost', value: a.cost }] : []),
+        ],
+      },
+      group: `${a.armor_type} Armor`,
+    }
+  })
 }
 
 function buildGearEntries(gear: AdventuringGearItem[]): SelectionEntry[] {
@@ -438,6 +557,9 @@ export function EquipmentBlock({ character, classRecord, onSave, catalog }: Prop
   const weaponTabs = useMemo((): TabConfig[] => [
     { label: 'Simple', entries: weaponEntries.filter(e => e.group === 'Simple Weapons') },
     { label: 'Martial', entries: weaponEntries.filter(e => e.group === 'Martial Weapons') },
+    ...RARITY_ORDER
+      .map(r => ({ label: r, entries: weaponEntries.filter(e => e.group === r) }))
+      .filter(t => t.entries.length > 0),
   ], [weaponEntries])
 
   const armorTabs = useMemo((): TabConfig[] => [
@@ -445,13 +567,20 @@ export function EquipmentBlock({ character, classRecord, onSave, catalog }: Prop
     { label: 'Medium', entries: armorEntries.filter(e => e.group === 'Medium Armor') },
     { label: 'Heavy', entries: armorEntries.filter(e => e.group === 'Heavy Armor') },
     { label: 'Shield', entries: armorEntries.filter(e => e.group === 'Shield Armor') },
+    ...RARITY_ORDER
+      .map(r => ({ label: r, entries: armorEntries.filter(e => e.group === r) }))
+      .filter(t => t.entries.length > 0),
   ].filter(t => t.entries.length > 0), [armorEntries])
 
   const itemsTabs = useMemo((): TabConfig[] => {
-    const rarityTabs = RARITY_ORDER
-      .map(rarity => ({ label: rarity, entries: wondrousEntries.filter(e => e.group === rarity) }))
+    const typeTabs = ITEM_TYPE_ORDER
+      .map(type => ({
+        label: type,
+        entries: wondrousEntries.filter(e => getWondrousItemType(e.slug) === type),
+        groupOrder: [...WONDROUS_RARITY_ORDER],
+      }))
       .filter(t => t.entries.length > 0)
-    return [{ label: 'Gear', entries: gearEntries }, ...rarityTabs]
+    return [{ label: 'Gear', entries: gearEntries }, ...typeTabs]
   }, [gearEntries, wondrousEntries])
 
   const weaponItems = character.equipment.filter(
@@ -558,14 +687,9 @@ export function EquipmentBlock({ character, classRecord, onSave, catalog }: Prop
             {armorItems.map(item => {
               const armor = armorByName.get(item.name.toLowerCase())
               if (armor) {
-                return (
-                  <ArmorRow
-                    key={item.id}
-                    item={item}
-                    armor={armor}
-                    onRemove={() => removeItem(item.id)}
-                  />
-                )
+                return armor.magical
+                  ? <MagicArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} />
+                  : <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} />
               }
               const wondrousItem = wondrousItemByName.get(item.name.toLowerCase())
               if (wondrousItem) {

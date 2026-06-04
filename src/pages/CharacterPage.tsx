@@ -25,6 +25,8 @@ import {
   subclassToDetailItem, backgroundToDetailItem, getRacialBonuses,
   slugToTitle, ABILITY_ORDER, ABILITY_LABELS,
 } from '@/lib/characterSetup'
+import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
+import type { CasterKind } from '@/lib/spellcasting'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { ALL_LANGUAGES, toSkillName } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
@@ -413,7 +415,15 @@ export default function CharacterPage() {
   const [racePrompt, setRacePrompt] = useState<RacePrompt | null>(null)
   const [classPrompt, setClassPrompt] = useState<ClassData | null>(null)
   const [backgroundPrompt, setBackgroundPrompt] = useState<Background | null>(null)
-  const [levelUpTarget, setLevelUpTarget] = useState<number | null>(null)
+  const [levelUpTarget, setLevelUpTarget] = useState<{
+    classIdx: number
+    newClassLevel: number
+    newTotalLevel: number
+    newClassSlug?: string  // set when adding a brand-new class (multiclassing)
+  } | null>(null)
+  const [levelPickerPending, setLevelPickerPending] = useState<number | null>(null)
+  const [addClassOpen, setAddClassOpen] = useState(false)
+  const [addClassTotalLevel, setAddClassTotalLevel] = useState<number | null>(null)
 
   useEffect(() => {
     loadSetupData()
@@ -449,8 +459,39 @@ export default function CharacterPage() {
   }
 
   const hitDie = classRecord ? parseHitDie(classRecord.hit_die) : 8
-  // Use slugToTitle since classData.name is always "DND 5th Edition"
-  const displayClass = character.class ? slugToTitle(character.class) : null
+
+  // Primary class level (classes[0].level, or character.level for single-class legacy)
+  const primaryClassLevel = character.classes?.length
+    ? (character.classes[0]?.level ?? character.level)
+    : character.level
+
+  // Multiclass slot override — null when single-class (SpellBlock uses per-class slots)
+  const multiclassSlotProfile = character.classes?.length > 1
+    ? computeMulticlassSlots(character.classes)
+    : null
+
+  // When multiclassed, derive casterKind from the actual spellcasting classes (not just primary)
+  const multiclassCasterKind = useMemo((): CasterKind | undefined => {
+    if (!multiclassSlotProfile || !setupData || !character.classes?.length) return undefined
+    for (const c of character.classes) {
+      const rec = setupData.classes[c.classSlug]
+      if (!rec) continue
+      if (getSpellcastingInfo(rec, c.level).casterKind === 'prepared') return 'prepared'
+    }
+    return undefined
+  }, [multiclassSlotProfile, setupData, character.classes])
+
+  // Build class display string:
+  //   single class → "Fighter" (header appends level separately)
+  //   multiclass   → "Fighter 3 / Wizard 2" (levels embedded, header omits total)
+  const displayClass = useMemo(() => {
+    const classes = character.classes ?? []
+    if (classes.length > 1) {
+      return classes.map(c => `${slugToTitle(c.classSlug)} ${c.level}`).join(' / ')
+    }
+    return character.class ? slugToTitle(character.class) : null
+  }, [character.classes, character.class])
+
   const displayRace = character.race
     ? (setupData?.races[character.race]?.name ?? slugToTitle(character.race))
     : null
@@ -532,11 +573,26 @@ export default function CharacterPage() {
 
   function handleLevelChange(v: number) {
     if (!character) return
-    if (v > character.level && classRecord) {
-      setLevelUpTarget(v)
+    if (v > character.level) {
+      // Always show the class picker so the user can level an existing class or multiclass
+      setLevelPickerPending(v)
     } else {
       save({ level: v })
     }
+  }
+
+  function handleClassLevelPick(classIdx: number) {
+    if (levelPickerPending === null || !character) return
+    const chosen = character.classes[classIdx]
+    const cls = setupData?.classes[chosen.classSlug]
+    if (cls) {
+      setLevelUpTarget({
+        classIdx,
+        newClassLevel: chosen.level + 1,
+        newTotalLevel: levelPickerPending,
+      })
+    }
+    setLevelPickerPending(null)
   }
 
   return (
@@ -553,10 +609,17 @@ export default function CharacterPage() {
           <div className="flex-1 min-w-0">
             <p className="text-xl font-bold leading-tight truncate">{character.name}</p>
             <p className="text-sm text-muted-foreground mt-0.5 truncate">
-              {displayClass ?? '—'} {character.level}
+              {displayClass ?? '—'}
+              {(character.classes?.length ?? 0) <= 1 && ` ${character.level}`}
               {displayRace ? ` · ${displayRace}` : ''}
             </p>
           </div>
+          <button
+            onClick={() => navigate(`/character/${id}/edit`)}
+            className="flex-none text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border border-border"
+          >
+            Edit
+          </button>
         </div>
       </header>
 
@@ -575,11 +638,33 @@ export default function CharacterPage() {
           />
 
           <AbilityBlock character={character} onSave={save} />
-          <CombatBlock character={character} onSave={save} hitDie={hitDie} catalog={equipmentCatalog} />
+          <CombatBlock
+            character={character}
+            onSave={save}
+            hitDie={hitDie}
+            catalog={equipmentCatalog}
+            classHitDice={character.classes?.length > 1
+              ? character.classes.map(c => ({
+                  hitDie: setupData?.classes[c.classSlug]
+                    ? parseHitDie(setupData.classes[c.classSlug].hit_die)
+                    : hitDie,
+                  level: c.level,
+                }))
+              : undefined}
+          />
           <ProficienciesBlock character={character} classRecord={classRecord} catalog={equipmentCatalog} onSave={save} />
           <FeatsBlock character={character} onSave={save} />
           <EquipmentBlock character={character} classRecord={classRecord} onSave={save} catalog={equipmentCatalog} />
-          {classRecord && <SpellBlock character={character} classRecord={classRecord} onSave={save} />}
+          {classRecord && (
+            <SpellBlock
+              character={character}
+              classRecord={classRecord}
+              classLevel={primaryClassLevel}
+              overrideSlotProfile={multiclassSlotProfile ?? undefined}
+              overrideCasterKind={multiclassCasterKind}
+              onSave={save}
+            />
+          )}
           <DescriptionBlock character={character} onSave={save} />
 
         </div>
@@ -628,6 +713,28 @@ export default function CharacterPage() {
         onSelect={slug => { save({ alignment: slug }); setActiveList(null) }}
       />
 
+      {/* New-class picker — triggered from the level-up class picker */}
+      <SelectionList
+        entries={classEntries.filter(e =>
+          !character.classes.some(c => c.classSlug === e.slug)
+        )}
+        value=""
+        title="Add New Class"
+        open={addClassOpen}
+        onClose={() => setAddClassOpen(false)}
+        onSelect={slug => {
+          const newTotal = addClassTotalLevel ?? character.level + 1
+          setLevelUpTarget({
+            classIdx: character.classes.length,
+            newClassLevel: 1,
+            newTotalLevel: newTotal,
+            newClassSlug: slug,
+          })
+          setAddClassOpen(false)
+          setAddClassTotalLevel(null)
+        }}
+      />
+
       {racePrompt && (
         <RacePromptDialog
           prompt={racePrompt}
@@ -663,18 +770,82 @@ export default function CharacterPage() {
         />
       )}
 
-      {levelUpTarget !== null && classRecord && (
-        <LevelUpDialog
-          character={character}
-          classRecord={classRecord}
-          newLevel={levelUpTarget}
-          open={levelUpTarget !== null}
-          onClose={() => setLevelUpTarget(null)}
-          onApply={changes => {
-            save(changes)
-            setLevelUpTarget(null)
-          }}
-        />
+      {levelUpTarget !== null && (() => {
+        const slug = levelUpTarget.newClassSlug ?? character.classes?.[levelUpTarget.classIdx]?.classSlug
+        const targetRecord = slug ? (setupData?.classes[slug] ?? null) : classRecord
+        if (!targetRecord) return null
+        return (
+          <LevelUpDialog
+            character={character}
+            classRecord={targetRecord}
+            newLevel={levelUpTarget.newClassLevel}
+            newTotalLevel={levelUpTarget.newTotalLevel}
+            open
+            onClose={() => setLevelUpTarget(null)}
+            onApply={changes => {
+              let updatedClasses = character.classes ?? []
+              if (levelUpTarget.newClassSlug) {
+                // Adding a brand-new class at level 1
+                updatedClasses = [
+                  ...updatedClasses,
+                  { classSlug: levelUpTarget.newClassSlug, subclassSlug: null, level: 1 },
+                ]
+              } else {
+                // Leveling up an existing class
+                updatedClasses = updatedClasses.map((c, i) =>
+                  i === levelUpTarget.classIdx ? { ...c, level: levelUpTarget.newClassLevel } : c
+                )
+              }
+              save({ ...changes, classes: updatedClasses })
+              setLevelUpTarget(null)
+            }}
+          />
+        )
+      })()}
+
+      {/* Level-up class picker: choose which class gains the level, or add a new one */}
+      {levelPickerPending !== null && (
+        <Dialog open onOpenChange={o => !o && setLevelPickerPending(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Level Up — Choose Class</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <p className="text-sm text-muted-foreground mb-3">Which class gains a level?</p>
+              {character.classes.map((c, idx) => {
+                const cls = setupData?.classes[c.classSlug]
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleClassLevelPick(idx)}
+                    disabled={!cls}
+                    className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-secondary transition-colors disabled:opacity-40"
+                  >
+                    <span className="font-medium">{slugToTitle(c.classSlug)}</span>
+                    <span className="text-sm text-muted-foreground ml-2">
+                      Level {c.level} → {c.level + 1}
+                    </span>
+                  </button>
+                )
+              })}
+              {character.level < 20 && (
+                <button
+                  onClick={() => {
+                    setAddClassTotalLevel(levelPickerPending)
+                    setLevelPickerPending(null)
+                    setAddClassOpen(true)
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-lg border border-dashed border-border hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                >
+                  + Add new class (multiclass)
+                </button>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setLevelPickerPending(null)}>Cancel</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       <DiceTray character={character} />
@@ -767,22 +938,44 @@ function IdentitySection({
       </h2>
       <div className="rounded-lg border border-border bg-card divide-y divide-border">
 
-        <IdentityRow label="Class">
-          <IdentityButton
-            value={displayClass}
-            placeholder="Choose class…"
-            onClick={() => handleIdentityClick('class')}
-          />
-        </IdentityRow>
+        {(character.classes?.length ?? 0) > 1 ? (
+          <>
+            {character.classes.map((ce, idx) => {
+              const subName = ce.subclassSlug
+                ? (setupData?.subclasses[`${ce.classSlug}:${ce.subclassSlug}`]?.name ?? slugToTitle(ce.subclassSlug))
+                : null
+              return (
+                <IdentityRow key={idx} label={idx === 0 ? 'Classes' : ''}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{slugToTitle(ce.classSlug)} {ce.level}</span>
+                    {subName && (
+                      <span className="text-xs text-muted-foreground">({subName})</span>
+                    )}
+                  </div>
+                </IdentityRow>
+              )
+            })}
+          </>
+        ) : (
+          <>
+            <IdentityRow label="Class">
+              <IdentityButton
+                value={displayClass}
+                placeholder="Choose class…"
+                onClick={() => handleIdentityClick('class')}
+              />
+            </IdentityRow>
 
-        {subclassEntries.length > 0 && (
-          <IdentityRow label="Subclass">
-            <IdentityButton
-              value={displaySubclass}
-              placeholder="Choose subclass…"
-              onClick={() => handleIdentityClick('subclass')}
-            />
-          </IdentityRow>
+            {subclassEntries.length > 0 && (
+              <IdentityRow label="Subclass">
+                <IdentityButton
+                  value={displaySubclass}
+                  placeholder="Choose subclass…"
+                  onClick={() => handleIdentityClick('subclass')}
+                />
+              </IdentityRow>
+            )}
+          </>
         )}
 
         <IdentityRow label="Race">

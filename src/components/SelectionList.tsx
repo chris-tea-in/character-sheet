@@ -120,22 +120,40 @@ export function SelectionList({
     [tabs, activeTab, groupOrder],
   )
 
+  const slugToTab = useMemo(() => {
+    if (!tabs) return new Map<string, string>()
+    const m = new Map<string, string>()
+    for (const tab of tabs) {
+      for (const entry of tab.entries) m.set(entry.slug, tab.label)
+    }
+    return m
+  }, [tabs])
+
+  const isGlobalSearch = search.length > 0 && !!tabs && tabs.length > 1
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
-    const result = activeEntries.filter((e) =>
-      e.detail.name.toLowerCase().includes(q),
-    )
+    const pool = isGlobalSearch ? tabs!.flatMap((t) => t.entries) : activeEntries
+    const result = pool.filter((e) => e.detail.name.toLowerCase().includes(q))
     result.sort((a, b) => {
-      const aWarned = !!a.warning
-      const bWarned = !!b.warning
-      if (aWarned !== bWarned) return aWarned ? 1 : -1
       const cmp = a.detail.name.localeCompare(b.detail.name)
       return sort === 'a-z' ? cmp : -cmp
     })
     return result
-  }, [activeEntries, search, sort])
+  }, [activeEntries, search, sort, isGlobalSearch, tabs])
 
   const grouped = useMemo(() => {
+    if (isGlobalSearch && tabs) {
+      const tabOrder = tabs.map((t) => t.label)
+      const buckets = new Map<string, SelectionEntry[]>(tabOrder.map((l) => [l, []]))
+      for (const entry of filtered) {
+        const label = slugToTab.get(entry.slug) ?? tabOrder[0]
+        buckets.get(label)?.push(entry)
+      }
+      return tabOrder
+        .map((label) => ({ label, entries: buckets.get(label) ?? [] }))
+        .filter((g) => g.entries.length > 0)
+    }
     if (!activeGroupOrder || !activeEntries.some((e) => e.group != null)) return null
     const buckets = new Map<string, SelectionEntry[]>(activeGroupOrder.map((g) => [g, []]))
     for (const entry of filtered) {
@@ -145,7 +163,7 @@ export function SelectionList({
     return activeGroupOrder
       .map((label) => ({ label, entries: buckets.get(label) ?? [] }))
       .filter((g) => g.entries.length > 0)
-  }, [filtered, activeEntries, activeGroupOrder])
+  }, [filtered, activeEntries, activeGroupOrder, isGlobalSearch, tabs, slugToTab])
 
   function openDetail(entry: SelectionEntry) {
     setFocused(entry)
@@ -213,7 +231,7 @@ export function SelectionList({
                       onClick={() => { setActiveTab(i); setSearch('') }}
                       className={cn(
                         'px-2.5 py-0.5 text-xs rounded-md font-medium transition-colors',
-                        activeTab === i
+                        !isGlobalSearch && activeTab === i
                           ? 'bg-secondary text-foreground'
                           : 'text-muted-foreground hover:text-foreground',
                       )}

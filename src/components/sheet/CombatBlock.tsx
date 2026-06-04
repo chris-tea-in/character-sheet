@@ -13,6 +13,7 @@ interface Props {
   onSave: (changes: Partial<NewCharacter>) => void
   hitDie: number
   catalog: EquipmentData | null
+  classHitDice?: Array<{ hitDie: number; level: number }>  // per-class hit dice for multiclass display
 }
 
 function StatCard({
@@ -101,8 +102,12 @@ function HpSection({
             Max HP
           </span>
           <StepperField
-            value={maxHp}
-            onSave={v => onSave({ maxHp: Math.max(1, v), currentHp: Math.min(currentHp, v) })}
+            value={adjustedMaxHp}
+            onSave={v => {
+              const featBonus = adjustedMaxHp - maxHp
+              const newBase = Math.max(1, v - featBonus)
+              onSave({ maxHp: newBase, currentHp: Math.min(currentHp, v) })
+            }}
             min={1}
             max={999}
             size="sm"
@@ -225,9 +230,9 @@ function DeathSaves({
   )
 }
 
-export function CombatBlock({ character, onSave, hitDie, catalog }: Props) {
+export function CombatBlock({ character, onSave, hitDie, catalog, classHitDice }: Props) {
   const { dispatch } = useRollDispatch(character)
-  const initMod = abilityModifier(character.abilities.dex)
+  const initMod = abilityModifier(character.abilities.dex) + (character.initiativeBonus ?? 0)
   const pb = proficiencyBonus(character.level)
   const totalHitDice = character.level
   const { effectiveAC, adjustedMaxHp } = deriveCharacterStats(character, catalog ?? undefined)
@@ -299,7 +304,9 @@ export function CombatBlock({ character, onSave, hitDie, catalog }: Props) {
       <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
         <div className="flex-1 space-y-1">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Hit Dice (d{hitDie})
+            Hit Dice{classHitDice && classHitDice.length > 1
+              ? ` (${classHitDice.map(c => `${c.level}d${c.hitDie}`).join(' + ')})`
+              : ` (d${hitDie})`}
           </p>
           <div className="flex items-center gap-2">
             <StepperField

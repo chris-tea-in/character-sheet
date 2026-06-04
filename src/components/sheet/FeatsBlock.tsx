@@ -1,9 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import { loadFeatsData } from '@/lib/data'
+import { computeFeatHpBonus, computeFeatStatDelta, applyFeatAsi, unapplyFeatAsi, featHasChoiceAsi, featChoiceAsiOptions, hasFeatStatEffect } from '@/lib/characterStats'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import type { FeatData } from '@/types/data'
-import type { Character, NewCharacter } from '@/types/character'
+import type { Character, NewCharacter, AbilityName } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
 
@@ -35,9 +38,14 @@ const RACE_PREREQ_MAP: Record<string, string[]> = {
   'dwarf or a small race': ['dwarf', 'duergar', 'gnome', 'deep-gnome', 'halfling'],
 }
 
-const ABILITY_NAME_MAP: Record<string, keyof import('@/types/character').Abilities> = {
+const ABILITY_NAME_MAP: Record<string, AbilityName> = {
   strength: 'str', dexterity: 'dex', constitution: 'con',
   intelligence: 'int', wisdom: 'wis', charisma: 'cha',
+}
+
+const ABILITY_LABELS: Record<AbilityName, string> = {
+  str: 'Strength', dex: 'Dexterity', con: 'Constitution',
+  int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma',
 }
 
 const CLASS_PREREQ_MAP: Record<string, string> = {
@@ -56,32 +64,25 @@ function meetsPrereq(prereq: string, character: Character, allFeats: Record<stri
   const p = prereq.trim()
   const pl = p.toLowerCase()
 
-  // Fragment from split entries like "Dexterity 13, higher"
   if (pl === 'higher') return true
 
-  // Level: "4th Level", "8th Level"
   const levelMatch = p.match(/^(\d+)(?:st|nd|rd|th)\s+level$/i)
   if (levelMatch) return character.level >= parseInt(levelMatch[1])
 
-  // Ability score: "Strength 13", "Dexterity 13", "Wisdom of 13"
   const abilityMatch = p.match(/^(strength|dexterity|constitution|intelligence|wisdom|charisma)\s+(?:of\s+)?(\d+)$/i)
   if (abilityMatch) {
     const key = ABILITY_NAME_MAP[abilityMatch[1].toLowerCase()]
     return key ? character.abilities[key] >= parseInt(abilityMatch[2]) : true
   }
 
-  // Race
   const raceSlugs = RACE_PREREQ_MAP[pl]
   if (raceSlugs) return raceSlugs.includes(character.race)
 
-  // Class
   const classSlug = CLASS_PREREQ_MAP[pl]
   if (classSlug) return character.class === classSlug
 
-  // Spellcasting
   if (SPELLCASTING_PREREQS.has(pl)) return CASTER_CLASSES.has(character.class)
 
-  // Feat chain: "Initiate of High Sorcery Feat", "Squire of Solamnia Feat."
   const featChainMatch = p.match(/^(.+?)\s+feat\.?$/i)
   if (featChainMatch) {
     const targetName = featChainMatch[1].toLowerCase()
@@ -91,7 +92,6 @@ function meetsPrereq(prereq: string, character: Character, allFeats: Record<stri
     return requiredSlug ? character.feats.includes(requiredSlug) : true
   }
 
-  // Unknown prerequisite — assume met to avoid false negatives
   return true
 }
 
@@ -112,6 +112,7 @@ export function FeatsBlock({ character, onSave }: Props) {
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
   const [pickerOpen, setPickerOpen] = useState(false)
   const [viewingKey, setViewingKey] = useState<string | null>(null)
+  const [pendingFeatSlug, setPendingFeatSlug] = useState<string | null>(null)
 
   useEffect(() => {
     loadFeatsData().then(setAllFeats).catch(() => {})
@@ -135,13 +136,74 @@ export function FeatsBlock({ character, onSave }: Props) {
     return feat ? featToDetailItem(viewingKey, feat) : null
   }, [viewingKey, allFeats])
 
-  function addFeat(key: string) {
-    onSave({ feats: [...character.feats, key] })
+  const pendingFeat = pendingFeatSlug ? allFeats[pendingFeatSlug] : null
+  const pendingChoiceOptions = pendingFeat ? featChoiceAsiOptions(pendingFeat) : []
+
+  function handleFeatSelect(key: string) {
+    const feat = allFeats[key]
     setPickerOpen(false)
+    if (feat && featHasChoiceAsi(feat)) {
+      setPendingFeatSlug(key)
+    } else {
+      confirmAddFeat(key, undefined)
+    }
+  }
+
+  function confirmAddFeat(key: string, chosenAbility: AbilityName | undefined) {
+    const feat = allFeats[key]
+    if (!feat) return
+
+    const newFeatChoices = { ...character.featChoices }
+    if (chosenAbility) {
+      newFeatChoices[key] = { asiAbility: chosenAbility }
+    } else if (hasFeatStatEffect(feat)) {
+      newFeatChoices[key] = {}  // sentinel: effects were applied via new code
+    }
+
+    const delta = computeFeatStatDelta(key, feat, newFeatChoices)
+    const changes: Partial<NewCharacter> = {
+      feats: [...character.feats, key],
+      featChoices: newFeatChoices,
+    }
+    if (Object.keys(delta.abilities).length > 0)
+      changes.abilities = applyFeatAsi(character.abilities, delta.abilities)
+    if (delta.speed !== 0)
+      changes.speed = character.speed + delta.speed
+    if (delta.initiativeBonus !== 0)
+      changes.initiativeBonus = (character.initiativeBonus ?? 0) + delta.initiativeBonus
+    if (delta.saveProficiency && !character.savingThrowProficiencies.includes(delta.saveProficiency))
+      changes.savingThrowProficiencies = [...character.savingThrowProficiencies, delta.saveProficiency]
+
+    onSave(changes)
+    setPendingFeatSlug(null)
   }
 
   function removeFeat(key: string) {
-    onSave({ feats: character.feats.filter(f => f !== key) })
+    const feat = allFeats[key]
+    const newFeatChoices = { ...character.featChoices }
+    delete newFeatChoices[key]
+
+    const changes: Partial<NewCharacter> = {
+      feats: character.feats.filter(f => f !== key),
+      featChoices: newFeatChoices,
+    }
+    // Only unapply if featChoices has a record — meaning effects were applied via new code.
+    if (feat && character.featChoices[key] !== undefined) {
+      const delta = computeFeatStatDelta(key, feat, character.featChoices)
+      if (Object.keys(delta.abilities).length > 0)
+        changes.abilities = unapplyFeatAsi(character.abilities, delta.abilities)
+      if (delta.speed !== 0)
+        changes.speed = character.speed - delta.speed
+      if (delta.initiativeBonus !== 0)
+        changes.initiativeBonus = (character.initiativeBonus ?? 0) - delta.initiativeBonus
+      if (delta.saveProficiency)
+        changes.savingThrowProficiencies = character.savingThrowProficiencies.filter(a => a !== delta.saveProficiency)
+    }
+
+    const newFeats = changes.feats!
+    const newAdjustedMax = character.maxHp + computeFeatHpBonus(newFeats, character.level)
+    changes.currentHp = Math.min(character.currentHp, newAdjustedMax)
+    onSave(changes)
   }
 
   return (
@@ -192,7 +254,7 @@ export function FeatsBlock({ character, onSave }: Props) {
         title="Choose Feat"
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={addFeat}
+        onSelect={handleFeatSelect}
       />
 
       <DetailPopup
@@ -201,6 +263,39 @@ export function FeatsBlock({ character, onSave }: Props) {
         open={viewingKey !== null}
         onClose={() => setViewingKey(null)}
       />
+
+      {/* Choice ASI dialog */}
+      <Dialog open={pendingFeatSlug !== null} onOpenChange={o => !o && setPendingFeatSlug(null)}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--color-accent-gold)' }}>
+              {pendingFeat?.name ?? ''}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mb-3">
+            Choose which ability score to increase by 1:
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {pendingChoiceOptions.map(opt => {
+              const ab = ABILITY_NAME_MAP[opt.toLowerCase()]
+              if (!ab) return null
+              const current = character.abilities[ab]
+              return (
+                <Button
+                  key={opt}
+                  variant="outline"
+                  className="flex flex-col h-auto py-2"
+                  disabled={current >= 20}
+                  onClick={() => pendingFeatSlug && confirmAddFeat(pendingFeatSlug, ab)}
+                >
+                  <span className="text-sm font-semibold">{ABILITY_LABELS[ab]}</span>
+                  <span className="text-xs text-muted-foreground">{current} → {Math.min(20, current + 1)}</span>
+                </Button>
+              )
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

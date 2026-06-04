@@ -220,7 +220,7 @@ Defined in [src/styles/globals.css](src/styles/globals.css):
 | 8 | Character sheet view — dice tray, ability/skill/save rolls, SpellBlock (slot pip tracker + spell list + prepared toggle), weapon cards (attack roll, STR/DEX/finesse + proficiency), spell attack rolls; class-specific weapon extras (e.g. Warlock Agonizing Blast) not implemented | Done |
 | 9 | Export / import (full DB + single-character JSON) | Pending |
 | 10 | @media print CSS layer | Pending |
-| 11 | Deployment & sharing (choose Path A or Path B — see Pre-conditions) | Pending |
+| 11 | Deployment: Cloudflare Pages (Wrangler direct upload) + Cloudflare Zero Trust Access for friend-group access control — see Pre-conditions | Pending |
 
 ## Pre-conditions & Hazards
 
@@ -334,6 +334,56 @@ Full-DB import must run the migration runner on the incoming blob **before** wri
 
 ### Step 10 — Print CSS
 Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` level. Add `@media print { display: none !important }` targeting dialog overlay, dialog content, and popover content elements — they will not hide automatically.
+
+### Step 11 — Deployment
+
+**Approach: Wrangler direct upload → Cloudflare Pages + Cloudflare Zero Trust Access**
+
+`data/` and `public/data/` are both gitignored — git-connected CI/CD cannot build this project (the source data won't exist on the cloud runner). Always build locally where `data/` exists, then upload `dist/` directly via Wrangler CLI.
+
+#### One-time setup
+
+1. **Install Wrangler CLI and authenticate**
+   ```bash
+   npm install -g wrangler
+   wrangler login   # opens browser OAuth — sign in to Cloudflare account
+   ```
+
+2. **Build and deploy**
+   ```bash
+   npm run build
+   wrangler pages deploy dist/ --project-name dnd-character-sheet
+   ```
+   First run creates the project and returns `https://dnd-character-sheet.pages.dev`. No `wrangler.toml` needed — the `--project-name` flag is sufficient.
+
+3. **Set up Cloudflare Zero Trust Access**
+   - Go to `https://one.dash.cloudflare.com` → Access → Applications → Add an application
+   - Type: **Self-hosted**
+   - Application domain: `dnd-character-sheet.pages.dev`, Path: blank (protects entire domain, including `/data/*.json`)
+   - Policy: Action = Allow, rule = Emails → enter each friend's email address
+   - Session duration: 24 hours or 1 week (so friends don't re-auth every visit)
+   - Enable One-time PIN as an identity provider if any friend lacks Google/GitHub
+   - Free tier allows up to 50 users in Zero Trust
+
+#### Verification — do this before sharing the URL
+
+```bash
+curl -I https://dnd-character-sheet.pages.dev/data/classes.json
+```
+
+**Expected (correct):** `HTTP/2 302` redirecting to the Cloudflare Access login page.
+
+**Wrong (misconfigured):** `HTTP/2 200` with `content-type: application/json` — the data files are unprotected. If this happens, verify the Access Application domain exactly matches the Pages URL and the policy is set to Allow only the allowlisted emails.
+
+#### Redeployment (any future update)
+```bash
+npm run build
+wrangler pages deploy dist/ --project-name dnd-character-sheet
+```
+
+#### Notes
+- PWA `CacheFirst` strategy caches `/data/*.json` after the first authenticated visit. Subsequent loads serve from the browser cache — this is not an auth bypass, the initial fetch was gated.
+- Custom domain: add a domain to Cloudflare DNS and CNAME it at the Pages deployment if a cleaner URL is wanted. Cloudflare Access works identically on custom domains.
 
 ## Reference Data Notes
 

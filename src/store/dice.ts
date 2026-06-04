@@ -8,15 +8,16 @@ const MAX_ROLLS = 50
 
 function buildLabel(kind: RollKind, modifier: number): string {
   const sign = modifier >= 0 ? '+' : ''
+  const adv = 'advantage' in kind && kind.advantage === true ? ' [Adv]' : 'advantage' in kind && kind.advantage === false ? ' [Dis]' : ''
   switch (kind.type) {
     case 'raw':
       return `d${kind.die}`
     case 'skill':
-      return `${SKILL_DISPLAY_MAP[kind.skill]} (${SKILL_ABILITY_MAP[kind.skill].toUpperCase()} ${sign}${modifier})`
+      return `${SKILL_DISPLAY_MAP[kind.skill]} (${SKILL_ABILITY_MAP[kind.skill].toUpperCase()} ${sign}${modifier})${adv}`
     case 'save':
-      return `${kind.ability.toUpperCase()} save (${sign}${modifier})`
+      return `${kind.ability.toUpperCase()} save (${sign}${modifier})${adv}`
     case 'ability':
-      return `${kind.ability.toUpperCase()} check (${sign}${modifier})`
+      return `${kind.ability.toUpperCase()} check (${sign}${modifier})${adv}`
     case 'attack':
       return `${kind.label} (${sign}${modifier})`
   }
@@ -49,7 +50,12 @@ export const useDiceStore = create<DiceState>()((set) => ({
   modal: null,
 
   roll: (kind, character) => {
-    const natural = kind.type === 'raw' ? rollDie(kind.die) : rollDie(20)
+    const d1 = kind.type === 'raw' ? rollDie(kind.die) : rollDie(20)
+    const hasAdvantage = kind.type !== 'raw' && kind.type !== 'attack' && kind.advantage === true
+    const hasDisadvantage = kind.type !== 'raw' && kind.type !== 'attack' && kind.advantage === false
+    const d2 = (hasAdvantage || hasDisadvantage) ? rollDie(20) : undefined
+    const natural = d2 !== undefined ? (hasAdvantage ? Math.max(d1, d2) : Math.min(d1, d2)) : d1
+    const natural2 = d2 !== undefined ? (hasAdvantage ? Math.min(d1, d2) : Math.max(d1, d2)) : undefined
 
     let modifier = 0
     if (kind.type === 'skill') {
@@ -73,7 +79,7 @@ export const useDiceStore = create<DiceState>()((set) => ({
     const entry: RollEntry = {
       id:        generateId(),
       kind,
-      result:    { natural, modifier, total: natural + modifier },
+      result:    { natural, natural2, modifier, total: natural + modifier },
       label:     buildLabel(kind, modifier),
       timestamp: Date.now(),
     }
