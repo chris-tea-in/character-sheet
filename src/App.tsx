@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import CharacterListPage from './pages/CharacterListPage'
+import CreateCharacterPage from './pages/CreateCharacterPage'
+import CharacterPage from './pages/CharacterPage'
 import type { DbInitResult } from './storage'
 import { useCharacterStore } from './store/characters'
 
@@ -32,6 +34,9 @@ export default function App({ dbResult }: AppProps) {
       )}
       <Routes>
         <Route path="/" element={<CharacterListPage />} />
+        <Route path="/create" element={<CreateCharacterPage />} />
+        <Route path="/character/:id" element={<CharacterPage />} />
+        <Route path="/character/:id/edit" element={<CreateCharacterPage />} />
       </Routes>
     </>
   )

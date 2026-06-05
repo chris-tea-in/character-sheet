@@ -1,25 +1,65 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 :root {
-  --color-bg: #1a1a2e;
-  --color-surface: #16213e;
-  --color-surface-2: #0f3460;
-  --color-accent: #e94560;
-  --color-accent-2: #c4a35a;
-  --color-text: #eaeaea;
-  --color-text-muted: #9a9ab0;
-  --color-border: #2a2a4a;
-  --radius: 6px;
+  /* D&D theme palette — single source of truth */
+  --color-bg:           #1c1c1c;
+  --color-surface:      #242424;
+  --color-surface-2:    #2e2e2e;
+  --color-accent-red:   #e94560;
+  --color-accent-gold:  #c4a35a;
+  --color-text:         #eaeaea;
+  --color-text-muted:   #9a9a9a;
+  --color-border-raw:   #3a3a3a;
   --font-body: system-ui, -apple-system, sans-serif;
+
+  /* shadcn/ui semantic tokens — reference palette above, no independent hex values */
+  --background:          var(--color-bg);
+  --foreground:          var(--color-text);
+  --card:                var(--color-surface);
+  --card-foreground:     var(--color-text);
+  --popover:             var(--color-surface);
+  --popover-foreground:  var(--color-text);
+  --primary:             var(--color-accent-red);
+  --primary-foreground:  #ffffff;
+  --secondary:           var(--color-surface-2);
+  --secondary-foreground: var(--color-text);
+  --muted:               var(--color-surface);
+  --muted-foreground:    var(--color-text-muted);
+  --accent:              var(--color-surface-2);
+  --accent-foreground:   var(--color-text);
+  --destructive:         var(--color-accent-red);
+  --border:              var(--color-border-raw);
+  --input:               var(--color-border-raw);
+  --ring:                var(--color-accent-red);
+  --radius: 6px;
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: var(--background);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.5;

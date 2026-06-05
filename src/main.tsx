@@ -13,9 +13,9 @@ async function bootstrap() {
     dbResult = await initDb()
   } catch (err) {
     root.render(
-      <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif', color: '#eaeaea', background: '#1a1a2e', minHeight: '100dvh' }}>
+      <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif', color: '#eaeaea', background: '#1c1c1c', minHeight: '100dvh' }}>
         <h1 style={{ marginBottom: '0.75rem' }}>Unable to open local database</h1>
-        <p style={{ color: '#9a9ab0', marginBottom: '1.5rem' }}>
+        <p style={{ color: '#9a9a9a', marginBottom: '1.5rem' }}>
           {err instanceof Error ? err.message : 'An unexpected error occurred.'}
         </p>
         <button

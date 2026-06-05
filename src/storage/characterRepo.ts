@@ -1,5 +1,5 @@
 import type { Database, SqlValue } from 'sql.js'
-import type { Character, CharacterSpell, NewCharacter } from '../types/character'
+import type { Character, CharacterSpell, ClassEntry, NewCharacter } from '../types/character'
 import { generateId } from '../lib/uuid'
 
 // ---------------------------------------------------------------------------
@@ -19,7 +19,21 @@ function query<T extends Row>(db: Database, sql: string, params?: SqlValue[]): T
   })
 }
 
+function parseClasses(row: Row): ClassEntry[] {
+  const raw = row['classes'] as string | null
+  if (raw && raw !== '[]') {
+    try { return JSON.parse(raw) as ClassEntry[] } catch { /* fall through */ }
+  }
+  // Fallback for rows that predate migration v7
+  return [{
+    classSlug: (row['class_slug'] as string) || '',
+    subclassSlug: (row['subclass'] as string | null) || null,
+    level: (row['level'] as number) || 1,
+  }]
+}
+
 function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
+  const classes = parseClasses(row)
   return {
     id: row['id'] as string,
     name: row['name'] as string,
@@ -29,14 +43,19 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     subclass: row['subclass'] as string | null,
     background: row['background_slug'] as string,
     level: row['level'] as number,
+    classes,
     xp: row['xp'] as number,
+    progressionType: (row['progression_type'] as string ?? 'milestone') as 'xp' | 'milestone',
     alignment: row['alignment'] as string,
+    languages: JSON.parse(row['languages'] as string ?? '[]'),
+    backstory: row['backstory'] as string ?? '',
     abilities: JSON.parse(row['abilities'] as string),
     maxHp: row['max_hp'] as number,
     currentHp: row['current_hp'] as number,
     tempHp: row['temp_hp'] as number,
     armorClass: row['armor_class'] as number,
     speed: row['speed'] as number,
+    initiativeBonus: (row['initiative_bonus'] as number) ?? 0,
     deathSaves: JSON.parse(row['death_saves'] as string),
     hitDiceUsed: row['hit_dice_used'] as number,
     inspiration: Boolean(row['inspiration']),
@@ -51,6 +70,9 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     notes: row['notes'] as string,
     equipment: JSON.parse(row['equipment'] as string),
     currency: JSON.parse(row['currency'] as string),
+    feats: JSON.parse(row['feats'] as string ?? '[]'),
+    featChoices: JSON.parse(row['feat_choices'] as string ?? '{}'),
+    toolProficiencies: JSON.parse(row['tool_proficiencies'] as string ?? '[]'),
     createdAt: row['created_at'] as number,
     updatedAt: row['updated_at'] as number,
   }
@@ -109,20 +131,22 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
     db.run(
       `INSERT INTO characters (
         id, name, race_slug, subrace, class_slug, subclass, background_slug,
-        level, xp, alignment, abilities, max_hp, current_hp, temp_hp,
-        armor_class, speed, death_saves, hit_dice_used, inspiration,
+        level, xp, progression_type, alignment, languages, backstory,
+        abilities, max_hp, current_hp, temp_hp,
+        armor_class, speed, initiative_bonus, death_saves, hit_dice_used, inspiration,
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
-        equipment, currency, created_at, updated_at
+        equipment, currency, feats, feat_choices, tool_proficiencies, classes, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race, data.subrace, data.class, data.subclass, data.background,
-        data.level, data.xp, data.alignment,
+        data.level, data.xp, data.progressionType, data.alignment,
+        JSON.stringify(data.languages), data.backstory,
         JSON.stringify(data.abilities),
         data.maxHp, data.currentHp, data.tempHp,
-        data.armorClass, data.speed,
+        data.armorClass, data.speed, data.initiativeBonus ?? 0,
         JSON.stringify(data.deathSaves),
         data.hitDiceUsed, data.inspiration ? 1 : 0,
         JSON.stringify(data.skillProficiencies),
@@ -131,6 +155,10 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         data.personalityTraits, data.ideals, data.bonds, data.flaws, data.notes,
         JSON.stringify(data.equipment),
         JSON.stringify(data.currency),
+        JSON.stringify(data.feats),
+        JSON.stringify(data.featChoices ?? {}),
+        JSON.stringify(data.toolProficiencies ?? []),
+        JSON.stringify(data.classes ?? []),
         now, now,
       ],
     )
@@ -148,23 +176,33 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
   if (!existing) throw new Error(`Character not found: ${id}`)
   const merged: Character = { ...existing, ...changes, id, createdAt: existing.createdAt, updatedAt: Date.now() }
 
+  // Keep class_slug/subclass/level synced with the classes array when it's populated
+  const primaryClass = merged.classes?.[0]
+  const primaryClassSlug = primaryClass?.classSlug ?? merged.class
+  const primarySubclass = primaryClass?.subclassSlug ?? merged.subclass
+  const totalLevel = merged.classes?.length
+    ? merged.classes.reduce((s, c) => s + c.level, 0)
+    : merged.level
+
   db.run('BEGIN')
   try {
     db.run(
       `UPDATE characters SET
         name=?, race_slug=?, subrace=?, class_slug=?, subclass=?, background_slug=?,
-        level=?, xp=?, alignment=?, abilities=?, max_hp=?, current_hp=?, temp_hp=?,
-        armor_class=?, speed=?, death_saves=?, hit_dice_used=?, inspiration=?,
+        level=?, xp=?, progression_type=?, alignment=?, languages=?, backstory=?,
+        abilities=?, max_hp=?, current_hp=?, temp_hp=?,
+        armor_class=?, speed=?, initiative_bonus=?, death_saves=?, hit_dice_used=?, inspiration=?,
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
-        equipment=?, currency=?, updated_at=?
+        equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?, classes=?, updated_at=?
       WHERE id=?`,
       [
-        merged.name, merged.race, merged.subrace, merged.class, merged.subclass, merged.background,
-        merged.level, merged.xp, merged.alignment,
+        merged.name, merged.race, merged.subrace, primaryClassSlug, primarySubclass, merged.background,
+        totalLevel, merged.xp, merged.progressionType, merged.alignment,
+        JSON.stringify(merged.languages), merged.backstory,
         JSON.stringify(merged.abilities),
         merged.maxHp, merged.currentHp, merged.tempHp,
-        merged.armorClass, merged.speed,
+        merged.armorClass, merged.speed, merged.initiativeBonus ?? 0,
         JSON.stringify(merged.deathSaves),
         merged.hitDiceUsed, merged.inspiration ? 1 : 0,
         JSON.stringify(merged.skillProficiencies),
@@ -173,6 +211,10 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         merged.personalityTraits, merged.ideals, merged.bonds, merged.flaws, merged.notes,
         JSON.stringify(merged.equipment),
         JSON.stringify(merged.currency),
+        JSON.stringify(merged.feats),
+        JSON.stringify(merged.featChoices ?? {}),
+        JSON.stringify(merged.toolProficiencies ?? []),
+        JSON.stringify(merged.classes ?? []),
         merged.updatedAt,
         id,
       ],

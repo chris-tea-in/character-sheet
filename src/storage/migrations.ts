@@ -57,4 +57,61 @@ export const migrations: Migration[] = [
       db.run(`CREATE INDEX idx_character_spells_char ON character_spells(character_id)`)
     },
   },
+  {
+    version: 2,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN progression_type TEXT NOT NULL DEFAULT 'milestone'`)
+      db.run(`ALTER TABLE characters ADD COLUMN languages TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`ALTER TABLE characters ADD COLUMN backstory TEXT NOT NULL DEFAULT ''`)
+    },
+  },
+  {
+    version: 3,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN feats TEXT NOT NULL DEFAULT '[]'`)
+    },
+  },
+  {
+    version: 4,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN tool_proficiencies TEXT NOT NULL DEFAULT '[]'`)
+    },
+  },
+  {
+    version: 5,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN feat_choices TEXT NOT NULL DEFAULT '{}'`)
+    },
+  },
+  {
+    version: 6,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN initiative_bonus INTEGER NOT NULL DEFAULT 0`)
+    },
+  },
+  {
+    version: 7,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN classes TEXT NOT NULL DEFAULT '[]'`)
+      // Backfill: build a single-entry classes array from existing class_slug / subclass / level
+      const result = db.exec(`SELECT id, class_slug, subclass, level FROM characters`)
+      if (result.length && result[0].values.length) {
+        const { columns, values } = result[0]
+        const idIdx = columns.indexOf('id')
+        const classIdx = columns.indexOf('class_slug')
+        const subIdx = columns.indexOf('subclass')
+        const levelIdx = columns.indexOf('level')
+        for (const row of values) {
+          const id = row[idIdx] as string
+          const classSlug = (row[classIdx] as string) || ''
+          const subclassSlug = (row[subIdx] as string | null) || null
+          const level = (row[levelIdx] as number) || 1
+          db.run('UPDATE characters SET classes = ? WHERE id = ?', [
+            JSON.stringify([{ classSlug, subclassSlug, level }]),
+            id,
+          ])
+        }
+      }
+    },
+  },
 ]
