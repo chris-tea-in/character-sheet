@@ -58,6 +58,7 @@ scripts/
   scrape-background.js # Scraper script (untracked)
 src/
   components/
+    DataManagementDialog.tsx  # Import/export modal — full DB (.sqlite) and single character (.json)
     DetailBody.tsx      # Shared detail content renderer (used by DetailPopup)
     DetailPopup.tsx     # Dialog wrapper — view mode + selection mode
     SelectionList.tsx   # Searchable/sortable list with popup; used across all screens
@@ -67,6 +68,7 @@ src/
       SetupScreen3.tsx  # Proficiencies (languages, skills, tools, armor/weapon display)
       SetupScreen4.tsx  # Starting equipment
       SetupScreen5.tsx  # Progression system (XP vs Milestone)
+      Field.tsx         # Labeled form field wrapper (label + optional error message)
     sheet/
       AbilityBlock.tsx       # 6-ability grid — StepperField per score, click modifier to roll ability check
       CombatBlock.tsx        # AC, Speed, Initiative, ProfBonus, HP (current/max/temp), DeathSaves, HitDice, Inspiration
@@ -74,16 +76,21 @@ src/
       EquipmentBlock.tsx     # Weapons (attack roll, finesse/ranged/melee calc, custom override), Armor, Items, Currency
       SpellBlock.tsx         # Spell slot tracker (pip UI), spell list with prepared toggle, spell attack roll button
       DescriptionBlock.tsx   # Languages toggle grid + personality/ideals/bonds/flaws/backstory/notes textareas
-      LevelUpDialog.tsx      # Level-up flow — HP roll/manual, spell/cantrip picks, ASI; blocks confirm until done
-      DiceTray.tsx           # Fixed 52px bottom bar — d4/d6/d8/d10/d12/d20/d100 buttons + expandable roll history
+      FeatsBlock.tsx         # Feat management: add/remove feats, apply ASI choices, sync stat bonuses to character
+      LevelUpDialog.tsx      # Level-up flow — HP roll/manual, spell/cantrip picks, ASI/feat toggle; blocks confirm until done
+      DiceTray.tsx           # Fixed bottom bar — d4/d6/d8/d10/d12/d20/d100 buttons + expandable roll history
+      DiceRollModal.tsx      # Two-phase attack popup: hit roll → damage roll; nat 20 auto-advances; nat 1 shows Critical Miss
       EditableField.tsx      # Click-to-edit inline field (text/number) + EditableTextarea; commits on blur/Enter
       StepperField.tsx       # − value + stepper control, reused across all numeric fields
     ui/                 # shadcn/ui primitives (badge, button, dialog, …)
   lib/
     characterSetup.ts   # Setup wizard state, HP calculation, point buy logic
+    characterStats.ts   # deriveCharacterStats(), computeWeaponBonus(), computeFeatStatDelta(); FEAT_EFFECTS registry
     data.ts             # Typed data-loading helpers (classes, races, spells, etc.)
-    dice.ts             # rollDie(), abilityModifier(), proficiencyBonus(), SKILL_ABILITY_MAP
+    dice.ts             # rollDie(), abilityModifier(), proficiencyBonus(), SKILL_ABILITY_MAP, formatBonus()
     spellcasting.ts     # parseClassSlots(), getSpellcastingInfo(), getSpellsKnownIncrease() — warlock vs. standard format
+    importExport.ts     # exportDb(), importDb(), exportCharacter(), importCharacter() — download/upload helpers
+    useRollDispatch.ts  # useRollDispatch() — single dispatch point for all roll types; opens DiceRollModal for attacks
     utils.ts            # shadcn/ui cn() helper
     uuid.ts             # generateId() — UUID v4 using crypto.getRandomValues
   pages/
@@ -218,7 +225,8 @@ Defined in [src/styles/globals.css](src/styles/globals.css):
 | 6b | Identity field UX — clicking a set value shows description popup with Back + Change buttons | Done |
 | 7 | ~~Manual character creation form~~ | Dropped |
 | 8 | Character sheet view — dice tray, ability/skill/save rolls, SpellBlock (slot pip tracker + spell list + prepared toggle), weapon cards (attack roll, STR/DEX/finesse + proficiency), spell attack rolls; class-specific weapon extras (e.g. Warlock Agonizing Blast) not implemented | Done |
-| 9 | Export / import (full DB + single-character JSON) | Pending |
+| 8a | Bug fixes & enhancements — feats system (FeatsBlock, FEAT_EFFECTS, featChoices DB field), armor AC derivation (deriveCharacterStats), two-phase dice roll modal (DiceRollModal + useRollDispatch), weapon bonus display (+1/+2/etc.), tool proficiency picker, skills always editable, LevelUpDialog ASI/feat toggle, multiclass level fix, HP gate, rollDie() for HP rolls | Done |
+| 9 | Export / import (full DB + single-character JSON) | Done |
 | 10 | @media print CSS layer | Pending |
 | 11 | Deployment: Cloudflare Pages (Wrangler direct upload) + Cloudflare Zero Trust Access for friend-group access control — see Pre-conditions | Pending |
 

@@ -2,7 +2,10 @@ import initSqlJs, { type Database } from 'sql.js'
 import { loadFromIdb, saveToIdb } from './idb'
 import { migrations } from './migrations'
 
+type SqlJsModule = Awaited<ReturnType<typeof initSqlJs>>
+
 let _db: Database | null = null
+let _SQL: SqlJsModule | null = null
 
 function runMigrations(db: Database): void {
   db.run(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)`)
@@ -38,6 +41,7 @@ export async function initDb(): Promise<DbInitResult> {
     loadFromIdb(),
   ])
 
+  _SQL = SQL
   const isNew = blob === null
   _db = blob ? new SQL.Database(blob) : new SQL.Database()
 
@@ -48,6 +52,19 @@ export async function initDb(): Promise<DbInitResult> {
 
   const persistent = await navigator.storage.persist()
   return { isNew, persistent }
+}
+
+// Replaces the active database with the provided blob, running migrations on it
+// before writing to IndexedDB. The page reloads after the write so the app
+// re-initialises cleanly from the new database.
+export async function replaceDb(blob: Uint8Array): Promise<void> {
+  if (!_SQL) throw new Error('Database not initialized — call initDb() first')
+  const tempDb = new _SQL.Database(blob)
+  tempDb.run('PRAGMA foreign_keys = ON')
+  runMigrations(tempDb)
+  await saveToIdb(tempDb.export())
+  tempDb.close()
+  window.location.reload()
 }
 
 export async function flush(): Promise<void> {
