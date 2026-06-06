@@ -63,7 +63,10 @@
       "Bash(sort -t' ' -k3 -n)",
       "Bash(node -e \"const d=require\\('./public/data/equipment.json'\\); const w=d.weapons||[]; const bonusWeapons=w.filter\\(x=>x.bonus!=null\\); console.log\\('Weapons with bonus:', bonusWeapons.length, bonusWeapons.map\\(x=>x.name+': +'+x.bonus\\)\\)\")",
       "Read(//c/Users/buyp1/AppData/Roaming/npm/node_modules/@types/sql.js/**)",
-      "Bash(node -e \"console.log\\(typeof NaN, JSON.parse\\('1.5'\\)\\)\")"
+      "Bash(node -e \"console.log\\(typeof NaN, JSON.parse\\('1.5'\\)\\)\")",
+      "Edit(~/.claude/skills/dnd-data-verification/**)",
+      "Edit(~/.claude/skills/feature-effect-system/**)",
+      "Edit(~/.claude/skills/code-review-extras/**)"
     ],
     "additionalDirectories": [
       "C:\\Users\\buyp1\\.claude\\skill-observations",
