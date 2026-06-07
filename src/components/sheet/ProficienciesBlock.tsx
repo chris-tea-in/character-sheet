@@ -1,19 +1,20 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { abilityModifier, proficiencyBonus, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '@/lib/dice'
+import { SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '@/lib/dice'
 import { ABILITY_LABELS, ABILITY_ORDER, toSkillName } from '@/lib/characterSetup'
 import { useRollDispatch } from '@/lib/useRollDispatch'
-import { getCharacterAdvantages } from '@/lib/characterStats'
 import { SelectionList } from '@/components/SelectionList'
 import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
 import type { ClassData, EquipmentData } from '@/types/data'
 import type { SelectionEntry } from '@/components/SelectionList'
+import type { DerivedStats } from '@/lib/characterStats'
 
 interface Props {
   character: Character
   classRecord: ClassData | null
   catalog?: EquipmentData | null
+  derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
@@ -129,11 +130,9 @@ function SaveDot({
   )
 }
 
-export function ProficienciesBlock({ character, classRecord, catalog, onSave }: Props) {
+export function ProficienciesBlock({ character, classRecord, catalog, derived, onSave }: Props) {
   const [tab, setTab] = useState<Tab>('skills')
-  const { dispatch } = useRollDispatch(character)
-  const pb = proficiencyBonus(character.level)
-  const advantages = useMemo(() => getCharacterAdvantages(character), [character])
+  const { dispatch } = useRollDispatch(derived)
   const hasClass = !!classRecord
 
   // Class-granted saves — only these are interactive when class is set
@@ -203,19 +202,6 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
     }
   }
 
-  function saveBonus(ability: AbilityName): number {
-    const base = abilityModifier(character.abilities[ability])
-    return character.savingThrowProficiencies.includes(ability) ? base + pb : base
-  }
-
-  function skillBonus(skill: SkillName): number {
-    const ability = SKILL_ABILITY_MAP[skill]
-    const base = abilityModifier(character.abilities[ability])
-    const prof = character.skillProficiencies[skill]
-    if (!prof) return base
-    return base + pb * (prof === 'expertise' ? 2 : 1)
-  }
-
   return (
     <section>
       <div className="flex items-center gap-1 mb-3">
@@ -276,7 +262,8 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
             {ABILITY_ORDER.map(ability => {
               const isProficient = character.savingThrowProficiencies.includes(ability)
               const isClassSave = classSaveSet.has(ability)
-              const bonus = saveBonus(ability)
+              const bonus = derived.saveModifiers[ability]
+              const hasAdv = derived.advantages.saves.has(ability)
 
               return (
                 <div
@@ -301,12 +288,12 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
                     {bonus >= 0 ? `+${bonus}` : `${bonus}`}
                   </span>
                   <button
-                    onClick={() => dispatch({ type: 'save', ability, advantage: advantages.saves.has(ability) })}
+                    onClick={() => dispatch({ type: 'save', ability, advantage: hasAdv })}
                     className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
                     style={{ background: 'var(--color-accent)', color: '#fff' }}
-                    title={advantages.saves.has(ability) ? 'Rolling with advantage' : undefined}
+                    title={hasAdv ? 'Rolling with advantage' : undefined}
                   >
-                    {advantages.saves.has(ability) ? 'Roll (Adv)' : 'Roll'}
+                    {hasAdv ? 'Roll (Adv)' : 'Roll'}
                   </button>
                 </div>
               )
@@ -326,11 +313,11 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
               const isProficient = prof === 'proficient' || prof === 'expertise'
               const isExpertise = prof === 'expertise'
               const ability = SKILL_ABILITY_MAP[skill]
-              const bonus = skillBonus(skill)
+              const bonus = derived.skillModifiers[skill]
+              const hasAdv = derived.advantages.skills.has(skill)
               const isClassOption = classSkillOptions.has(skill)
               const addBlocked = isClassOption && !isProficient && atClassSkillCap
               const notClassOption = hasClass && !isClassOption
-              // Expertise cap blocks adding to non-expertise skills once all slots are used
               const expertiseCapped = atExpertiseCap && !isExpertise
 
               return (
@@ -357,12 +344,12 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
                     {bonus >= 0 ? `+${bonus}` : `${bonus}`}
                   </span>
                   <button
-                    onClick={() => dispatch({ type: 'skill', skill, advantage: advantages.skills.has(skill) })}
+                    onClick={() => dispatch({ type: 'skill', skill, advantage: hasAdv })}
                     className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
                     style={{ background: 'var(--color-accent)', color: '#fff' }}
-                    title={advantages.skills.has(skill) ? 'Rolling with advantage' : undefined}
+                    title={hasAdv ? 'Rolling with advantage' : undefined}
                   >
-                    {advantages.skills.has(skill) ? 'Roll (Adv)' : 'Roll'}
+                    {hasAdv ? 'Roll (Adv)' : 'Roll'}
                   </button>
                 </div>
               )

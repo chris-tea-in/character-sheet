@@ -3,24 +3,26 @@ import { ABILITY_ORDER, ABILITY_SHORT } from '@/lib/characterSetup'
 import { StepperField } from './StepperField'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import type { AbilityName, Character, NewCharacter } from '@/types/character'
+import type { RollKind } from '@/types/dice'
+import type { DerivedStats } from '@/lib/characterStats'
 
 interface Props {
   character: Character
+  derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
 function AbilityBox({
   ability,
   score,
-  character,
+  dispatch,
   onSaveScore,
 }: {
   ability: AbilityName
   score: number
-  character: Character
+  dispatch: (kind: RollKind) => void
   onSaveScore: (v: number) => void
 }) {
-  const { dispatch } = useRollDispatch(character)
   const mod = abilityModifier(score)
 
   return (
@@ -50,9 +52,12 @@ function AbilityBox({
   )
 }
 
-export function AbilityBlock({ character, onSave }: Props) {
-  function saveScore(ability: AbilityName, value: number) {
-    onSave({ abilities: { ...character.abilities, [ability]: value } })
+export function AbilityBlock({ character, derived, onSave }: Props) {
+  const { dispatch } = useRollDispatch(derived)
+
+  function saveScore(ability: AbilityName, v: number) {
+    const bonus = derived.effectiveAbilities[ability] - character.abilities[ability]
+    onSave({ abilities: { ...character.abilities, [ability]: Math.max(1, v - bonus) } })
   }
 
   return (
@@ -65,8 +70,8 @@ export function AbilityBlock({ character, onSave }: Props) {
           <AbilityBox
             key={ability}
             ability={ability}
-            score={character.abilities[ability]}
-            character={character}
+            score={derived.effectiveAbilities[ability]}
+            dispatch={dispatch}
             onSaveScore={v => saveScore(ability, v)}
           />
         ))}

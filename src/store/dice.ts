@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { generateId } from '../lib/uuid'
-import { rollDie, abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP, SKILL_DISPLAY_MAP } from '../lib/dice'
-import type { Character } from '../types/character'
+import { rollDie, abilityModifier, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '../lib/dice'
+import type { DerivedStats } from '../lib/characterStats'
 import type { RollKind, RollEntry } from '../types/dice'
 
 const MAX_ROLLS = 50
@@ -37,7 +37,7 @@ export interface ModalState {
 
 interface DiceState {
   rolls: RollEntry[]
-  roll: (kind: RollKind, character: Character) => RollEntry
+  roll: (kind: RollKind, derived: DerivedStats) => RollEntry
   clear: () => void
   modal: ModalState | null
   openModal: (state: ModalState) => void
@@ -49,7 +49,7 @@ export const useDiceStore = create<DiceState>()((set) => ({
   rolls: [],
   modal: null,
 
-  roll: (kind, character) => {
+  roll: (kind, derived) => {
     const d1 = kind.type === 'raw' ? rollDie(kind.die) : rollDie(20)
     const hasAdvantage = kind.type !== 'raw' && kind.type !== 'attack' && kind.advantage === true
     const hasDisadvantage = kind.type !== 'raw' && kind.type !== 'attack' && kind.advantage === false
@@ -59,19 +59,11 @@ export const useDiceStore = create<DiceState>()((set) => ({
 
     let modifier = 0
     if (kind.type === 'skill') {
-      const ability = SKILL_ABILITY_MAP[kind.skill]
-      modifier = abilityModifier(character.abilities[ability])
-      const prof = character.skillProficiencies[kind.skill]
-      if (prof) {
-        modifier += proficiencyBonus(character.level) * (prof === 'expertise' ? 2 : 1)
-      }
+      modifier = derived.skillModifiers[kind.skill]
     } else if (kind.type === 'save') {
-      modifier = abilityModifier(character.abilities[kind.ability])
-      if (character.savingThrowProficiencies.includes(kind.ability)) {
-        modifier += proficiencyBonus(character.level)
-      }
+      modifier = derived.saveModifiers[kind.ability]
     } else if (kind.type === 'ability') {
-      modifier = abilityModifier(character.abilities[kind.ability])
+      modifier = abilityModifier(derived.effectiveAbilities[kind.ability])
     } else if (kind.type === 'attack') {
       modifier = kind.modifier
     }

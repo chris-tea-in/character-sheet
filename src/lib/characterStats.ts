@@ -1,4 +1,4 @@
-import { abilityModifier, proficiencyBonus } from './dice'
+import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP } from './dice'
 import type { Character, AbilityName, Abilities, SkillName } from '../types/character'
 import type { ArmorItem, WeaponItem, ClassData, FeatData } from '../types/data'
 
@@ -13,18 +13,35 @@ export interface WeaponBonus {
 }
 
 export interface DerivedStats {
-  effectiveAC: number | null  // null when armor catalog unavailable
+  effectiveAC: number | null
   adjustedMaxHp: number
+  effectiveAbilities: Abilities
+  effectiveSpeed: number
+  effectiveInitiative: number
+  effectiveInitiativeBonus: number
+  effectiveSaveProficiencies: AbilityName[]
+  proficiencyBonus: number
+  skillModifiers: Record<SkillName, number>
+  saveModifiers: Record<AbilityName, number>
+  flatSkillBonuses: Partial<Record<SkillName, number>>
+  passivePerception: number
+  passiveInvestigation: number
+  spellAttackBonus: number
+  spellSaveDC: number
+  hasStealthDisadvantage: boolean
+  advantages: { saves: Set<AbilityName>; skills: Set<SkillName> }
 }
 
 // ── Feat effect registry ────────────────────────────────────────────────────
 
 interface FeatEffect {
   maxHpBonus?: (level: number) => number
+  skillBonuses?: Partial<Record<SkillName, number>>
 }
 
 const FEAT_EFFECTS: Partial<Record<string, FeatEffect>> = {
-  'tough': { maxHpBonus: level => level * 2 },
+  'tough':     { maxHpBonus: level => level * 2 },
+  'observant': { skillBonuses: { perception: 5, investigation: 5 } },
 }
 
 const ABILITY_FROM_FULL: Record<string, AbilityName> = {
@@ -384,42 +401,120 @@ export function computeFeatHpBonus(feats: string[], level: number): number {
   return bonus
 }
 
+const ALL_ABILITIES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
+
 export function deriveCharacterStats(
   character: Character,
-  catalog?: { armor?: ArmorItem[] },
+  classData?: ClassData | null,
+  catalog?: { armor?: ArmorItem[] } | null,
+  featData?: Record<string, FeatData> | null,
 ): DerivedStats {
-  const dexMod = abilityModifier(character.abilities.dex)
+  const pb = proficiencyBonus(character.level)
 
-  // ── Effective AC ──────────────────────────────────────────────────────────
+  // ── Effective Abilities (base + all feat ASIs) ────────────────────────────
+  const effectiveAbilities = { ...character.abilities }
+  let featSpeedBonus = 0
+  let featInitiativeBonus = 0
+  const featDerivedSaves: AbilityName[] = []
+  const flatSkillBonuses: Partial<Record<SkillName, number>> = {}
+
+  if (featData) {
+    for (const slug of character.feats) {
+      const feat = featData[slug]
+      if (!feat) continue
+
+      const delta = computeFeatStatDelta(slug, feat, character.featChoices)
+      for (const [ab, amount] of Object.entries(delta.abilities) as [AbilityName, number][]) {
+        effectiveAbilities[ab] = Math.min(20, effectiveAbilities[ab] + amount)
+      }
+      featSpeedBonus += delta.speed
+      featInitiativeBonus += delta.initiativeBonus
+      if (delta.saveProficiency && !character.savingThrowProficiencies.includes(delta.saveProficiency)) {
+        featDerivedSaves.push(delta.saveProficiency)
+      }
+
+      const registryEffect = FEAT_EFFECTS[slug]
+      if (registryEffect?.skillBonuses) {
+        for (const [sk, bonus] of Object.entries(registryEffect.skillBonuses) as [SkillName, number][]) {
+          flatSkillBonuses[sk] = (flatSkillBonuses[sk] ?? 0) + bonus
+        }
+      }
+    }
+  }
+
+  // ── Combat stats ──────────────────────────────────────────────────────────
+  const dexMod = abilityModifier(effectiveAbilities.dex)
+  const effectiveSpeed = character.speed + featSpeedBonus
+  const effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus
+  const effectiveInitiative = dexMod + effectiveInitiativeBonus
+
+  // ── Effective save proficiencies (class + feat) ───────────────────────────
+  const effectiveSaveProficiencies: AbilityName[] = [
+    ...character.savingThrowProficiencies,
+    ...featDerivedSaves,
+  ]
+
+  // ── Skill and save modifiers (pre-computed for display and dice rolls) ─────
+  const skillModifiers = {} as Record<SkillName, number>
+  for (const skill of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) {
+    const ability = SKILL_ABILITY_MAP[skill]
+    const abilMod = abilityModifier(effectiveAbilities[ability])
+    const prof = character.skillProficiencies[skill]
+    const profMod = prof ? pb * (prof === 'expertise' ? 2 : 1) : 0
+    const flatBonus = flatSkillBonuses[skill] ?? 0
+    skillModifiers[skill] = abilMod + profMod + flatBonus
+  }
+
+  const saveModifiers = {} as Record<AbilityName, number>
+  for (const ability of ALL_ABILITIES) {
+    const abilMod = abilityModifier(effectiveAbilities[ability])
+    saveModifiers[ability] = abilMod + (effectiveSaveProficiencies.includes(ability) ? pb : 0)
+  }
+
+  // ── Passive stats ─────────────────────────────────────────────────────────
+  const passivePerception = 10 + skillModifiers.perception
+  const passiveInvestigation = 10 + skillModifiers.investigation
+
+  // ── Spell stats ───────────────────────────────────────────────────────────
+  let spellAttackBonus = 0
+  let spellSaveDC = 0
+  if (classData?.spellcasting?.ability) {
+    const spellAbilKey = ABILITY_FROM_FULL[classData.spellcasting.ability.toLowerCase()] ?? 'int'
+    const spellAbilMod = abilityModifier(effectiveAbilities[spellAbilKey])
+    spellAttackBonus = spellAbilMod + pb
+    spellSaveDC = 8 + spellAbilMod + pb
+  }
+
+  // ── Effective AC + stealth disadvantage ──────────────────────────────────
   let effectiveAC: number | null = null
+  let hasStealthDisadvantage = false
 
   if (catalog?.armor) {
     const armorByName = new Map(catalog.armor.map(a => [a.name.toLowerCase(), a]))
     const equippedArmor = character.equipment.filter(e => armorByName.has(e.name.toLowerCase()))
 
     if (equippedArmor.length > 0) {
-      const bodyPieces = equippedArmor.filter(e => {
-        const item = armorByName.get(e.name.toLowerCase())!
-        return item.armor_type !== 'Shield'
-      })
-      const shields = equippedArmor.filter(e => {
-        const item = armorByName.get(e.name.toLowerCase())!
-        return item.armor_type === 'Shield'
-      })
+      const bodyPieces = equippedArmor.filter(
+        e => armorByName.get(e.name.toLowerCase())!.armor_type !== 'Shield',
+      )
+      const shields = equippedArmor.filter(
+        e => armorByName.get(e.name.toLowerCase())!.armor_type === 'Shield',
+      )
 
-      let baseAC = 10 + dexMod  // unarmored
+      let baseAC = 10 + dexMod
+      let canComputeAC = true
+
       if (bodyPieces.length > 0) {
         const bodyArmor = armorByName.get(bodyPieces[0].name.toLowerCase())!
+        if (bodyArmor.stealth_disadvantage) hasStealthDisadvantage = true
         if (bodyArmor.ac_formula === 'Varies') {
-          effectiveAC = null  // can't auto-compute variable-formula magical armor
+          canComputeAC = false
         } else {
           baseAC = parseArmorAC(bodyArmor.ac_formula, dexMod) + (bodyArmor.bonus ?? 0)
         }
       }
 
-      if (effectiveAC === null) {
-        // skip further computation — at least one piece can't be auto-resolved
-      } else {
+      if (canComputeAC) {
         const shieldBonus = shields.length > 0
           ? parseArmorAC(armorByName.get(shields[0].name.toLowerCase())!.ac_formula, dexMod)
           : 0
@@ -435,8 +530,26 @@ export function deriveCharacterStats(
     if (effect?.maxHpBonus) hpBonus += effect.maxHpBonus(character.level)
   }
 
+  // ── Advantages ────────────────────────────────────────────────────────────
+  const advantages = getCharacterAdvantages(character)
+
   return {
     effectiveAC,
     adjustedMaxHp: character.maxHp + hpBonus,
+    effectiveAbilities,
+    effectiveSpeed,
+    effectiveInitiative,
+    effectiveInitiativeBonus,
+    effectiveSaveProficiencies,
+    proficiencyBonus: pb,
+    skillModifiers,
+    saveModifiers,
+    flatSkillBonuses,
+    passivePerception,
+    passiveInvestigation,
+    spellAttackBonus,
+    spellSaveDC,
+    hasStealthDisadvantage,
+    advantages,
   }
 }

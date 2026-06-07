@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { loadFeatsData } from '@/lib/data'
-import { computeFeatHpBonus, computeFeatStatDelta, applyFeatAsi, unapplyFeatAsi, featHasChoiceAsi, featChoiceAsiOptions, hasFeatStatEffect } from '@/lib/characterStats'
+import { computeFeatHpBonus, featHasChoiceAsi, featChoiceAsiOptions, hasFeatStatEffect } from '@/lib/characterStats'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -157,53 +157,24 @@ export function FeatsBlock({ character, onSave }: Props) {
     if (chosenAbility) {
       newFeatChoices[key] = { asiAbility: chosenAbility }
     } else if (hasFeatStatEffect(feat)) {
-      newFeatChoices[key] = {}  // sentinel: effects were applied via new code
+      newFeatChoices[key] = {}
     }
 
-    const delta = computeFeatStatDelta(key, feat, newFeatChoices)
-    const changes: Partial<NewCharacter> = {
-      feats: [...character.feats, key],
-      featChoices: newFeatChoices,
-    }
-    if (Object.keys(delta.abilities).length > 0)
-      changes.abilities = applyFeatAsi(character.abilities, delta.abilities)
-    if (delta.speed !== 0)
-      changes.speed = character.speed + delta.speed
-    if (delta.initiativeBonus !== 0)
-      changes.initiativeBonus = (character.initiativeBonus ?? 0) + delta.initiativeBonus
-    if (delta.saveProficiency && !character.savingThrowProficiencies.includes(delta.saveProficiency))
-      changes.savingThrowProficiencies = [...character.savingThrowProficiencies, delta.saveProficiency]
-
-    onSave(changes)
+    onSave({ feats: [...character.feats, key], featChoices: newFeatChoices })
     setPendingFeatSlug(null)
   }
 
   function removeFeat(key: string) {
-    const feat = allFeats[key]
     const newFeatChoices = { ...character.featChoices }
     delete newFeatChoices[key]
 
-    const changes: Partial<NewCharacter> = {
-      feats: character.feats.filter(f => f !== key),
-      featChoices: newFeatChoices,
-    }
-    // Only unapply if featChoices has a record — meaning effects were applied via new code.
-    if (feat && character.featChoices[key] !== undefined) {
-      const delta = computeFeatStatDelta(key, feat, character.featChoices)
-      if (Object.keys(delta.abilities).length > 0)
-        changes.abilities = unapplyFeatAsi(character.abilities, delta.abilities)
-      if (delta.speed !== 0)
-        changes.speed = character.speed - delta.speed
-      if (delta.initiativeBonus !== 0)
-        changes.initiativeBonus = (character.initiativeBonus ?? 0) - delta.initiativeBonus
-      if (delta.saveProficiency)
-        changes.savingThrowProficiencies = character.savingThrowProficiencies.filter(a => a !== delta.saveProficiency)
-    }
-
-    const newFeats = changes.feats!
+    const newFeats = character.feats.filter(f => f !== key)
     const newAdjustedMax = character.maxHp + computeFeatHpBonus(newFeats, character.level)
-    changes.currentHp = Math.min(character.currentHp, newAdjustedMax)
-    onSave(changes)
+    onSave({
+      feats: newFeats,
+      featChoices: newFeatChoices,
+      currentHp: Math.min(character.currentHp, newAdjustedMax),
+    })
   }
 
   return (

@@ -4,20 +4,21 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
 import type { SpellcastingProfile, CasterKind } from '@/lib/spellcasting'
-import { abilityModifier, proficiencyBonus } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { loadSpellsData } from '@/lib/data'
 import type { SpellLevel } from '@/lib/spellcasting'
 import type { ClassData, SpellData } from '@/types/data'
-import type { Character, CharacterSpell, NewCharacter, AbilityName } from '@/types/character'
+import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
+import type { DerivedStats } from '@/lib/characterStats'
 
 interface Props {
   character: Character
   classRecord: ClassData
-  classLevel: number                           // primary class level (may differ from character.level when multiclassed)
-  overrideSlotProfile?: SpellcastingProfile    // multiclass combined slots; overrides per-class profile when provided
-  overrideCasterKind?: CasterKind              // multiclass: casterKind from the actual spellcasting class, not the primary class
+  classLevel: number
+  derived: DerivedStats
+  overrideSlotProfile?: SpellcastingProfile
+  overrideCasterKind?: CasterKind
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
@@ -172,15 +173,11 @@ function SpellRow({
   )
 }
 
-const ABILITY_KEY_MAP: Record<string, AbilityName> = {
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-}
 
-export function SpellBlock({ character, classRecord, classLevel, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
+export function SpellBlock({ character, classRecord, classLevel, derived, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
-  const { dispatch } = useRollDispatch(character)
+  const { dispatch } = useRollDispatch(derived)
 
   useEffect(() => {
     loadSpellsData().then(setAllSpells).catch(() => {})
@@ -192,8 +189,7 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
 
   const casterKind = overrideCasterKind ?? rawCasterKind
   const isPreparedCaster = casterKind === 'prepared'
-  const spellAbilKey = ABILITY_KEY_MAP[classRecord.spellcasting?.ability?.toLowerCase() ?? ''] ?? 'int'
-  const spellAttackMod = abilityModifier(character.abilities[spellAbilKey]) + proficiencyBonus(character.level)
+  const spellAttackMod = derived.spellAttackBonus
 
   // Normalized set of slugs the character already knows (strips legacy "spell:" prefix)
   const alreadyKnown = useMemo(
@@ -293,7 +289,7 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Save DC</p>
-              <p className="text-sm font-bold">{8 + spellAttackMod}</p>
+              <p className="text-sm font-bold">{derived.spellSaveDC}</p>
             </div>
           </div>
         </div>

@@ -1,19 +1,17 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { abilityModifier, proficiencyBonus } from '@/lib/dice'
-import { deriveCharacterStats } from '@/lib/characterStats'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { StepperField } from './StepperField'
 import type { Character, NewCharacter } from '@/types/character'
 import type { DieType } from '@/types/dice'
-import type { EquipmentData } from '@/types/data'
+import type { DerivedStats } from '@/lib/characterStats'
 
 interface Props {
   character: Character
   onSave: (changes: Partial<NewCharacter>) => void
   hitDie: number
-  catalog: EquipmentData | null
-  classHitDice?: Array<{ hitDie: number; level: number }>  // per-class hit dice for multiclass display
+  derived: DerivedStats
+  classHitDice?: Array<{ hitDie: number; level: number }>
 }
 
 function StatCard({
@@ -230,12 +228,10 @@ function DeathSaves({
   )
 }
 
-export function CombatBlock({ character, onSave, hitDie, catalog, classHitDice }: Props) {
-  const { dispatch } = useRollDispatch(character)
-  const initMod = abilityModifier(character.abilities.dex) + (character.initiativeBonus ?? 0)
-  const pb = proficiencyBonus(character.level)
+export function CombatBlock({ character, onSave, hitDie, derived, classHitDice }: Props) {
+  const { dispatch } = useRollDispatch(derived)
   const totalHitDice = character.level
-  const { effectiveAC, adjustedMaxHp } = deriveCharacterStats(character, catalog ?? undefined)
+  const { effectiveAC, adjustedMaxHp } = derived
 
   function rollHitDie() {
     if (character.hitDiceUsed >= totalHitDice) return
@@ -270,23 +266,33 @@ export function CombatBlock({ character, onSave, hitDie, catalog, classHitDice }
           )}
         </StatCard>
         <StatCard label="Speed">
-          <div className="flex items-center gap-0.5">
-            <StepperField
-              value={character.speed}
-              onSave={v => onSave({ speed: Math.max(0, v) })}
-              min={0}
-              max={120}
-              step={5}
-              size="sm"
-            />
-            <span className="text-xs text-muted-foreground ml-1">ft</span>
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="flex items-center gap-0.5">
+              <StepperField
+                value={derived.effectiveSpeed}
+                onSave={v => {
+                  const base = v - (derived.effectiveSpeed - character.speed)
+                  onSave({ speed: Math.max(0, base) })
+                }}
+                min={0}
+                max={120}
+                step={5}
+                size="sm"
+              />
+              <span className="text-xs text-muted-foreground ml-1">ft</span>
+            </div>
+            {derived.effectiveSpeed !== character.speed && (
+              <span className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>
+                +{derived.effectiveSpeed - character.speed} (feat)
+              </span>
+            )}
           </div>
         </StatCard>
         <StatCard
           label="Initiative"
-          value={initMod >= 0 ? `+${initMod}` : `${initMod}`}
+          value={derived.effectiveInitiative >= 0 ? `+${derived.effectiveInitiative}` : `${derived.effectiveInitiative}`}
         />
-        <StatCard label="Prof Bonus" value={`+${pb}`} />
+        <StatCard label="Prof Bonus" value={`+${derived.proficiencyBonus}`} />
       </div>
 
       {/* HP */}

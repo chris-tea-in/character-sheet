@@ -1,6 +1,6 @@
 # D&D Character Sheet — Bug & Refactor Backlog
 
-## Character Creation Bugs
+## ✅ Character Creation Bugs
 
 | Priority | Bug | Status |
 |---|---|---|
@@ -10,7 +10,7 @@
 
 ---
 
-## Level-Up Dialog Bugs (found in code review 2026-06-03)
+## ✅ Level-Up Dialog Bugs (found in code review 2026-06-03)
 
 | Priority | Bug | Status |
 |---|---|---|
@@ -21,7 +21,7 @@
 
 ---
 
-## Character Sheet Bugs
+## ✅ Character Sheet Bugs
 
 | Priority | Bug | Status |
 |---|---|---|
@@ -44,13 +44,27 @@
 ✅ Done — `src/components/sheet/DiceRollModal.tsx` + `src/lib/useRollDispatch.ts`
 
 ### `deriveCharacterStats(character, catalog)` — `src/lib/characterStats.ts`
-✅ Done — effectiveAC, adjustedMaxHp (Tough feat), computeWeaponBonus extracted from EquipmentBlock
+✅ Done — full render-time derivation: ability scores (base + race + feat ASIs), AC, speed, initiative, prof bonus, HP, skill/save modifiers, passive perception/investigation, spell attack bonus, spell save DC, stealth disadvantage, advantages; all sheet blocks and dice rolls now consume `DerivedStats`
 
 ### `useRollDispatch()` — `src/lib/useRollDispatch.ts`
 ✅ Done — replaces all 6 scattered `useDiceStore(s => s.roll)` call sites
 
 ### Item + Feat Effect Pipeline
-✅ Partial — FEAT_EFFECTS registry in `characterStats.ts` (Tough implemented); armor AC from equipment; full magical item pipeline deferred until item bonus data exists
+✅ Partial — FEAT_EFFECTS registry in `characterStats.ts` (Tough, Alert, Mobile, Observant, Resilient, Skilled implemented); armor AC from equipment; full magical item pipeline deferred until item bonus data exists
+
+---
+
+## Deferred: Render-Time Stat Pipeline Extensions
+
+Items explicitly out of scope for the initial render-time derivation. Add only after a data audit confirms source JSON is correct.
+
+| Item | Description |
+|---|---|
+| **Feat data audit** | Audit all 105 feats in `data/feats/*.json` for correctness of `effects[]` arrays before expanding `FEAT_EFFECTS`/`FEAT_ADVANTAGES` beyond current entries. Fix source JSON, re-run `build:data`, then register verified slugs. |
+| **Equipped/attuned toggle** | Add `equipped?: boolean` to `EquipmentItem` (undefined → true, non-breaking); item bonuses (magic weapon bonus, advantage from ITEM_ADV_MAP) should only apply when equipped. `deriveCharacterStats` gates all item effects on this flag. |
+| **Conditional/situational bonuses** | Sharpshooter −5/+10, GWM, Polearm Master reaction AC, etc. These are opt-in per-roll, not always-on — require a per-roll toggle UI rather than passive application in `deriveCharacterStats`. |
+| **Active conditions** | Bless, Bane, Rage, Concentration, Poisoned, etc. Requires a separate active game-state field on the character (not the character record). Track as a runtime array that feeds `deriveCharacterStats`. |
+| **Spell attack bonus override** | `customSpellToHit` field on `Character` type, parallel to weapon `customToHit`. Add when a character needs an override (e.g. Arcane Grimoire). Render-time derivation should respect this field if present. |
 
 ---
 
@@ -77,5 +91,5 @@
 | Ability full-name → short map (`"strength" → "str"`) defined 5+ times | `characterSetup.ts`, `characterStats.ts`, `LevelUpDialog.tsx`, `CharacterPage.tsx`, `SetupScreen1.tsx`, `FeatsBlock.tsx`, `ProficienciesBlock.tsx` | Export `toAbilityName()` from `characterSetup.ts` and use everywhere |
 | `formatBonus(n)` — `+N` / `-N` formatting | `ProficienciesBlock` ×2, `AbilityBlock`, `EquipmentBlock`, `dice.ts` | Add to `src/lib/dice.ts` |
 | Roll button markup | `ProficienciesBlock` ×2, `EquipmentBlock`, `SpellBlock` | `<RollButton>` in `src/components/sheet/` |
-| `saveBonus` / `skillBonus` logic | `ProficienciesBlock` | Move to `characterStats.ts` pre-emptively |
+| ~~`saveBonus` / `skillBonus` logic~~ | ~~`ProficienciesBlock`~~ | ✅ Resolved — deleted; `derived.skillModifiers` / `derived.saveModifiers` used directly |
 | Roll entry rendering | `DiceTray` inline JSX | Extract `<RollEntry>` component for reuse in popup |

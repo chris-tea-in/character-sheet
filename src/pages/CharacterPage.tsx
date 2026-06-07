@@ -19,7 +19,8 @@ import { StepperField } from '@/components/sheet/StepperField'
 import { LevelUpDialog } from '@/components/sheet/LevelUpDialog'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { useCharacterStore } from '@/store/characters'
-import { loadSetupData, loadEquipmentData } from '@/lib/data'
+import { loadSetupData, loadEquipmentData, loadFeatsData } from '@/lib/data'
+import { deriveCharacterStats } from '@/lib/characterStats'
 import {
   parseHitDie, RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
   subclassToDetailItem, backgroundToDetailItem, getRacialBonuses,
@@ -30,7 +31,7 @@ import type { CasterKind } from '@/lib/spellcasting'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { ALL_LANGUAGES, toSkillName } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
-import type { ClassData, Race, Background, EquipmentData } from '@/types/data'
+import type { ClassData, Race, Background, EquipmentData, FeatData } from '@/types/data'
 import type { AbilityName, Abilities, NewCharacter, SkillName } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
@@ -411,6 +412,7 @@ export default function CharacterPage() {
   const [setupData, setSetupData] = useState<SetupData | null>(null)
   const [classRecord, setClassRecord] = useState<ClassData | null>(null)
   const [equipmentCatalog, setEquipmentCatalog] = useState<EquipmentData | null>(null)
+  const [featData, setFeatData] = useState<Record<string, FeatData> | null>(null)
   const [activeList, setActiveList] = useState<IdentityList>(null)
   const [racePrompt, setRacePrompt] = useState<RacePrompt | null>(null)
   const [classPrompt, setClassPrompt] = useState<ClassData | null>(null)
@@ -433,6 +435,7 @@ export default function CharacterPage() {
       })
       .catch(() => {})
     loadEquipmentData().then(setEquipmentCatalog).catch(() => {})
+    loadFeatsData().then(setFeatData).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -459,6 +462,11 @@ export default function CharacterPage() {
   }
 
   const hitDie = classRecord ? parseHitDie(classRecord.hit_die) : 8
+
+  const derived = useMemo(
+    () => deriveCharacterStats(character, classRecord, equipmentCatalog, featData),
+    [character, classRecord, equipmentCatalog, featData],
+  )
 
   // Primary class level (classes[0].level, or character.level for single-class legacy)
   const primaryClassLevel = character.classes?.length
@@ -596,13 +604,13 @@ export default function CharacterPage() {
   }
 
   return (
-    <div className="min-h-dvh flex flex-col pb-[52px]">
+    <div className="min-h-dvh flex flex-col pb-[52px] print:pb-0">
       {/* Sticky header */}
       <header className="sticky top-0 z-30 border-b border-border bg-background">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-start gap-3">
           <button
             onClick={() => navigate('/')}
-            className="mt-0.5 text-muted-foreground hover:text-foreground transition-colors flex-none"
+            className="mt-0.5 text-muted-foreground hover:text-foreground transition-colors flex-none print:hidden"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -616,7 +624,7 @@ export default function CharacterPage() {
           </div>
           <button
             onClick={() => navigate(`/character/${id}/edit`)}
-            className="flex-none text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border border-border"
+            className="flex-none text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border border-border print:hidden"
           >
             Edit
           </button>
@@ -637,12 +645,12 @@ export default function CharacterPage() {
             onLevelChange={handleLevelChange}
           />
 
-          <AbilityBlock character={character} onSave={save} />
+          <AbilityBlock character={character} derived={derived} onSave={save} />
           <CombatBlock
             character={character}
+            derived={derived}
             onSave={save}
             hitDie={hitDie}
-            catalog={equipmentCatalog}
             classHitDice={character.classes?.length > 1
               ? character.classes.map(c => ({
                   hitDie: setupData?.classes[c.classSlug]
@@ -652,14 +660,15 @@ export default function CharacterPage() {
                 }))
               : undefined}
           />
-          <ProficienciesBlock character={character} classRecord={classRecord} catalog={equipmentCatalog} onSave={save} />
+          <ProficienciesBlock character={character} classRecord={classRecord} derived={derived} onSave={save} />
           <FeatsBlock character={character} onSave={save} />
-          <EquipmentBlock character={character} classRecord={classRecord} onSave={save} catalog={equipmentCatalog} />
+          <EquipmentBlock character={character} classRecord={classRecord} derived={derived} onSave={save} catalog={equipmentCatalog} />
           {classRecord && (
             <SpellBlock
               character={character}
               classRecord={classRecord}
               classLevel={primaryClassLevel}
+              derived={derived}
               overrideSlotProfile={multiclassSlotProfile ?? undefined}
               overrideCasterKind={multiclassCasterKind}
               onSave={save}
@@ -848,7 +857,7 @@ export default function CharacterPage() {
         </Dialog>
       )}
 
-      <DiceTray character={character} />
+      <DiceTray derived={derived} />
       <DiceRollModal />
     </div>
   )
