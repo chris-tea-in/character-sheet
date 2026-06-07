@@ -60,10 +60,14 @@ export async function initDb(): Promise<DbInitResult> {
 export async function replaceDb(blob: Uint8Array): Promise<void> {
   if (!_SQL) throw new Error('Database not initialized — call initDb() first')
   const tempDb = new _SQL.Database(blob)
-  tempDb.run('PRAGMA foreign_keys = ON')
-  runMigrations(tempDb)
-  await saveToIdb(tempDb.export())
-  tempDb.close()
+  try {
+    tempDb.run('PRAGMA foreign_keys = ON')
+    runMigrations(tempDb)
+    await saveToIdb(tempDb.export())
+  } finally {
+    tempDb.close()
+  }
+  _db = null
   window.location.reload()
 }
 

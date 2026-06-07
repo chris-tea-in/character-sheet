@@ -3,7 +3,7 @@ import { generateId } from '@/lib/uuid'
 import { computeFeatStatDelta, applyFeatAsi, featHasChoiceAsi } from '@/lib/characterStats'
 import type { AbilityName, Abilities, Character, NewCharacter, SkillName, SkillProficiency, EquipmentItem } from '@/types/character'
 import type { DetailItem } from '@/types/detail-item'
-import type { Race, ClassData, SubclassData, Background, EquipmentGrant, FeatData, SpellData } from '@/types/data'
+import type { Race, Subrace, ClassData, SubclassData, Background, EquipmentGrant, FeatData, SpellData } from '@/types/data'
 import type { SetupData } from '@/lib/data'
 
 // ---------------------------------------------------------------------------
@@ -236,6 +236,28 @@ export function raceToDetailItem(race: Race): DetailItem {
       ...Object.entries(race.base.traits)
         .filter(([label]) => !OMIT_TRAITS.has(label))
         .map(([label, value]) => ({ label, value })),
+    ].filter(Boolean) as DetailItem['sections'],
+  }
+}
+
+export function subraceToDetailItem(subrace: Subrace, raceName: string): DetailItem {
+  const asiEntries = Object.entries(subrace.ability_score_increases)
+  const asiText = asiEntries.length
+    ? asiEntries.map(([key, val]) => {
+        const short = ABILITY_FULL_TO_SHORT[key]
+        const label = short ? ABILITY_LABELS[short] : (key.charAt(0).toUpperCase() + key.slice(1))
+        return `+${val} ${label}`
+      }).join(', ')
+    : null
+
+  return {
+    name: subrace.name,
+    subtitle: raceName,
+    sections: [
+      asiText ? { label: 'Ability Score Increases', value: asiText } : null,
+      subrace.languages.length ? { label: 'Languages', value: subrace.languages } : null,
+      subrace.proficiencies.length ? { label: 'Proficiencies', value: subrace.proficiencies } : null,
+      ...Object.entries(subrace.traits).map(([label, value]) => ({ label, value })),
     ].filter(Boolean) as DetailItem['sections'],
   }
 }

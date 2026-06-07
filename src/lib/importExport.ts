@@ -32,6 +32,10 @@ function validateCharacterPayload(c: unknown): asserts c is NewCharacter {
 
   if (!Array.isArray(char.spells))
     throw new Error('Character spells field is missing or not an array.')
+  for (const s of char.spells as unknown[]) {
+    if (typeof (s as Record<string, unknown>).slug !== 'string')
+      throw new Error('Spell entry is missing a slug field.')
+  }
 
   if (typeof char.maxHp !== 'number')
     throw new Error('Character is missing maxHp.')
@@ -47,8 +51,13 @@ function todaySlug(): string {
 async function triggerDownload(blob: Blob, filename: string): Promise<void> {
   const file = new File([blob], filename, { type: blob.type })
   if (navigator.canShare?.({ files: [file] })) {
-    await navigator.share({ files: [file], title: filename })
-    return
+    try {
+      await navigator.share({ files: [file], title: filename })
+      return
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return
+      // NotAllowedError or other — fall through to anchor download
+    }
   }
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -57,7 +66,7 @@ async function triggerDownload(blob: Blob, filename: string): Promise<void> {
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
 // ── Full DB export ────────────────────────────────────────────────────────────
@@ -113,10 +122,10 @@ export async function importCharacter(file: File): Promise<Character> {
   const version = doc.version
   if (typeof version !== 'number')
     throw new Error('File is missing a version field.')
-  if (version !== CHAR_EXPORT_VERSION)
+  if (version > CHAR_EXPORT_VERSION)
     throw new Error(
-      `This file was exported from a different version of the app (v${version}). ` +
-      `This app supports v${CHAR_EXPORT_VERSION}.`
+      `This file was exported from a newer version of the app (v${version}). ` +
+      `This app supports up to v${CHAR_EXPORT_VERSION}.`
     )
 
   validateCharacterPayload(doc.character)

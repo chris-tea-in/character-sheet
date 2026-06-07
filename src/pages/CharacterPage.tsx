@@ -23,20 +23,20 @@ import { loadSetupData, loadEquipmentData, loadFeatsData } from '@/lib/data'
 import { deriveCharacterStats } from '@/lib/characterStats'
 import {
   parseHitDie, RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
-  subclassToDetailItem, backgroundToDetailItem, getRacialBonuses,
-  slugToTitle, ABILITY_ORDER, ABILITY_LABELS,
+  subclassToDetailItem, backgroundToDetailItem, subraceToDetailItem, getRacialBonuses,
+  slugToTitle, ABILITY_ORDER, ABILITY_LABELS, toSubraceSlug,
 } from '@/lib/characterSetup'
 import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
 import type { CasterKind } from '@/lib/spellcasting'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { ALL_LANGUAGES, toSkillName } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
-import type { ClassData, Race, Background, EquipmentData, FeatData } from '@/types/data'
+import type { ClassData, Race, Subrace, Background, EquipmentData, FeatData } from '@/types/data'
 import type { AbilityName, Abilities, NewCharacter, SkillName } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
 
-type IdentityList = 'class' | 'subclass' | 'race' | 'background' | 'alignment' | null
+type IdentityList = 'class' | 'subclass' | 'race' | 'subrace' | 'background' | 'alignment' | null
 
 // Converts class saving throw display names ("Constitution") → AbilityName ("con")
 const SAVE_NAME_TO_ABILITY: Record<string, AbilityName> = {
@@ -159,6 +159,133 @@ function RacePromptDialog({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">No ability score bonuses from this race.</p>
+        )}
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost" onClick={onSkip}>Skip</Button>
+          </DialogClose>
+          <Button
+            onClick={handleApply}
+            disabled={choicePools.length > 0 && asiChoices.length < totalChoicesNeeded}
+          >
+            Apply Bonuses
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Subrace change prompt ─────────────────────────────────────────────────────
+
+function SubracePromptDialog({
+  subrace,
+  currentAbilities,
+  onApply,
+  onSkip,
+}: {
+  subrace: Subrace
+  currentAbilities: Abilities
+  onApply: (abilityChanges: Partial<Abilities>) => void
+  onSkip: () => void
+}) {
+  const fixedBonuses = subrace.ability_score_increases
+  const choicePools = subrace.asi_choices
+  const [asiChoices, setAsiChoices] = useState<AbilityName[]>([])
+
+  const totalChoicesNeeded = choicePools.reduce((s, p) => s + p.count, 0)
+
+  function toggleChoice(ability: AbilityName) {
+    if (asiChoices.includes(ability)) {
+      setAsiChoices(c => c.filter(a => a !== ability))
+    } else if (asiChoices.length < totalChoicesNeeded) {
+      setAsiChoices(c => [...c, ability])
+    }
+  }
+
+  function handleApply() {
+    const changes: Partial<Abilities> = {}
+    for (const [k, v] of Object.entries(fixedBonuses)) {
+      const ab = SAVE_NAME_TO_ABILITY[k.toLowerCase()] ?? k as AbilityName
+      changes[ab] = Math.min(30, (currentAbilities[ab] ?? 10) + (v ?? 0))
+    }
+    let offset = 0
+    for (const pool of choicePools) {
+      for (let i = 0; i < pool.count; i++) {
+        const ab = asiChoices[offset + i]
+        if (ab) changes[ab] = Math.min(30, (currentAbilities[ab] ?? 10) + pool.amount)
+      }
+      offset += pool.count
+    }
+    onApply(changes)
+  }
+
+  const hasBonuses = Object.keys(fixedBonuses).length > 0 || choicePools.length > 0
+
+  return (
+    <Dialog open onOpenChange={o => !o && onSkip()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{subrace.name}</DialogTitle>
+        </DialogHeader>
+
+        {hasBonuses ? (
+          <div className="space-y-3 text-sm">
+            {Object.keys(fixedBonuses).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Ability Score Increases
+                </p>
+                <ul className="space-y-0.5">
+                  {Object.entries(fixedBonuses).map(([ab, val]) => {
+                    const label = ABILITY_LABELS[SAVE_NAME_TO_ABILITY[ab] ?? ab as AbilityName] ?? ab
+                    return (
+                      <li key={ab} className="text-sm">
+                        <span style={{ color: 'var(--color-accent-gold)' }}>+{val}</span> {label}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {choicePools.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Flexible ASI — choose {totalChoicesNeeded} ({asiChoices.length}/{totalChoicesNeeded})
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  {ABILITY_ORDER.map(ab => {
+                    const chosen = asiChoices.includes(ab)
+                    const disabled = !chosen && asiChoices.length >= totalChoicesNeeded
+                    return (
+                      <button
+                        key={ab}
+                        onClick={() => toggleChoice(ab)}
+                        disabled={disabled}
+                        className="px-2 py-1 rounded text-xs border transition-colors"
+                        style={{
+                          background: chosen ? 'var(--color-accent-gold)' : undefined,
+                          color: chosen ? '#000' : undefined,
+                          borderColor: 'var(--color-border-raw)',
+                          opacity: disabled ? 0.4 : 1,
+                        }}
+                      >
+                        {ABILITY_LABELS[ab]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Apply will add these bonuses to your current scores.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No ability score bonuses from this subrace.</p>
         )}
 
         <DialogFooter>
@@ -415,6 +542,7 @@ export default function CharacterPage() {
   const [featData, setFeatData] = useState<Record<string, FeatData> | null>(null)
   const [activeList, setActiveList] = useState<IdentityList>(null)
   const [racePrompt, setRacePrompt] = useState<RacePrompt | null>(null)
+  const [subracePrompt, setSubracePrompt] = useState<Subrace | null>(null)
   const [classPrompt, setClassPrompt] = useState<ClassData | null>(null)
   const [backgroundPrompt, setBackgroundPrompt] = useState<Background | null>(null)
   const [levelUpTarget, setLevelUpTarget] = useState<{
@@ -502,6 +630,22 @@ export default function CharacterPage() {
     ? (setupData?.races[character.race]?.name ?? slugToTitle(character.race))
     : null
 
+  const currentRaceData = character.race ? (setupData?.races[character.race] ?? null) : null
+
+  const displaySubrace = useMemo(() => {
+    if (!character.subrace || !currentRaceData) return null
+    const sub = currentRaceData.subraces.find(s => toSubraceSlug(s.name) === character.subrace)
+    return sub?.name ?? slugToTitle(character.subrace)
+  }, [character.subrace, currentRaceData])
+
+  const subraceEntries: SelectionEntry[] = useMemo(() => {
+    if (!currentRaceData) return []
+    return currentRaceData.subraces.map(s => ({
+      slug: toSubraceSlug(s.name),
+      detail: subraceToDetailItem(s, currentRaceData.name),
+    }))
+  }, [currentRaceData])
+
   const subclassEntries: SelectionEntry[] = useMemo(() => {
     if (!setupData || !character.class) return []
     return Object.values(setupData.subclasses)
@@ -553,10 +697,17 @@ export default function CharacterPage() {
   }
 
   function handleRaceSelect(slug: string) {
-    save({ race: slug })
+    save({ race: slug, subrace: null })
     setActiveList(null)
     const race = setupData?.races[slug]
     if (race) setRacePrompt({ race, slug })
+  }
+
+  function handleSubraceSelect(slug: string) {
+    save({ subrace: slug })
+    setActiveList(null)
+    const sub = currentRaceData?.subraces.find(s => toSubraceSlug(s.name) === slug)
+    if (sub) setSubracePrompt(sub)
   }
 
   function handleBackgroundSelect(slug: string) {
@@ -637,6 +788,9 @@ export default function CharacterPage() {
             setupData={setupData}
             displayClass={displayClass}
             displayRace={displayRace}
+            displaySubrace={displaySubrace}
+            subraceEntries={subraceEntries}
+            currentRaceData={currentRaceData}
             subclassEntries={subclassEntries}
             onOpenList={setActiveList}
             onSave={save}
@@ -703,6 +857,14 @@ export default function CharacterPage() {
         groupOrder={['Common', 'Exotic', 'Monstrous']}
       />
       <SelectionList
+        entries={subraceEntries}
+        value={character.subrace ?? ''}
+        title="Choose Subrace"
+        open={activeList === 'subrace'}
+        onClose={() => setActiveList(null)}
+        onSelect={handleSubraceSelect}
+      />
+      <SelectionList
         entries={backgroundEntries}
         value={character.background}
         title="Choose Background"
@@ -747,6 +909,15 @@ export default function CharacterPage() {
           currentAbilities={character.abilities}
           onApply={(changes, speed) => handleRacePromptApply(changes, speed)}
           onSkip={() => setRacePrompt(null)}
+        />
+      )}
+
+      {subracePrompt && (
+        <SubracePromptDialog
+          subrace={subracePrompt}
+          currentAbilities={character.abilities}
+          onApply={changes => { save({ abilities: { ...character.abilities, ...changes } }); setSubracePrompt(null) }}
+          onSkip={() => setSubracePrompt(null)}
         />
       )}
 
@@ -865,7 +1036,7 @@ export default function CharacterPage() {
 type IdentityField = Exclude<IdentityList, null>
 
 const IDENTITY_LABELS: Record<IdentityField, string> = {
-  class: 'Class', subclass: 'Subclass', race: 'Race',
+  class: 'Class', subclass: 'Subclass', race: 'Race', subrace: 'Subrace',
   background: 'Background', alignment: 'Alignment',
 }
 
@@ -874,6 +1045,9 @@ function IdentitySection({
   setupData,
   displayClass,
   displayRace,
+  displaySubrace,
+  subraceEntries,
+  currentRaceData,
   subclassEntries,
   onOpenList,
   onSave,
@@ -883,6 +1057,9 @@ function IdentitySection({
   setupData: SetupData | null
   displayClass: string | null
   displayRace: string | null
+  displaySubrace: string | null
+  subraceEntries: SelectionEntry[]
+  currentRaceData: Race | null
   subclassEntries: SelectionEntry[]
   onOpenList: (list: IdentityList) => void
   onSave: (changes: Partial<NewCharacter>) => void
@@ -917,6 +1094,10 @@ function IdentitySection({
     if (field === 'subclass' && character.class && character.subclass) {
       const sub = setupData.subclasses[`${character.class}:${character.subclass}`]
       return sub ? subclassToDetailItem(sub) : null
+    }
+    if (field === 'subrace' && character.subrace && currentRaceData) {
+      const sub = currentRaceData.subraces.find(s => toSubraceSlug(s.name) === character.subrace)
+      return sub ? subraceToDetailItem(sub, currentRaceData.name) : null
     }
     return null
   }
@@ -991,6 +1172,16 @@ function IdentitySection({
             onClick={() => handleIdentityClick('race')}
           />
         </IdentityRow>
+
+        {subraceEntries.length > 0 && (
+          <IdentityRow label="Subrace">
+            <IdentityButton
+              value={displaySubrace}
+              placeholder="Choose subrace…"
+              onClick={() => handleIdentityClick('subrace')}
+            />
+          </IdentityRow>
+        )}
 
         <IdentityRow label="Background">
           <IdentityButton

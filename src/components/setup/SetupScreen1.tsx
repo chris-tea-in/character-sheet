@@ -17,6 +17,7 @@ import {
   getRacialBonuses,
   RACE_TIER_MAP,
   raceToDetailItem,
+  subraceToDetailItem,
   rollHp,
   slugToTitle,
   subclassToDetailItem,
@@ -72,6 +73,7 @@ const ABILITY_METHODS = [
 
 export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const [raceListOpen, setRaceListOpen] = useState(false)
+  const [subraceListOpen, setSubraceListOpen] = useState(false)
   const [classListOpen, setClassListOpen] = useState(false)
   const [subclassListOpen, setSubclassListOpen] = useState(false)
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
@@ -172,6 +174,14 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
     detail: raceToDetailItem(r),
     group: RACE_TIER_MAP[r.slug] ?? 'Common',
   }))
+
+  const subraceEntries: SelectionEntry[] = useMemo(() =>
+    selectedRace?.subraces.map(s => ({
+      slug: toSubraceSlug(s.name),
+      detail: subraceToDetailItem(s, selectedRace.name),
+    })) ?? [],
+    [selectedRace],
+  )
 
   const classEntries: SelectionEntry[] = Object.values(data.classes).map((c) => ({
     slug: c.slug,
@@ -277,26 +287,23 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
       {/* Subrace picker — shown only when selected race has subraces */}
       {selectedRace && selectedRace.subraces.length > 0 && (
         <Field label="Subrace">
-          <div className="flex flex-wrap gap-2">
-            {selectedRace.subraces.map((sub) => {
-              const slug = toSubraceSlug(sub.name)
-              return (
-                <button
-                  key={slug}
-                  type="button"
-                  onClick={() => onChange({ subraceSlug: slug })}
-                  className={cn(
-                    'px-3 py-1.5 rounded text-sm border transition-colors',
-                    draft.subraceSlug === slug
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground',
-                  )}
-                >
-                  {sub.name}
-                </button>
-              )
-            })}
-          </div>
+          <SelectionButton
+            label={
+              draft.subraceSlug
+                ? (selectedRace.subraces.find(s => toSubraceSlug(s.name) === draft.subraceSlug)?.name ?? draft.subraceSlug)
+                : 'Choose Subrace'
+            }
+            selected={!!draft.subraceSlug}
+            onClick={() => setSubraceListOpen(true)}
+          />
+          <SelectionList
+            entries={subraceEntries}
+            value={draft.subraceSlug}
+            title="Choose Subrace"
+            open={subraceListOpen}
+            onClose={() => setSubraceListOpen(false)}
+            onSelect={slug => { onChange({ subraceSlug: slug }); setSubraceListOpen(false) }}
+          />
         </Field>
       )}
 

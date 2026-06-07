@@ -80,7 +80,17 @@ export function DataManagementDialog({ open, onClose, onCharacterImported }: Pro
   }
 
   function handleExportCurrentDb() {
-    exportDb().catch(console.error)
+    exportDb().catch(err => {
+      if ((err as Error)?.name !== 'AbortError')
+        setError(err instanceof Error ? err.message : 'Export failed.')
+    })
+  }
+
+  function handleExportCharacter(character: Character) {
+    exportCharacter(character).catch(err => {
+      if ((err as Error)?.name !== 'AbortError')
+        setError(err instanceof Error ? err.message : 'Export failed.')
+    })
   }
 
   return (
@@ -95,6 +105,8 @@ export function DataManagementDialog({ open, onClose, onCharacterImported }: Pro
             charFileRef={charFileRef}
             onDbFileChange={handleDbFileChange}
             onCharFileChange={handleCharFileChange}
+            onExportDb={handleExportCurrentDb}
+            onExportCharacter={handleExportCharacter}
           />
         ) : (
           <ConfirmDbImportView
@@ -119,6 +131,8 @@ function MainView({
   charFileRef,
   onDbFileChange,
   onCharFileChange,
+  onExportDb,
+  onExportCharacter,
 }: {
   characters: Character[]
   importing: boolean
@@ -127,6 +141,8 @@ function MainView({
   charFileRef: React.RefObject<HTMLInputElement | null>
   onDbFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   onCharFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onExportDb: () => void
+  onExportCharacter: (c: Character) => void
 }) {
   return (
     <>
@@ -145,7 +161,7 @@ function MainView({
             Export every character as a single SQLite file you can back up or import on another device.
           </p>
           <div className="flex gap-2 flex-wrap">
-            <Button size="sm" variant="outline" onClick={() => exportDb().catch(console.error)}>
+            <Button size="sm" variant="outline" onClick={onExportDb}>
               <Download className="h-3.5 w-3.5" />
               Export all (.sqlite)
             </Button>
@@ -205,7 +221,7 @@ function MainView({
                     size="sm"
                     variant="ghost"
                     className="flex-none h-7 px-2 text-xs"
-                    onClick={() => exportCharacter(c).catch(console.error)}
+                    onClick={() => onExportCharacter(c)}
                   >
                     <Download className="h-3 w-3" />
                     Export

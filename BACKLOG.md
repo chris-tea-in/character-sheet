@@ -83,6 +83,15 @@ Items explicitly out of scope for the initial render-time derivation. Add only a
 
 ---
 
+## Future Features
+
+| Feature | Description |
+|---|---|
+| **Side-by-side comparison view** | Allow players to compare two or more races, subraces, classes, or subclasses side-by-side during character creation or browsing — showing stat differences, traits, and features in a columnar layout. |
+| **Print CSS — subrace row** | Subrace row in IdentitySection needs the same `@media print` treatment as other identity rows when the print layer (Step 10) is built. |
+
+---
+
 ## Code Duplication to Fix
 
 | Duplication | Files affected | Fix |
