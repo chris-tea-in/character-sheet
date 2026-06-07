@@ -153,6 +153,19 @@ export interface AsiChoice {
   pool: 'any' | AbilityName[]
 }
 
+export interface Subrace {
+  name: string
+  ability_score_increases: Partial<Record<AbilityName, number>>
+  asi_choices: AsiChoice[]
+  speed: number | null         // null = inherit base race speed; number = override
+  size: string | null
+  languages: string[]
+  senses: Record<string, unknown>
+  proficiencies: string[]
+  traits: Record<string, string>
+  hp_bonus_per_level?: number
+}
+
 export interface Race {
   name: string
   slug: string
@@ -167,7 +180,7 @@ export interface Race {
     proficiencies: string[]
     traits: Record<string, string>
   }
-  subraces: unknown[]
+  subraces: Subrace[]
 }
 
 export interface ClassLevel {
@@ -248,6 +261,8 @@ export type FeatEffect =
   | { type: 'initiative'; amount: number }
   | { type: 'speed'; amount: number }
   | { type: 'save_proficiency'; ability: string }  // ability name or 'asi_choice'
+  | { type: 'skill_proficiency'; count: number }
+  | { type: 'expertise'; count: number }
 
 export interface FeatData {
   name: string

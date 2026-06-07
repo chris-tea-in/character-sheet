@@ -461,8 +461,6 @@ export default function CharacterPage() {
     update(id!, changes)
   }
 
-  const hitDie = classRecord ? parseHitDie(classRecord.hit_die) : 8
-
   const derived = useMemo(
     () => deriveCharacterStats(character, classRecord, equipmentCatalog, featData),
     [character, classRecord, equipmentCatalog, featData],
@@ -650,12 +648,11 @@ export default function CharacterPage() {
             character={character}
             derived={derived}
             onSave={save}
-            hitDie={hitDie}
             classHitDice={character.classes?.length > 1
               ? character.classes.map(c => ({
                   hitDie: setupData?.classes[c.classSlug]
                     ? parseHitDie(setupData.classes[c.classSlug].hit_die)
-                    : hitDie,
+                    : derived.hitDiceType,
                   level: c.level,
                 }))
               : undefined}

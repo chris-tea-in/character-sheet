@@ -6,7 +6,7 @@ import {
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import { StepperField } from './StepperField'
-import { abilityModifier, proficiencyBonus, rollDie } from '@/lib/dice'
+import { abilityModifier, proficiencyBonus, rollDie, SKILL_ABILITY_MAP } from '@/lib/dice'
 import { parseHitDie, ABILITY_ORDER, ABILITY_SHORT } from '@/lib/characterSetup'
 import { getSpellcastingInfo, getSpellsKnownIncrease, parseClassSlots } from '@/lib/spellcasting'
 import {
@@ -17,7 +17,7 @@ import { loadFeatsData, loadSpellsData } from '@/lib/data'
 import type { SpellLevel } from '@/lib/spellcasting'
 import type { DieType } from '@/types/dice'
 import type { ClassData, SpellData, FeatData } from '@/types/data'
-import type { AbilityName, Character, NewCharacter } from '@/types/character'
+import type { AbilityName, SkillName, Character, NewCharacter } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import { cn } from '@/lib/utils'
 
@@ -74,6 +74,8 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
   const [asiMode, setAsiMode] = useState<'asi' | 'feat'>('asi')
   const [chosenFeat, setChosenFeat] = useState<string | null>(null)
   const [featAsiChoice, setFeatAsiChoice] = useState<AbilityName | null>(null)
+  const [featSkillChoices, setFeatSkillChoices] = useState<SkillName[]>([])
+  const [featExpertiseChoice, setFeatExpertiseChoice] = useState<SkillName | null>(null)
   const [featPickerOpen, setFeatPickerOpen] = useState(false)
   const [featDetailOpen, setFeatDetailOpen] = useState(false)
   const [spellBrowseAll, setSpellBrowseAll] = useState(false)
@@ -132,6 +134,8 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
     setAsiMode('asi')
     setChosenFeat(null)
     setFeatAsiChoice(null)
+    setFeatSkillChoices([])
+    setFeatExpertiseChoice(null)
     setSpellBrowseAll(false)
     loadSpellsData().then(setAllSpells).catch(() => {})
     loadFeatsData().then(setAllFeats).catch(() => {})
@@ -211,11 +215,16 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
       if (asiMode === 'feat' && chosenFeat) {
         const feat = allFeats[chosenFeat]
         const newFeatChoices = { ...character.featChoices }
+        const hasAnyChoice = featAsiChoice || featSkillChoices.length > 0 || featExpertiseChoice
         const hasStatEffect = feat && (feat.effects ?? []).length > 0
-        if (featAsiChoice) {
-          newFeatChoices[chosenFeat] = { asiAbility: featAsiChoice }
+        if (hasAnyChoice) {
+          newFeatChoices[chosenFeat] = {
+            ...(featAsiChoice ? { asiAbility: featAsiChoice } : {}),
+            ...(featSkillChoices.length > 0 ? { skillChoices: featSkillChoices } : {}),
+            ...(featExpertiseChoice ? { expertiseSkill: featExpertiseChoice } : {}),
+          }
         } else if (hasStatEffect) {
-          newFeatChoices[chosenFeat] = {}  // sentinel: effects were applied via new code
+          newFeatChoices[chosenFeat] = {}
         }
         if (feat) {
           const delta = computeFeatStatDelta(chosenFeat, feat, newFeatChoices)
@@ -261,13 +270,28 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
   const chosenFeatData = chosenFeat ? allFeats[chosenFeat] : null
   const chosenFeatNeedsAsiChoice = chosenFeatData ? featHasChoiceAsi(chosenFeatData) : false
   const chosenFeatAsiOptions = chosenFeatData ? featChoiceAsiOptions(chosenFeatData) : []
+  const chosenFeatSkillCount = chosenFeatData
+    ? ((chosenFeatData.effects ?? []).find(e => e.type === 'skill_proficiency') as { count?: number } | undefined)?.count ?? 0
+    : 0
+  const chosenFeatNeedsExpertise = chosenFeatData
+    ? (chosenFeatData.effects ?? []).some(e => e.type === 'expertise')
+    : false
+
+  const ALL_SKILLS = Object.keys(SKILL_ABILITY_MAP) as SkillName[]
+
+  function skillDisplayName(skill: SkillName): string {
+    return skill.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())
+  }
 
   const spellsStillNeeded = spellIncrease.spells - newSpells.length
   const cantripsStillNeeded = spellIncrease.cantrips - newCantrips.length
   const asiStillNeeded = isASILevel && (
     asiMode === 'asi'
       ? asiChoices.length < 2
-      : chosenFeat === null || (chosenFeatNeedsAsiChoice && featAsiChoice === null)
+      : chosenFeat === null
+          || (chosenFeatNeedsAsiChoice && featAsiChoice === null)
+          || (chosenFeatSkillCount > 0 && featSkillChoices.length < chosenFeatSkillCount)
+          || (chosenFeatNeedsExpertise && featExpertiseChoice === null)
   )
   const canApply = spellsStillNeeded <= 0 && cantripsStillNeeded <= 0 && !asiStillNeeded
 
@@ -506,13 +530,13 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
                           <span className="flex-1" />
                           <button
                             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                            onClick={() => setFeatPickerOpen(true)}
+                            onClick={() => { setFeatPickerOpen(true); setFeatAsiChoice(null); setFeatSkillChoices([]); setFeatExpertiseChoice(null) }}
                           >
                             Change
                           </button>
                           <button
                             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                            onClick={() => { setChosenFeat(null); setFeatAsiChoice(null) }}
+                            onClick={() => { setChosenFeat(null); setFeatAsiChoice(null); setFeatSkillChoices([]); setFeatExpertiseChoice(null) }}
                           >
                             ✕
                           </button>
@@ -543,6 +567,69 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
                                   </button>
                                 )
                               })}
+                            </div>
+                          </div>
+                        )}
+                        {chosenFeatSkillCount > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs text-muted-foreground">
+                              Choose {chosenFeatSkillCount === 1 ? 'a skill' : `${chosenFeatSkillCount} skills`} to gain proficiency in
+                              {featSkillChoices.length > 0 && ` (${featSkillChoices.length}/${chosenFeatSkillCount})`}:
+                            </p>
+                            <div className="grid grid-cols-2 gap-1">
+                              {ALL_SKILLS.filter(sk => !character.skillProficiencies[sk]).map(sk => {
+                                const selected = featSkillChoices.includes(sk)
+                                const disabled = !selected && featSkillChoices.length >= chosenFeatSkillCount
+                                return (
+                                  <button
+                                    key={sk}
+                                    disabled={disabled}
+                                    onClick={() => setFeatSkillChoices(prev =>
+                                      prev.includes(sk) ? prev.filter(s => s !== sk)
+                                        : prev.length < chosenFeatSkillCount ? [...prev, sk] : prev,
+                                    )}
+                                    className="text-xs px-2 py-1 rounded border text-left transition-colors"
+                                    style={{
+                                      background: selected ? 'var(--color-accent-gold)' : undefined,
+                                      color: selected ? '#000' : undefined,
+                                      borderColor: 'var(--color-border-raw)',
+                                      opacity: disabled ? 0.4 : 1,
+                                    }}
+                                  >
+                                    {skillDisplayName(sk)}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {chosenFeatNeedsExpertise && (
+                          <div className="space-y-1">
+                            <p className="text-xs text-muted-foreground">Choose a skill for expertise (must be proficient):</p>
+                            <div className="grid grid-cols-2 gap-1">
+                              {[
+                                ...Object.keys(character.skillProficiencies) as SkillName[],
+                                ...featSkillChoices.filter(sk => !character.skillProficiencies[sk]),
+                              ].map(sk => {
+                                const selected = featExpertiseChoice === sk
+                                return (
+                                  <button
+                                    key={sk}
+                                    onClick={() => setFeatExpertiseChoice(sk)}
+                                    className="text-xs px-2 py-1 rounded border text-left transition-colors"
+                                    style={{
+                                      background: selected ? 'var(--color-accent-gold)' : undefined,
+                                      color: selected ? '#000' : undefined,
+                                      borderColor: 'var(--color-border-raw)',
+                                    }}
+                                  >
+                                    {skillDisplayName(sk)}
+                                  </button>
+                                )
+                              })}
+                              {Object.keys(character.skillProficiencies).length === 0 && featSkillChoices.length === 0 && (
+                                <p className="col-span-2 text-xs text-muted-foreground italic">No proficient skills yet.</p>
+                              )}
                             </div>
                           </div>
                         )}
@@ -627,6 +714,8 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
         onSelect={key => {
           setChosenFeat(key)
           setFeatAsiChoice(null)
+          setFeatSkillChoices([])
+          setFeatExpertiseChoice(null)
           setFeatPickerOpen(false)
         }}
       />

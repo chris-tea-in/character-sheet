@@ -21,6 +21,7 @@ import {
   slugToTitle,
   subclassToDetailItem,
   getClassAsiLevels,
+  toSubraceSlug,
 } from '@/lib/characterSetup'
 import { loadFeatsData } from '@/lib/data'
 import { featHasChoiceAsi, featChoiceAsiOptions, meetsFeatPrerequisites, type FeatPrereqContext } from '@/lib/characterStats'
@@ -83,7 +84,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const selectedRace = data.races[draft.raceSlug]
   const selectedClass = data.classes[draft.classSlug]
   const dieSides = selectedClass ? parseHitDie(selectedClass.hit_die) : 8
-  const racialBonuses = getRacialBonuses(selectedRace, draft.asiChoices)
+  const racialBonuses = getRacialBonuses(selectedRace, draft.asiChoices, draft.subraceSlug)
   const effectiveCon = draft.abilities.con + (racialBonuses.con ?? 0)
   const conMod = abilityModifier(effectiveCon)
 
@@ -260,7 +261,11 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
         <SelectionList
           entries={raceEntries}
           value={draft.raceSlug}
-          onSelect={(slug) => onChange({ raceSlug: slug, asiChoices: [] })}
+          onSelect={(slug) => {
+            const newRace = data.races[slug]
+            const autoSubrace = newRace?.subraces.length === 1 ? toSubraceSlug(newRace.subraces[0].name) : ''
+            onChange({ raceSlug: slug, subraceSlug: autoSubrace, asiChoices: [] })
+          }}
           open={raceListOpen}
           onClose={() => setRaceListOpen(false)}
           title="Choose Race"
@@ -268,6 +273,32 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
           groupOrder={['Common', 'Exotic', 'Monstrous']}
         />
       </Field>
+
+      {/* Subrace picker — shown only when selected race has subraces */}
+      {selectedRace && selectedRace.subraces.length > 0 && (
+        <Field label="Subrace">
+          <div className="flex flex-wrap gap-2">
+            {selectedRace.subraces.map((sub) => {
+              const slug = toSubraceSlug(sub.name)
+              return (
+                <button
+                  key={slug}
+                  type="button"
+                  onClick={() => onChange({ subraceSlug: slug })}
+                  className={cn(
+                    'px-3 py-1.5 rounded text-sm border transition-colors',
+                    draft.subraceSlug === slug
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground',
+                  )}
+                >
+                  {sub.name}
+                </button>
+              )
+            })}
+          </div>
+        </Field>
+      )}
 
       {/* Flexible ASI pools (e.g., half-elf: +1 to 2 abilities of your choice) */}
       {asiChoicePools.map((pool, poolIdx) => {

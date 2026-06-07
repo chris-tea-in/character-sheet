@@ -1,5 +1,5 @@
 import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP } from './dice'
-import type { Character, AbilityName, Abilities, SkillName } from '../types/character'
+import type { Character, AbilityName, Abilities, SkillName, SkillProficiency } from '../types/character'
 import type { ArmorItem, WeaponItem, ClassData, FeatData } from '../types/data'
 
 export interface WeaponBonus {
@@ -29,6 +29,7 @@ export interface DerivedStats {
   spellAttackBonus: number
   spellSaveDC: number
   hasStealthDisadvantage: boolean
+  hitDiceType: number
   advantages: { saves: Set<AbilityName>; skills: Set<SkillName> }
 }
 
@@ -37,11 +38,19 @@ export interface DerivedStats {
 interface FeatEffect {
   maxHpBonus?: (level: number) => number
   skillBonuses?: Partial<Record<SkillName, number>>
+  passivePerceptionBonus?: number
+  passiveInvestigationBonus?: number
 }
 
 const FEAT_EFFECTS: Partial<Record<string, FeatEffect>> = {
   'tough':     { maxHpBonus: level => level * 2 },
-  'observant': { skillBonuses: { perception: 5, investigation: 5 } },
+  'observant': { passivePerceptionBonus: 5, passiveInvestigationBonus: 5 },
+}
+
+// ── Subrace HP bonus registry ────────────────────────────────────────────────
+
+const SUBRACE_HP_BONUS: Partial<Record<string, (level: number) => number>> = {
+  'hill-dwarf': level => level,  // Dwarven Toughness: +1 HP per level
 }
 
 const ABILITY_FROM_FULL: Record<string, AbilityName> = {
@@ -442,6 +451,28 @@ export function deriveCharacterStats(
     }
   }
 
+  // ── Effective skill proficiencies (base + feat-granted choices) ───────────
+  const effectiveSkillProficiencies: Partial<Record<SkillName, SkillProficiency>> = {
+    ...character.skillProficiencies,
+  }
+  if (featData) {
+    for (const slug of character.feats) {
+      const feat = featData[slug]
+      if (!feat) continue
+      const choices = character.featChoices[slug]
+      const hasSkillProf = (feat.effects ?? []).some(e => e.type === 'skill_proficiency')
+      const hasExpertise = (feat.effects ?? []).some(e => e.type === 'expertise')
+      if (hasSkillProf && choices?.skillChoices) {
+        for (const sk of choices.skillChoices) {
+          if (!effectiveSkillProficiencies[sk]) effectiveSkillProficiencies[sk] = 'proficient'
+        }
+      }
+      if (hasExpertise && choices?.expertiseSkill) {
+        effectiveSkillProficiencies[choices.expertiseSkill] = 'expertise'
+      }
+    }
+  }
+
   // ── Combat stats ──────────────────────────────────────────────────────────
   const dexMod = abilityModifier(effectiveAbilities.dex)
   const effectiveSpeed = character.speed + featSpeedBonus
@@ -459,7 +490,7 @@ export function deriveCharacterStats(
   for (const skill of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) {
     const ability = SKILL_ABILITY_MAP[skill]
     const abilMod = abilityModifier(effectiveAbilities[ability])
-    const prof = character.skillProficiencies[skill]
+    const prof = effectiveSkillProficiencies[skill]
     const profMod = prof ? pb * (prof === 'expertise' ? 2 : 1) : 0
     const flatBonus = flatSkillBonuses[skill] ?? 0
     skillModifiers[skill] = abilMod + profMod + flatBonus
@@ -472,8 +503,15 @@ export function deriveCharacterStats(
   }
 
   // ── Passive stats ─────────────────────────────────────────────────────────
-  const passivePerception = 10 + skillModifiers.perception
-  const passiveInvestigation = 10 + skillModifiers.investigation
+  let passivePercBonus = 0
+  let passiveInvBonus = 0
+  for (const slug of character.feats) {
+    const e = FEAT_EFFECTS[slug]
+    if (e?.passivePerceptionBonus) passivePercBonus += e.passivePerceptionBonus
+    if (e?.passiveInvestigationBonus) passiveInvBonus += e.passiveInvestigationBonus
+  }
+  const passivePerception = 10 + skillModifiers.perception + passivePercBonus
+  const passiveInvestigation = 10 + skillModifiers.investigation + passiveInvBonus
 
   // ── Spell stats ───────────────────────────────────────────────────────────
   let spellAttackBonus = 0
@@ -529,13 +567,18 @@ export function deriveCharacterStats(
     const effect = FEAT_EFFECTS[slug]
     if (effect?.maxHpBonus) hpBonus += effect.maxHpBonus(character.level)
   }
+  const subraceHpFn = character.subrace ? SUBRACE_HP_BONUS[character.subrace.toLowerCase()] : undefined
+  const subraceHpBonus = subraceHpFn ? subraceHpFn(character.level) : 0
+
+  // ── Hit dice type ─────────────────────────────────────────────────────────
+  const hitDiceType = classData ? parseInt(classData.hit_die.replace('d', ''), 10) : 8
 
   // ── Advantages ────────────────────────────────────────────────────────────
   const advantages = getCharacterAdvantages(character)
 
   return {
     effectiveAC,
-    adjustedMaxHp: character.maxHp + hpBonus,
+    adjustedMaxHp: character.maxHp + hpBonus + subraceHpBonus,
     effectiveAbilities,
     effectiveSpeed,
     effectiveInitiative,
@@ -550,6 +593,7 @@ export function deriveCharacterStats(
     spellAttackBonus,
     spellSaveDC,
     hasStealthDisadvantage,
+    hitDiceType,
     advantages,
   }
 }

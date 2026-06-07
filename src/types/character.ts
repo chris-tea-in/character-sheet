@@ -89,7 +89,11 @@ export interface Character {
   currency: Currency
 
   feats: string[]  // feat slugs (keys from feats.json)
-  featChoices: Record<string, { asiAbility?: AbilityName }>  // per-feat player choices (e.g. choice ASI)
+  featChoices: Record<string, {
+    asiAbility?: AbilityName
+    skillChoices?: SkillName[]   // for Skilled (3 picks), Prodigy (1 pick)
+    expertiseSkill?: SkillName   // for Skill Expert, Prodigy
+  }>  // per-feat player choices
   toolProficiencies: string[]  // tool names (free-form, from equipment catalog)
 
   createdAt: number  // unix ms

@@ -159,6 +159,10 @@ const ABILITY_FULL_TO_SHORT: Record<string, AbilityName> = {
   intelligence: 'int', wisdom: 'wis', charisma: 'cha',
 }
 
+export function toSubraceSlug(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, '-')
+}
+
 export function slugToTitle(slug: string): string {
   return slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
@@ -344,6 +348,7 @@ export interface SetupDraft {
   name: string
   level: number
   raceSlug: string
+  subraceSlug: string   // '' = race has no subraces or none selected
   classSlug: string
   subclassSlug: string
   hpMethod: 'roll' | 'average' | 'max' | 'custom'
@@ -383,6 +388,7 @@ export const INITIAL_DRAFT: SetupDraft = {
   name: '',
   level: 1,
   raceSlug: '',
+  subraceSlug: '',
   classSlug: '',
   subclassSlug: '',
   hpMethod: 'average',
@@ -469,9 +475,10 @@ function applyRaceAsi(
   base: Abilities,
   race: Race | undefined,
   asiChoices: AbilityName[],
+  subraceSlug?: string,
 ): Abilities {
   if (!race) return base
-  const bonuses = getRacialBonuses(race, asiChoices)
+  const bonuses = getRacialBonuses(race, asiChoices, subraceSlug)
   const result = { ...base }
   for (const [key, val] of Object.entries(bonuses)) {
     result[key as AbilityName] = (result[key as AbilityName] ?? 0) + val
@@ -482,6 +489,7 @@ function applyRaceAsi(
 export function getRacialBonuses(
   race: Race | undefined,
   asiChoices: AbilityName[],
+  subraceSlug?: string,
 ): Partial<Record<AbilityName, number>> {
   const bonuses: Partial<Record<AbilityName, number>> = {}
   if (!race) return bonuses
@@ -500,6 +508,24 @@ export function getRacialBonuses(
     offset += pool.count
   }
 
+  // Apply subrace ASIs
+  const subrace = subraceSlug
+    ? race.subraces.find(s => toSubraceSlug(s.name) === subraceSlug)
+    : undefined
+  if (subrace) {
+    for (const [key, val] of Object.entries(subrace.ability_score_increases)) {
+      const short = ABILITY_FULL_TO_SHORT[key] ?? (key as AbilityName)
+      bonuses[short] = (bonuses[short] ?? 0) + val
+    }
+    for (const pool of subrace.asi_choices) {
+      for (let i = 0; i < pool.count; i++) {
+        const ability = asiChoices[offset + i]
+        if (ability) bonuses[ability] = (bonuses[ability] ?? 0) + pool.amount
+      }
+      offset += pool.count
+    }
+  }
+
   return bonuses
 }
 
@@ -511,8 +537,11 @@ export function draftToNewCharacter(
   const race = data.races[draft.raceSlug]
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
+  const subraceData = draft.subraceSlug
+    ? race?.subraces.find(s => toSubraceSlug(s.name) === draft.subraceSlug)
+    : undefined
 
-  const racialAbilities = applyRaceAsi(draft.abilities, race, draft.asiChoices)
+  const racialAbilities = applyRaceAsi(draft.abilities, race, draft.asiChoices, draft.subraceSlug)
 
   // Apply class-level ASI choices and feat stat effects
   const abilities = { ...racialAbilities }
@@ -590,7 +619,7 @@ export function draftToNewCharacter(
   return {
     name: draft.name,
     race: draft.raceSlug,
-    subrace: null,
+    subrace: draft.subraceSlug || null,
     class: draft.classSlug,
     subclass: draft.subclassSlug || null,
     background: draft.backgroundSlug,
@@ -606,7 +635,7 @@ export function draftToNewCharacter(
     currentHp: maxHp,
     tempHp: 0,
     armorClass: 10 + abilityModifier(abilities.dex),
-    speed: (race?.base.speed ?? 30) + featSpeedBonus,
+    speed: (subraceData?.speed ?? race?.base.speed ?? 30) + featSpeedBonus,
     initiativeBonus: featInitiativeBonus,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0,

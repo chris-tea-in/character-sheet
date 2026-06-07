@@ -9,7 +9,6 @@ import type { DerivedStats } from '@/lib/characterStats'
 interface Props {
   character: Character
   onSave: (changes: Partial<NewCharacter>) => void
-  hitDie: number
   derived: DerivedStats
   classHitDice?: Array<{ hitDie: number; level: number }>
 }
@@ -228,7 +227,8 @@ function DeathSaves({
   )
 }
 
-export function CombatBlock({ character, onSave, hitDie, derived, classHitDice }: Props) {
+export function CombatBlock({ character, onSave, derived, classHitDice }: Props) {
+  const hitDie = derived.hitDiceType
   const { dispatch } = useRollDispatch(derived)
   const totalHitDice = character.level
   const { effectiveAC, adjustedMaxHp } = derived
