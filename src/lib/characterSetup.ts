@@ -154,7 +154,7 @@ export const ABILITY_LABELS: Record<AbilityName, string> = {
 }
 
 // Race data stores full lowercase ability names ("strength"), not short form ("str")
-const ABILITY_FULL_TO_SHORT: Record<string, AbilityName> = {
+export const ABILITY_FULL_TO_SHORT: Record<string, AbilityName> = {
   strength: 'str', dexterity: 'dex', constitution: 'con',
   intelligence: 'int', wisdom: 'wis', charisma: 'cha',
 }

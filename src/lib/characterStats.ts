@@ -1,4 +1,5 @@
 import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP } from './dice'
+import { ABILITY_FULL_TO_SHORT } from './characterSetup'
 import type { Character, AbilityName, Abilities, SkillName, SkillProficiency } from '../types/character'
 import type { ArmorItem, WeaponItem, ClassData, FeatData } from '../types/data'
 
@@ -53,10 +54,6 @@ const SUBRACE_HP_BONUS: Partial<Record<string, (level: number) => number>> = {
   'hill-dwarf': level => level,  // Dwarven Toughness: +1 HP per level
 }
 
-const ABILITY_FROM_FULL: Record<string, AbilityName> = {
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-}
 
 export interface FeatStatDelta {
   abilities: Partial<Record<AbilityName, number>>
@@ -75,7 +72,7 @@ export function computeFeatStatDelta(
   for (const effect of (feat.effects ?? [])) {
     if (effect.type === 'asi') {
       if (effect.subtype === 'fixed') {
-        const ab = ABILITY_FROM_FULL[effect.ability.toLowerCase()]
+        const ab = ABILITY_FULL_TO_SHORT[effect.ability.toLowerCase()]
         if (ab) delta.abilities[ab] = (delta.abilities[ab] ?? 0) + effect.amount
       } else if (effect.subtype === 'choice') {
         if (chosenAb) delta.abilities[chosenAb] = (delta.abilities[chosenAb] ?? 0) + effect.amount
@@ -87,7 +84,7 @@ export function computeFeatStatDelta(
     } else if (effect.type === 'save_proficiency') {
       const ab = effect.ability === 'asi_choice'
         ? chosenAb
-        : ABILITY_FROM_FULL[effect.ability.toLowerCase()]
+        : ABILITY_FULL_TO_SHORT[effect.ability.toLowerCase()]
       if (ab) delta.saveProficiency = ab
     }
   }
@@ -269,7 +266,7 @@ export function meetsFeatPrerequisite(prereq: string, ctx: FeatPrereqContext): b
   // Ability score threshold: "Strength 13", "Wisdom of 13"
   const abilityMatch = p.match(/^(strength|dexterity|constitution|intelligence|wisdom|charisma)(?: of)? (\d+)$/i)
   if (abilityMatch) {
-    const ab = ABILITY_FROM_FULL[abilityMatch[1].toLowerCase()]
+    const ab = ABILITY_FULL_TO_SHORT[abilityMatch[1].toLowerCase()]
     if (ab) return (ctx.abilities[ab] ?? 10) >= parseInt(abilityMatch[2])
   }
 
@@ -517,7 +514,7 @@ export function deriveCharacterStats(
   let spellAttackBonus = 0
   let spellSaveDC = 0
   if (classData?.spellcasting?.ability) {
-    const spellAbilKey = ABILITY_FROM_FULL[classData.spellcasting.ability.toLowerCase()] ?? 'int'
+    const spellAbilKey = ABILITY_FULL_TO_SHORT[classData.spellcasting.ability.toLowerCase()] ?? 'int'
     const spellAbilMod = abilityModifier(effectiveAbilities[spellAbilKey])
     spellAttackBonus = spellAbilMod + pb
     spellSaveDC = 8 + spellAbilMod + pb

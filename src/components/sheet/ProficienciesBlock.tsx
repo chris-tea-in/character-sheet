@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '@/lib/dice'
-import { ABILITY_LABELS, ABILITY_ORDER, toSkillName } from '@/lib/characterSetup'
+import { SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP, formatBonus } from '@/lib/dice'
+import { ABILITY_LABELS, ABILITY_ORDER, ABILITY_FULL_TO_SHORT, toSkillName } from '@/lib/characterSetup'
 import { useRollDispatch } from '@/lib/useRollDispatch'
+import { RollButton } from '@/components/sheet/RollButton'
 import { SelectionList } from '@/components/SelectionList'
 import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
 import type { ClassData, EquipmentData } from '@/types/data'
@@ -138,13 +139,7 @@ export function ProficienciesBlock({ character, classRecord, catalog, derived, o
   // Class-granted saves — only these are interactive when class is set
   const classSaveSet = new Set<AbilityName>(
     classRecord?.saving_throw_proficiencies
-      .map(s => {
-        const map: Record<string, AbilityName> = {
-          strength: 'str', dexterity: 'dex', constitution: 'con',
-          intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-        }
-        return map[s.toLowerCase()]
-      })
+      .map(s => ABILITY_FULL_TO_SHORT[s.toLowerCase()])
       .filter(Boolean) as AbilityName[] ?? []
   )
 
@@ -285,16 +280,12 @@ export function ProficienciesBlock({ character, classRecord, catalog, derived, o
                     className="text-sm font-bold tabular-nums w-8 text-right"
                     style={{ color: isProficient ? 'var(--color-accent-gold)' : undefined }}
                   >
-                    {bonus >= 0 ? `+${bonus}` : `${bonus}`}
+                    {formatBonus(bonus)}
                   </span>
-                  <button
+                  <RollButton
                     onClick={() => dispatch({ type: 'save', ability, advantage: hasAdv })}
-                    className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
-                    style={{ background: 'var(--color-accent)', color: '#fff' }}
-                    title={hasAdv ? 'Rolling with advantage' : undefined}
-                  >
-                    {hasAdv ? 'Roll (Adv)' : 'Roll'}
-                  </button>
+                    advantage={hasAdv}
+                  />
                 </div>
               )
             })}
@@ -341,16 +332,12 @@ export function ProficienciesBlock({ character, classRecord, catalog, derived, o
                     className={cn('text-sm font-bold tabular-nums w-8 text-right flex-none', notClassOption && 'opacity-50')}
                     style={{ color: isProficient ? 'var(--color-accent-gold)' : undefined }}
                   >
-                    {bonus >= 0 ? `+${bonus}` : `${bonus}`}
+                    {formatBonus(bonus)}
                   </span>
-                  <button
+                  <RollButton
                     onClick={() => dispatch({ type: 'skill', skill, advantage: hasAdv })}
-                    className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
-                    style={{ background: 'var(--color-accent)', color: '#fff' }}
-                    title={hasAdv ? 'Rolling with advantage' : undefined}
-                  >
-                    {hasAdv ? 'Roll (Adv)' : 'Roll'}
-                  </button>
+                    advantage={hasAdv}
+                  />
                 </div>
               )
             })}

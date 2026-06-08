@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronUp, ChevronDown, Trash2 } from 'lucide-react'
 import { useDiceStore } from '@/store/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
+import { formatBonus } from '@/lib/dice'
 import type { DieType } from '@/types/dice'
 import type { DerivedStats } from '@/lib/characterStats'
 
@@ -54,11 +55,11 @@ export function DiceTray({ derived }: Props) {
                       <span className="text-muted-foreground text-xs tabular-nums">
                         ({entry.result.natural}
                         <span className="opacity-40 line-through ml-0.5">{entry.result.natural2}</span>
-                        {entry.result.modifier !== 0 && <>{entry.result.modifier >= 0 ? '+' : ''}{entry.result.modifier}</>})
+                        {entry.result.modifier !== 0 && <>{formatBonus(entry.result.modifier)}</>})
                       </span>
                     ) : entry.result.modifier !== 0 ? (
                       <span className="text-muted-foreground text-xs">
-                        ({entry.result.natural}{entry.result.modifier >= 0 ? '+' : ''}{entry.result.modifier})
+                        ({entry.result.natural}{formatBonus(entry.result.modifier)})
                       </span>
                     ) : null}
                     <span

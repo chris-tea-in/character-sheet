@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { StepperField } from './StepperField'
+import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, NewCharacter } from '@/types/character'
 import type { DieType } from '@/types/dice'
 import type { DerivedStats } from '@/lib/characterStats'
@@ -323,14 +324,10 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
               size="sm"
             />
             <span className="text-xs text-muted-foreground">used / {totalHitDice} total</span>
-            <button
+            <RollButton
               onClick={rollHitDie}
               disabled={character.hitDiceUsed >= totalHitDice}
-              className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: 'var(--color-accent)', color: '#fff' }}
-            >
-              Roll
-            </button>
+            />
           </div>
         </div>
         <div className="flex flex-col items-center gap-1 flex-none">

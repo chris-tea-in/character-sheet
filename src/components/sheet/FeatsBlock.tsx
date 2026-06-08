@@ -6,6 +6,7 @@ import { DetailPopup } from '@/components/DetailPopup'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { SKILL_ABILITY_MAP } from '@/lib/dice'
+import { ABILITY_FULL_TO_SHORT, ABILITY_LABELS } from '@/lib/characterSetup'
 import type { FeatData } from '@/types/data'
 import type { Character, NewCharacter, AbilityName, SkillName } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
@@ -39,15 +40,6 @@ const RACE_PREREQ_MAP: Record<string, string[]> = {
   'dwarf or a small race': ['dwarf', 'duergar', 'gnome', 'deep-gnome', 'halfling'],
 }
 
-const ABILITY_NAME_MAP: Record<string, AbilityName> = {
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-}
-
-const ABILITY_LABELS: Record<AbilityName, string> = {
-  str: 'Strength', dex: 'Dexterity', con: 'Constitution',
-  int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma',
-}
 
 const CLASS_PREREQ_MAP: Record<string, string> = {
   'fighter': 'fighter',
@@ -80,7 +72,7 @@ function meetsPrereq(prereq: string, character: Character, allFeats: Record<stri
 
   const abilityMatch = p.match(/^(strength|dexterity|constitution|intelligence|wisdom|charisma)\s+(?:of\s+)?(\d+)$/i)
   if (abilityMatch) {
-    const key = ABILITY_NAME_MAP[abilityMatch[1].toLowerCase()]
+    const key = ABILITY_FULL_TO_SHORT[abilityMatch[1].toLowerCase()]
     return key ? character.abilities[key] >= parseInt(abilityMatch[2]) : true
   }
 
@@ -354,7 +346,7 @@ export function FeatsBlock({ character, onSave }: Props) {
           </p>
           <div className="grid grid-cols-2 gap-2">
             {pendingAsiOptions.map(opt => {
-              const ab = ABILITY_NAME_MAP[opt.toLowerCase()]
+              const ab = ABILITY_FULL_TO_SHORT[opt.toLowerCase()]
               if (!ab) return null
               const current = character.abilities[ab]
               return (

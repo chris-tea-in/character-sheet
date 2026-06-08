@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { toSkillName, ALL_LANGUAGES } from '@/lib/characterSetup'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
+import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
@@ -21,23 +22,8 @@ interface Props {
   onChange: (updates: Partial<SetupDraft>) => void
 }
 
-const ORDINALS = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
-const LEVEL_GROUP_ORDER = ['Cantrip', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
-
-function spellGroup(level: number) {
-  return level === 0 ? 'Cantrip' : (ORDINALS[level] ?? `${level}th`)
-}
-
 function classMatches(spellClasses: string[], classSlug: string): boolean {
   return spellClasses.some(c => c === classSlug || c.startsWith(classSlug + ' '))
-}
-
-function componentStr(c: SpellData['components']): string {
-  return [
-    c.verbal && 'V',
-    c.somatic && 'S',
-    c.material && (c.material_text ? `M (${c.material_text})` : 'M'),
-  ].filter(Boolean).join(', ')
 }
 
 function spellToDetailItem(_key: string, s: SpellData): DetailItem {

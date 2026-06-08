@@ -6,6 +6,7 @@ import { StepperField } from './StepperField'
 import { generateId } from '@/lib/uuid'
 import { computeWeaponBonus } from '@/lib/characterStats'
 import { useRollDispatch } from '@/lib/useRollDispatch'
+import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
 import type { ClassData, WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData } from '@/types/data'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
@@ -115,13 +116,9 @@ function WeaponRow({
           </span>
           <span className="text-muted-foreground">{displayDamage}</span>
         </div>
-        <button
+        <RollButton
           onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: calc.damageDice, damageBonus: calc.damageBonus, damageType: calc.damageType })}
-          className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
-          style={{ background: 'var(--color-accent)', color: '#fff' }}
-        >
-          Roll
-        </button>
+        />
       </div>
 
       {expanded && (

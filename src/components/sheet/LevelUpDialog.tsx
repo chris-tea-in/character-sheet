@@ -7,7 +7,8 @@ import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import { StepperField } from './StepperField'
 import { abilityModifier, proficiencyBonus, rollDie, SKILL_ABILITY_MAP } from '@/lib/dice'
-import { parseHitDie, ABILITY_ORDER, ABILITY_SHORT } from '@/lib/characterSetup'
+import { parseHitDie, ABILITY_ORDER, ABILITY_SHORT, ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
+import { LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
 import { getSpellcastingInfo, getSpellsKnownIncrease, parseClassSlots } from '@/lib/spellcasting'
 import {
   computeFeatStatDelta, applyFeatAsi, featHasChoiceAsi, featChoiceAsiOptions,
@@ -31,23 +32,6 @@ interface Props {
   onApply: (changes: Partial<NewCharacter>) => void
 }
 
-const LEVEL_GROUP_ORDER = ['Cantrip', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
-
-const ABILITY_FROM_FULL: Record<string, AbilityName> = {
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-}
-
-function spellLevelGroup(level: number): string {
-  if (level === 0) return 'Cantrip'
-  const ords = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
-  return ords[level] ?? `${level}th`
-}
-
-function componentStr(c: SpellData['components']): string {
-  return [c.verbal && 'V', c.somatic && 'S', c.material && (c.material_text ? `M (${c.material_text})` : 'M')]
-    .filter(Boolean).join(', ')
-}
 
 function Section({ title, children, accent }: { title: string; children: React.ReactNode; accent?: boolean }) {
   return (
@@ -172,7 +156,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
             ...(s.at_higher_levels ? [{ label: 'At Higher Levels', value: s.at_higher_levels }] : []),
           ],
         },
-        group: spellLevelGroup(s.level),
+        group: spellGroup(s.level),
       } as SelectionEntry))
   }
 
@@ -370,7 +354,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
                     const old = oldProfile.slotsByLevel[parseInt(lvl) as SpellLevel] ?? 0
                     return (
                       <p key={lvl} className="text-xs">
-                        {spellLevelGroup(parseInt(lvl))} slots:
+                        {spellGroup(parseInt(lvl))} slots:
                         <span className="text-muted-foreground mx-1">{old}</span>→
                         <span className="font-bold ml-1" style={{ color: 'var(--color-accent-gold)' }}>{n}</span>
                       </p>
@@ -546,7 +530,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
                             <p className="text-xs text-muted-foreground">Choose ability to increase by 1:</p>
                             <div className="grid grid-cols-3 gap-1">
                               {chosenFeatAsiOptions.map(opt => {
-                                const ab = ABILITY_FROM_FULL[opt.toLowerCase()]
+                                const ab = ABILITY_FULL_TO_SHORT[opt.toLowerCase()]
                                 if (!ab) return null
                                 const current = character.abilities[ab] ?? 10
                                 const selected = featAsiChoice === ab

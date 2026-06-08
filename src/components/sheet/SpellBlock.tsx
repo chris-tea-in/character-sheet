@@ -3,10 +3,11 @@ import { Plus, X, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
-import type { SpellcastingProfile, CasterKind } from '@/lib/spellcasting'
+import type { SpellcastingProfile, CasterKind, SpellLevel } from '@/lib/spellcasting'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { loadSpellsData } from '@/lib/data'
-import type { SpellLevel } from '@/lib/spellcasting'
+import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
+import { RollButton } from '@/components/sheet/RollButton'
 import type { ClassData, SpellData } from '@/types/data'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
@@ -22,26 +23,8 @@ interface Props {
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
-const ORDINALS: Record<SpellLevel, string> = {
-  1: '1st', 2: '2nd', 3: '3rd', 4: '4th', 5: '5th',
-  6: '6th', 7: '7th', 8: '8th', 9: '9th',
-}
-
-const LEVEL_GROUP_ORDER = ['Cantrip', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
-
 // The raw SpellData.slug field carries a "spell:" prefix; the JSON is keyed without it.
 const normalizeSlug = (slug: string) => slug.replace(/^spell:/, '')
-
-function spellGroup(level: number): string {
-  if (level === 0) return 'Cantrip'
-  return ORDINALS[level as SpellLevel] ?? `${level}th`
-}
-
-function componentString(c: SpellData['components']): string {
-  return [c.verbal && 'V', c.somatic && 'S',
-    c.material && (c.material_text ? `M (${c.material_text})` : 'M'),
-  ].filter(Boolean).join(', ')
-}
 
 function SlotPips({
   total, used, onToggle,
@@ -119,13 +102,7 @@ function SpellRow({
           </div>
         )}
 
-        <button
-          onClick={onRoll}
-          className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
-          style={{ background: 'var(--color-accent)', color: '#fff' }}
-        >
-          Roll
-        </button>
+        <RollButton onClick={onRoll} />
 
         {spell && (
           <button
@@ -153,7 +130,7 @@ function SpellRow({
             {spell.concentration && <span className="text-amber-400">Concentration</span>}
             {spell.ritual && <span className="text-purple-400">Ritual</span>}
           </div>
-          <span><span className="font-semibold text-foreground">Components:</span> {componentString(spell.components)}</span>
+          <span><span className="font-semibold text-foreground">Components:</span> {componentStr(spell.components)}</span>
           <p className="text-foreground/80 leading-relaxed">{spell.description}</p>
           {spell.at_higher_levels && (
             <p className="italic">{spell.at_higher_levels}</p>
@@ -207,7 +184,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         { label: 'Casting Time', value: s.casting_time },
         { label: 'Range', value: s.range },
         { label: 'Duration', value: s.duration },
-        { label: 'Components', value: componentString(s.components) },
+        { label: 'Components', value: componentStr(s.components) },
         ...(s.at_higher_levels ? [{ label: 'At Higher Levels', value: s.at_higher_levels }] : []),
       ],
     },
@@ -356,7 +333,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                     className="text-[10px] font-semibold uppercase tracking-wide py-1 mt-2 first:mt-0"
                     style={{ color: 'var(--color-accent-gold)' }}
                   >
-                    {level === 0 ? 'Cantrips' : `${ORDINALS[level as SpellLevel]} Level`}
+                    {level === 0 ? 'Cantrips' : `${ORDINALS[level]} Level`}
                   </p>
                   {spells.map(cs => (
                     <SpellRow

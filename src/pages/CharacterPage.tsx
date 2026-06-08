@@ -24,7 +24,7 @@ import { deriveCharacterStats } from '@/lib/characterStats'
 import {
   parseHitDie, RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
   subclassToDetailItem, backgroundToDetailItem, subraceToDetailItem, getRacialBonuses,
-  slugToTitle, ABILITY_ORDER, ABILITY_LABELS, toSubraceSlug,
+  slugToTitle, ABILITY_ORDER, ABILITY_LABELS, toSubraceSlug, ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
 import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
 import type { CasterKind } from '@/lib/spellcasting'
@@ -38,13 +38,8 @@ import type { DetailItem } from '@/types/detail-item'
 
 type IdentityList = 'class' | 'subclass' | 'race' | 'subrace' | 'background' | 'alignment' | null
 
-// Converts class saving throw display names ("Constitution") → AbilityName ("con")
-const SAVE_NAME_TO_ABILITY: Record<string, AbilityName> = {
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-}
 function classSavesToAbilities(saves: string[]): AbilityName[] {
-  return saves.map(s => SAVE_NAME_TO_ABILITY[s.toLowerCase()]).filter(Boolean) as AbilityName[]
+  return saves.map(s => ABILITY_FULL_TO_SHORT[s.toLowerCase()]).filter(Boolean) as AbilityName[]
 }
 
 // ── Race change prompt ────────────────────────────────────────────────────────

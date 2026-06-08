@@ -23,6 +23,7 @@ import {
   subclassToDetailItem,
   getClassAsiLevels,
   toSubraceSlug,
+  ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
 import { loadFeatsData } from '@/lib/data'
 import { featHasChoiceAsi, featChoiceAsiOptions, meetsFeatPrerequisites, type FeatPrereqContext } from '@/lib/characterStats'
@@ -645,7 +646,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
                                 <p className="text-xs text-muted-foreground">Choose ability to increase by 1:</p>
                                 <div className="flex gap-1 flex-wrap">
                                   {featChoiceAsiOptions(allFeats[choice.featSlug]).map(opt => {
-                                    const ab = ({ strength:'str', dexterity:'dex', constitution:'con', intelligence:'int', wisdom:'wis', charisma:'cha' } as Record<string, AbilityName>)[opt.toLowerCase()]
+                                    const ab = ABILITY_FULL_TO_SHORT[opt.toLowerCase()] as AbilityName | undefined
                                     if (!ab) return null
                                     const selected = choice.featAsiAbility === ab
                                     return (
