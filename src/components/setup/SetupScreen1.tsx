@@ -30,7 +30,7 @@ import { featHasChoiceAsi, featChoiceAsiOptions, meetsFeatPrerequisites, type Fe
 import { DetailPopup } from '@/components/DetailPopup'
 import { abilityModifier } from '@/lib/dice'
 import type { AbilityName } from '@/types/character'
-import type { SetupDraft, LevelAsiChoice, ExtraClassDraft } from '@/lib/characterSetup'
+import type { SetupDraft, LevelAsiChoice } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { FeatData } from '@/types/data'
 import { cn } from '@/lib/utils'
@@ -536,7 +536,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
             {' '}
             <span className="text-xs">
               ({selectedClass?.hit_die}
-              {draft.extraClasses.map((ec, i) => {
+              {draft.extraClasses.map(ec => {
                 const ecHitDie = data.classes[ec.classSlug]?.hit_die
                 return ecHitDie ? ` + ${ecHitDie}` : ''
               }).join('')}

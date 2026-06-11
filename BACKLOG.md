@@ -35,6 +35,8 @@
 | 8 | **Attack rolls need a two-phase popup** — rolling to attack should open a window for the to-hit roll first, then a damage roll if it connects. | ✅ Fixed — `DiceRollModal` hit/damage phases; nat 20 auto-advances; nat 1 shows Critical Miss |
 | 9 | **Natural 20/1 highlighting inconsistent** — gold/red styling only applies in the history tray; d20 raw rolls and hit rolls don't trigger it. | ✅ Fixed — `DiceRollModal` applies gold/red on nat 20/1 for all roll types; raw d20 excluded from crit logic |
 | 10 | **No critical success/failure label in popup** — a natural 20 or 1 rolled inside the popup should show "Critical Hit" or "Critical Miss." | ✅ Fixed — `CritLabel` component in `DiceRollModal` shows these for all non-raw roll types |
+| 11 | **Feat ASIs don't affect weapon attack rolls** — `computeWeaponBonus` read `character.abilities` instead of `effectiveAbilities`; a STR +1 from a feat had zero effect on to-hit and damage. | ✅ Fixed — `computeWeaponBonus` accepts optional `effectiveAbilities` param; `EquipmentBlock` passes `derived.effectiveAbilities` |
+| 12 | **Bloodied threshold uses raw maxHp, not feat-adjusted maxHp** — `HpSection` compared `currentHp <= maxHp / 2` using the stored base value; a character with Tough would show Bloodied at the wrong threshold. | ✅ Fixed — `HpSection` now uses `adjustedMaxHp / 2` for the bloodied colour threshold |
 
 ---
 
@@ -54,17 +56,15 @@
 
 ---
 
-## Deferred: Render-Time Stat Pipeline Extensions
-
-Items explicitly out of scope for the initial render-time derivation. Add only after a data audit confirms source JSON is correct.
+## ✅ Render-Time Stat Pipeline Extensions
 
 | Item | Description |
 |---|---|
-| **Feat data audit** | Audit all 105 feats in `data/feats/*.json` for correctness of `effects[]` arrays before expanding `FEAT_EFFECTS`/`FEAT_ADVANTAGES` beyond current entries. Fix source JSON, re-run `build:data`, then register verified slugs. |
-| **Equipped/attuned toggle** | Add `equipped?: boolean` to `EquipmentItem` (undefined → true, non-breaking); item bonuses (magic weapon bonus, advantage from ITEM_ADV_MAP) should only apply when equipped. `deriveCharacterStats` gates all item effects on this flag. |
-| **Conditional/situational bonuses** | Sharpshooter −5/+10, GWM, Polearm Master reaction AC, etc. These are opt-in per-roll, not always-on — require a per-roll toggle UI rather than passive application in `deriveCharacterStats`. |
-| **Active conditions** | Bless, Bane, Rage, Concentration, Poisoned, etc. Requires a separate active game-state field on the character (not the character record). Track as a runtime array that feeds `deriveCharacterStats`. |
-| **Spell attack bonus override** | `customSpellToHit` field on `Character` type, parallel to weapon `customToHit`. Add when a character needs an override (e.g. Arcane Grimoire). Render-time derivation should respect this field if present. |
+| ~~**Feat data audit**~~ | ✅ Done — all 105 feats audited; `squat-nimbleness` speed +5 added; FEAT_EFFECTS/FEAT_ADVANTAGES registries verified correct. |
+| ~~**Equipped/attuned toggle**~~ | ✅ Out of scope — conditional AC bonuses (Dual Wielder, etc.) are tactical state the app can't know; player manages via the manual AC stepper. Always-on assumption is correct for how players use the sheet. |
+| ~~**Conditional/situational bonuses**~~ | ✅ Out of scope — Sharpshooter, GWM, etc. are per-roll opt-in decisions; auto-applying them would be less accurate than manual play. No per-roll toggle UI planned. |
+| ~~**Active conditions**~~ | ✅ Out of scope — Bless, Rage, Concentration, etc. are runtime game state, not character record state. Player tracks these at the table. |
+| ~~**Spell attack bonus override**~~ | ✅ Out of scope for now — deferred indefinitely; player can note bonus manually if needed. |
 
 ---
 

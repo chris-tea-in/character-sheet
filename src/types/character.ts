@@ -68,6 +68,7 @@ export interface Character {
   armorClass: number
   speed: number
   initiativeBonus: number
+  spellBonusModifier: number
 
   deathSaves: DeathSaves
   hitDiceUsed: number
@@ -113,7 +114,7 @@ export function defaultCharacter(name: string): NewCharacter {
     languages: [], backstory: '',
     abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
     maxHp: 0, currentHp: 0, tempHp: 0,
-    armorClass: 10, speed: 30, initiativeBonus: 0,
+    armorClass: 10, speed: 30, initiativeBonus: 0, spellBonusModifier: 0,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0, inspiration: false,
     skillProficiencies: {},

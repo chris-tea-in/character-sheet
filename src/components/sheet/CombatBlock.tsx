@@ -56,7 +56,7 @@ function HpSection({
   const hpColor =
     currentHp <= 0
       ? 'var(--color-accent-red)'
-      : currentHp <= Math.floor(maxHp / 2)
+      : currentHp <= Math.floor(adjustedMaxHp / 2)
       ? '#f59e0b'
       : undefined
 

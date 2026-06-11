@@ -390,7 +390,7 @@ export default function CreateCharacterPage() {
             {screen === 1 ? 'Cancel' : 'Back'}
           </Button>
           {isLastScreen ? (
-            <Button onClick={handleFinish} disabled={submitting}>
+            <Button onClick={() => handleFinish()} disabled={submitting}>
               {submitting
                 ? (isEditMode ? 'Saving…' : 'Creating…')
                 : (isEditMode ? 'Save Changes' : 'Create Character')}

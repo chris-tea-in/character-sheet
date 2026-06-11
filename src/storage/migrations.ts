@@ -114,4 +114,10 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 8,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN spell_bonus_modifier INTEGER NOT NULL DEFAULT 0`)
+    },
+  },
 ]

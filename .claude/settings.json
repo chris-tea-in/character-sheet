@@ -69,7 +69,9 @@
       "Edit(~/.claude/skills/code-review-extras/**)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5174/)",
       "Bash(npx playwright *)",
-      "Bash(node -e \"require\\('@playwright/test'\\)\")"
+      "Bash(node -e \"require\\('@playwright/test'\\)\")",
+      "Bash(gh pr *)",
+      "Bash(git add *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\buyp1\\.claude\\skill-observations",

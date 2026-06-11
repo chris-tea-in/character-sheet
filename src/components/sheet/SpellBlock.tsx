@@ -263,10 +263,16 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Attack</p>
               <p className="text-sm font-bold">{spellAttackMod >= 0 ? `+${spellAttackMod}` : `${spellAttackMod}`}</p>
+              {!!character.spellBonusModifier && (
+                <p className="text-[9px]" style={{ color: 'var(--color-accent-2)' }}>+{character.spellBonusModifier} (item)</p>
+              )}
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Save DC</p>
               <p className="text-sm font-bold">{derived.spellSaveDC}</p>
+              {!!character.spellBonusModifier && (
+                <p className="text-[9px]" style={{ color: 'var(--color-accent-2)' }}>+{character.spellBonusModifier} (item)</p>
+              )}
             </div>
           </div>
         </div>
@@ -295,7 +301,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
             )
           })}
 
-        {profile.cantripsKnown > 0 && (
+        {profile.kind !== 'none' && profile.cantripsKnown > 0 && (
           <p className="text-xs text-muted-foreground">
             Cantrips known: <span className="text-foreground font-semibold">{profile.cantripsKnown}</span>
           </p>

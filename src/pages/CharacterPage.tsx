@@ -103,7 +103,7 @@ function RacePromptDialog({
                 </p>
                 <ul className="space-y-0.5">
                   {Object.entries(fixedBonuses).map(([ab, val]) => {
-                    const label = ABILITY_LABELS[SAVE_NAME_TO_ABILITY[ab] ?? ab as AbilityName] ?? ab
+                    const label = ABILITY_LABELS[ABILITY_FULL_TO_SHORT[ab] ?? ab as AbilityName] ?? ab
                     return (
                       <li key={ab} className="text-sm">
                         <span style={{ color: 'var(--color-accent-gold)' }}>+{val}</span> {label}
@@ -202,7 +202,7 @@ function SubracePromptDialog({
   function handleApply() {
     const changes: Partial<Abilities> = {}
     for (const [k, v] of Object.entries(fixedBonuses)) {
-      const ab = SAVE_NAME_TO_ABILITY[k.toLowerCase()] ?? k as AbilityName
+      const ab = ABILITY_FULL_TO_SHORT[k.toLowerCase()] ?? k as AbilityName
       changes[ab] = Math.min(30, (currentAbilities[ab] ?? 10) + (v ?? 0))
     }
     let offset = 0
@@ -234,7 +234,7 @@ function SubracePromptDialog({
                 </p>
                 <ul className="space-y-0.5">
                   {Object.entries(fixedBonuses).map(([ab, val]) => {
-                    const label = ABILITY_LABELS[SAVE_NAME_TO_ABILITY[ab] ?? ab as AbilityName] ?? ab
+                    const label = ABILITY_LABELS[ABILITY_FULL_TO_SHORT[ab] ?? ab as AbilityName] ?? ab
                     return (
                       <li key={ab} className="text-sm">
                         <span style={{ color: 'var(--color-accent-gold)' }}>+{val}</span> {label}

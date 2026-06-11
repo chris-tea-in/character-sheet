@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { StepperField } from './StepperField'
 import { generateId } from '@/lib/uuid'
-import { computeWeaponBonus } from '@/lib/characterStats'
+import { computeWeaponBonus, SPELL_BONUS_ITEM_NAMES } from '@/lib/characterStats'
+import { InfoPopup } from '@/components/InfoPopup'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
@@ -79,7 +80,7 @@ function WeaponRow({
   onRemove: () => void
 }) {
   const { dispatch } = useRollDispatch(derived)
-  const calc = computeWeaponBonus(weapon, character, classRecord)
+  const calc = computeWeaponBonus(weapon, character, classRecord, derived.effectiveAbilities)
   const displayToHit = item.customToHit ?? calc.toHit
   const displayDamage = item.customDamage ?? calc.damage
   const rollModifier = item.customToHit !== undefined
@@ -536,6 +537,7 @@ export function EquipmentBlock({ character, classRecord, derived, onSave, catalo
   const [weaponPickerOpen, setWeaponPickerOpen] = useState(false)
   const [armorPickerOpen, setArmorPickerOpen] = useState(false)
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
+  const [showSpellBonusPrompt, setShowSpellBonusPrompt] = useState(false)
 
   const weaponByName = useMemo(
     () => new Map((catalog?.weapons ?? []).map(w => [w.name.toLowerCase(), w])),
@@ -612,6 +614,9 @@ export function EquipmentBlock({ character, classRecord, derived, onSave, catalo
     const newItem: EquipmentItem = { id: generateId(), name, quantity: 1 }
     if (displayCategory) newItem.displayCategory = displayCategory
     onSave({ equipment: [...character.equipment, newItem] })
+    if (SPELL_BONUS_ITEM_NAMES.has(name.toLowerCase()) && !character.spellBonusModifier) {
+      setShowSpellBonusPrompt(true)
+    }
   }
   function addCustomItem() {
     onSave({ equipment: [...character.equipment, { id: generateId(), name: 'New item', quantity: 1 }] })
@@ -829,6 +834,21 @@ export function EquipmentBlock({ character, classRecord, derived, onSave, catalo
           setGearPickerOpen(false)
         }}
       />
+      <InfoPopup
+        open={showSpellBonusPrompt}
+        onClose={() => setShowSpellBonusPrompt(false)}
+        title="Spell Bonus Modifier"
+        description="This item adds a flat bonus to your spell attack rolls and spell save DC. Enter only the item's bonus value — the app calculates your base values automatically. Clear this if you lose the item or break attunement."
+      >
+        <StepperField
+          value={character.spellBonusModifier ?? 0}
+          onSave={v => onSave({ spellBonusModifier: Math.max(0, v) })}
+          min={0}
+          max={5}
+          size="sm"
+        />
+        <Button onClick={() => setShowSpellBonusPrompt(false)}>Done</Button>
+      </InfoPopup>
     </section>
   )
 }

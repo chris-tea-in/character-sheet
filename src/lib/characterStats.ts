@@ -200,6 +200,18 @@ const ITEM_ADV_MAP = new Map(
   ITEM_ADV_ENTRIES.map(({ name, entry }) => [name.toLowerCase(), entry]),
 )
 
+export const SPELL_BONUS_ITEM_NAMES = new Set([
+  'arcane grimoire',
+  'arcane grimoire +1',
+  'arcane grimoire +2',
+  'arcane grimoire +3',
+  'bloodwell vial',
+  'bloodwell vial +1',
+  'bloodwell vial +2',
+  'bloodwell vial +3',
+  'robe of the archmagi',
+])
+
 export function getCharacterAdvantages(character: Character): { saves: Set<AbilityName>; skills: Set<SkillName> } {
   const saves = new Set<AbilityName>()
   const skills = new Set<SkillName>()
@@ -374,9 +386,11 @@ export function computeWeaponBonus(
   weapon: WeaponItem,
   character: Character,
   classRecord: ClassData | null,
+  effectiveAbilities?: Abilities,
 ): WeaponBonus {
-  const strMod = abilityModifier(character.abilities.str)
-  const dexMod = abilityModifier(character.abilities.dex)
+  const abilities = effectiveAbilities ?? character.abilities
+  const strMod = abilityModifier(abilities.str)
+  const dexMod = abilityModifier(abilities.dex)
   const isFinesse = weapon.properties.some(p => p.toLowerCase().includes('finesse'))
   const isRanged = weapon.weapon_type.toLowerCase().includes('ranged')
   const mod = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod
@@ -516,8 +530,9 @@ export function deriveCharacterStats(
   if (classData?.spellcasting?.ability) {
     const spellAbilKey = ABILITY_FULL_TO_SHORT[classData.spellcasting.ability.toLowerCase()] ?? 'int'
     const spellAbilMod = abilityModifier(effectiveAbilities[spellAbilKey])
-    spellAttackBonus = spellAbilMod + pb
-    spellSaveDC = 8 + spellAbilMod + pb
+    const spellItemBonus = character.spellBonusModifier ?? 0
+    spellAttackBonus = spellAbilMod + pb + spellItemBonus
+    spellSaveDC = 8 + spellAbilMod + pb + spellItemBonus
   }
 
   // ── Effective AC + stealth disadvantage ──────────────────────────────────
