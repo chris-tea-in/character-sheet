@@ -547,6 +547,7 @@ export default function CharacterPage() {
     newClassSlug?: string  // set when adding a brand-new class (multiclassing)
   } | null>(null)
   const [levelPickerPending, setLevelPickerPending] = useState<number | null>(null)
+  const [levelDownOpen, setLevelDownOpen] = useState(false)
   const [addClassOpen, setAddClassOpen] = useState(false)
   const [addClassTotalLevel, setAddClassTotalLevel] = useState<number | null>(null)
 
@@ -676,8 +677,37 @@ export default function CharacterPage() {
   ].map(a => ({ slug: a, detail: { name: a, sections: [] } }))
 
   function handleClassSelect(slug: string) {
+    if (!character) return
     const cls = setupData?.classes[slug]
-    const changes: Partial<NewCharacter> = { class: slug, subclass: null, skillProficiencies: {} }
+
+    // Drop only skills attributable to the old class's pick list; keep
+    // background-granted skills and anything else (feats, manual dots).
+    const oldClassSkills = new Set(
+      (classRecord?.skill_choices.options ?? [])
+        .map(toSkillName)
+        .filter((s): s is SkillName => s !== null),
+    )
+    const bgSkills = new Set(
+      (setupData?.backgrounds[character.background]?.skill_proficiencies ?? [])
+        .map(toSkillName)
+        .filter((s): s is SkillName => s !== null),
+    )
+    const keptSkills = Object.fromEntries(
+      Object.entries(character.skillProficiencies).filter(
+        ([skill]) => !oldClassSkills.has(skill as SkillName) || bgSkills.has(skill as SkillName),
+      ),
+    )
+
+    // classes[] is the source of truth in the repo — keep it in sync with the
+    // legacy class/subclass columns or the change reverts on reload (BUG-34)
+    const updatedClasses = character.classes?.length
+      ? character.classes.map((c, i) =>
+          i === 0 ? { classSlug: slug, subclassSlug: null, level: c.level } : c)
+      : [{ classSlug: slug, subclassSlug: null, level: character.level }]
+
+    const changes: Partial<NewCharacter> = {
+      class: slug, subclass: null, classes: updatedClasses, skillProficiencies: keptSkills,
+    }
     if (cls) {
       changes.savingThrowProficiencies = classSavesToAbilities(cls.saving_throw_proficiencies)
       const grantedTools = cls.tool_proficiencies ?? []
@@ -728,9 +758,29 @@ export default function CharacterPage() {
     if (v > character.level) {
       // Always show the class picker so the user can level an existing class or multiclass
       setLevelPickerPending(v)
-    } else {
-      save({ level: v })
+    } else if (v < character.level) {
+      // classes[] is the repo's source of truth — a bare `level` write reverts on reload
+      if ((character.classes?.length ?? 0) > 1) {
+        setLevelDownOpen(true)
+      } else {
+        const updatedClasses = character.classes?.length
+          ? [{ ...character.classes[0], level: v }]
+          : []
+        save({ level: v, classes: updatedClasses })
+      }
     }
+  }
+
+  function handleClassLevelDrop(classIdx: number) {
+    if (!character) return
+    const updatedClasses = character.classes.map((c, i) =>
+      i === classIdx ? { ...c, level: c.level - 1 } : c,
+    )
+    save({
+      level: updatedClasses.reduce((s, c) => s + c.level, 0),
+      classes: updatedClasses,
+    })
+    setLevelDownOpen(false)
   }
 
   function handleClassLevelPick(classIdx: number) {
@@ -840,7 +890,13 @@ export default function CharacterPage() {
         title="Choose Subclass"
         open={activeList === 'subclass'}
         onClose={() => setActiveList(null)}
-        onSelect={slug => { save({ subclass: slug }); setActiveList(null) }}
+        onSelect={slug => {
+          const updatedClasses = character.classes?.length
+            ? character.classes.map((c, i) => (i === 0 ? { ...c, subclassSlug: slug } : c))
+            : [{ classSlug: character.class, subclassSlug: slug, level: character.level }]
+          save({ subclass: slug, classes: updatedClasses })
+          setActiveList(null)
+        }}
       />
       <SelectionList
         entries={raceEntries}
@@ -920,7 +976,7 @@ export default function CharacterPage() {
         <ClassPromptDialog
           classData={classPrompt}
           onApply={profs => {
-            save({ skillProficiencies: profs })
+            save({ skillProficiencies: { ...character.skillProficiencies, ...profs } })
             setClassPrompt(null)
           }}
           onSkip={() => setClassPrompt(null)}
@@ -1015,6 +1071,36 @@ export default function CharacterPage() {
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setLevelPickerPending(null)}>Cancel</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Level-down class picker: choose which class loses the level (multiclass only) */}
+      {levelDownOpen && (
+        <Dialog open onOpenChange={o => !o && setLevelDownOpen(false)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Level Down — Choose Class</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <p className="text-sm text-muted-foreground mb-3">Which class loses a level?</p>
+              {character.classes.map((c, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleClassLevelDrop(idx)}
+                  disabled={c.level <= 1}
+                  className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-secondary transition-colors disabled:opacity-40"
+                >
+                  <span className="font-medium">{slugToTitle(c.classSlug)}</span>
+                  <span className="text-sm text-muted-foreground ml-2">
+                    Level {c.level} → {c.level - 1}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setLevelDownOpen(false)}>Cancel</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
