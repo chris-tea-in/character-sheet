@@ -71,11 +71,39 @@
       "Bash(npx playwright *)",
       "Bash(node -e \"require\\('@playwright/test'\\)\")",
       "Bash(gh pr *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git log *)",
+      "Bash(git status *)",
+      "Bash(npm run build:data*)",
+      "Bash(npm run build*)",
+      "Write(c:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\bugs.md)",
+      "PowerShell(node -e \"const s=require\\('./data/spells/fireball.json'\\); console.log\\(JSON.stringify\\(Object.keys\\(s\\)\\)\\); console.log\\(JSON.stringify\\(s\\).slice\\(0,700\\)\\)\")",
+      "PowerShell(node $env:TEMP\\\\audit-spells.js | Select-String -NotMatch 'unknown class ref' | Select-Object -First 20)",
+      "PowerShell(node -e \"console.log\\(JSON.stringify\\(require\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/equipment/weapons.json'\\)[0]\\)\\); const a=require\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/equipment/armor.json'\\); console.log\\(JSON.stringify\\(a[0]\\)\\); const fs=require\\('fs'\\); const ff=fs.readdirSync\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/feats'\\)[0]; console.log\\(ff, JSON.stringify\\(require\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/feats/'+ff\\)\\).slice\\(0,400\\)\\); const bf=fs.readdirSync\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/backgrounds'\\)[0]; console.log\\(bf, JSON.stringify\\(require\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/backgrounds/'+bf\\)\\).slice\\(0,400\\)\\)\")",
+      "PowerShell(node $env:TEMP\\\\audit-d4.js)",
+      "PowerShell(node scripts/build-data.js 2>&1)",
+      "PowerShell(node scripts/build-data.js | Select-Object -Last 6; \"EXIT: $LASTEXITCODE\"; git status --porcelain public/data | Select-Object -First 5)",
+      "Bash(git check-ignore *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node -e \"const d=require\\('./public/data/classes.json'\\); console.log\\(JSON.stringify\\(d.warlock.spellcasting\\)\\)\")",
+      "PowerShell(\\(Get-Command gh -ErrorAction SilentlyContinue\\).Source)",
+      "Bash(node \"/c/Users/buyp1/AppData/Local/Temp/restructure-bugs.cjs\")",
+      "Bash(cd \"/c/Users/buyp1/Workspace/dnd-character-sheet\" && grep -n '^## .*BUG-\\\\|^# ' bugs.md | head -80)",
+      "Read(//c/c/Users/buyp1/Workspace/dnd-character-sheet/**)",
+      "Bash(sed -n '1,20p' bugs.md)",
+      "Bash(sed -n '514,522p' bugs.md)",
+      "Bash(sed -n '1110,1114p' bugs.md)",
+      "Bash(sed -n '625,632p' bugs.md)",
+      "Bash(sed -n '845,852p' bugs.md)",
+      "Bash(rm -f \"/c/Users/buyp1/AppData/Local/Temp/restructure-bugs.cjs\")",
+      "Edit(/.claude/skills/codebase-invariants/**)"
     ],
     "additionalDirectories": [
       "C:\\Users\\buyp1\\.claude\\skill-observations",
-      "C:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\data\\equipment"
+      "C:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\data\\equipment",
+      "C:\\Users\\buyp1\\AppData\\Local\\Temp"
     ]
-  }
+  },
+  "model": "claude-fable-5"
 }
