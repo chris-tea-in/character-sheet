@@ -98,8 +98,11 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
     level: ec.level,
   }))
 
-  // ASI levels for current class + level
-  const asiLevels = selectedClass ? getClassAsiLevels(selectedClass, draft.level) : []
+  // ASI levels for current class + level. Hidden in edit mode — ASI +1s are
+  // already in the stored base abilities and feats are managed on the sheet.
+  const asiLevels = selectedClass && !draft.editMode
+    ? getClassAsiLevels(selectedClass, draft.level)
+    : []
 
   // Classes already chosen (to exclude from extra class pickers)
   const chosenClassSlugs = new Set([
@@ -545,6 +548,12 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
           </p>
         )}
       </Field>
+
+      {draft.editMode && (
+        <p className="text-xs text-muted-foreground">
+          Ability score improvements and feats are managed on the character sheet.
+        </p>
+      )}
 
       {/* Class-level ASI / Feat choices */}
       {asiLevels.length > 0 && (

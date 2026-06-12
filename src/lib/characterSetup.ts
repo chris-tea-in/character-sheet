@@ -398,6 +398,10 @@ export interface SetupDraft {
   progressionType: 'xp' | 'milestone'
   // Multiclassing (Screen 1)
   extraClasses: ExtraClassDraft[]
+  // True when the draft round-trips an existing character (Edit flow):
+  // level-ASI/feat application is skipped — those are already in the stored
+  // base abilities, and feats are preserved by the edit merge
+  editMode: boolean
 }
 
 export const INITIAL_DRAFT: SetupDraft = {
@@ -431,6 +435,7 @@ export const INITIAL_DRAFT: SetupDraft = {
   equipmentChoices: { optionPicks: {}, openPicks: {} },
   progressionType: 'milestone',
   extraClasses: [],
+  editMode: false,
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +510,9 @@ export function draftToNewCharacter(
   const abilities = { ...draft.abilities }
   const featChoices: Record<string, { asiAbility?: AbilityName }> = {}
   const featAbilityDeltas: Partial<Record<AbilityName, number>> = {}
-  const asiLevels = cls ? getClassAsiLevels(cls, draft.level) : []
+  // Edit mode: level-ASI +1s are already in the stored base abilities, and
+  // feats/featChoices are preserved from the existing record by the edit merge
+  const asiLevels = cls && !draft.editMode ? getClassAsiLevels(cls, draft.level) : []
   for (let i = 0; i < asiLevels.length; i++) {
     const choice = draft.levelAsiChoices[i]
     if (choice?.mode === 'asi') {
@@ -666,7 +673,7 @@ export function characterToDraft(
     hpRolled: null,
     abilityMethod: 'custom',
     abilities: { ...character.abilities },
-    asiChoices: [],
+    asiChoices: [...(character.raceAsiChoices ?? [])],
     backgroundSlug: character.background,
     alignment: character.alignment,
     personalityTraits: character.personalityTraits,
@@ -686,6 +693,7 @@ export function characterToDraft(
     setupFeatChoices: {},
     equipmentChoices: { optionPicks: {}, openPicks: {} },
     progressionType: character.progressionType,
+    editMode: true,
     extraClasses: (character.classes ?? []).slice(1).map(c => ({
       classSlug: c.classSlug,
       subclassSlug: c.subclassSlug ?? '',
