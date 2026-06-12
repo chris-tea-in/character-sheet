@@ -50,6 +50,7 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     languages: JSON.parse(row['languages'] as string ?? '[]'),
     backstory: row['backstory'] as string ?? '',
     abilities: JSON.parse(row['abilities'] as string),
+    raceAsiChoices: JSON.parse(row['race_asi_choices'] as string ?? '[]'),
     maxHp: row['max_hp'] as number,
     currentHp: row['current_hp'] as number,
     tempHp: row['temp_hp'] as number,
@@ -137,9 +138,10 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         armor_class, speed, initiative_bonus, spell_bonus_modifier, death_saves, hit_dice_used, inspiration,
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
-        equipment, currency, feats, feat_choices, tool_proficiencies, classes, created_at, updated_at
+        equipment, currency, feats, feat_choices, tool_proficiencies, classes,
+        race_asi_choices, stats_normalized, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race ?? '', data.subrace ?? null, data.class ?? '', data.subclass ?? null, data.background ?? '',
@@ -160,6 +162,8 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         JSON.stringify(data.featChoices ?? {}),
         JSON.stringify(data.toolProficiencies ?? []),
         JSON.stringify(data.classes ?? []),
+        JSON.stringify(data.raceAsiChoices ?? []),
+        1, // app-created characters are born normalized (base abilities stored)
         now, now,
       ],
     )
@@ -195,7 +199,8 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         armor_class=?, speed=?, initiative_bonus=?, spell_bonus_modifier=?, death_saves=?, hit_dice_used=?, inspiration=?,
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
-        equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?, classes=?, updated_at=?
+        equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?, classes=?,
+        race_asi_choices=?, updated_at=?
       WHERE id=?`,
       [
         merged.name, merged.race, merged.subrace, primaryClassSlug, primarySubclass, merged.background,
@@ -216,6 +221,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         JSON.stringify(merged.featChoices ?? {}),
         JSON.stringify(merged.toolProficiencies ?? []),
         JSON.stringify(merged.classes ?? []),
+        JSON.stringify(merged.raceAsiChoices ?? []),
         merged.updatedAt,
         id,
       ],

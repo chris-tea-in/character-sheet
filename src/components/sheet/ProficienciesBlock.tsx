@@ -255,7 +255,11 @@ export function ProficienciesBlock({ character, classRecord, catalog, derived, o
         <>
           <div className="rounded-lg border border-border bg-card divide-y divide-border">
             {ABILITY_ORDER.map(ability => {
-              const isProficient = character.savingThrowProficiencies.includes(ability)
+              const isStored = character.savingThrowProficiencies.includes(ability)
+              // Feat-granted saves (e.g. Resilient) are derived, not stored —
+              // shown filled but locked so the dot can't write a stale copy
+              const isFeatDerived = !isStored && derived.effectiveSaveProficiencies.includes(ability)
+              const isProficient = isStored || isFeatDerived
               const isClassSave = classSaveSet.has(ability)
               const bonus = derived.saveModifiers[ability]
               const hasAdv = derived.advantages.saves.has(ability)
@@ -267,13 +271,18 @@ export function ProficienciesBlock({ character, classRecord, catalog, derived, o
                 >
                   <SaveDot
                     filled={isProficient}
-                    locked={false}
-                    onClick={() => toggleSave(ability)}
+                    locked={isFeatDerived}
+                    onClick={() => !isFeatDerived && toggleSave(ability)}
                   />
                   <span className="flex-1 text-sm">{ABILITY_LABELS[ability]}</span>
                   {isClassSave && (
                     <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-accent-gold)' }}>
                       class
+                    </span>
+                  )}
+                  {isFeatDerived && (
+                    <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-accent-gold)' }}>
+                      feat
                     </span>
                   )}
                   <span

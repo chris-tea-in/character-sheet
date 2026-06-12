@@ -60,7 +60,11 @@ export interface Character {
   languages: string[]
   backstory: string
 
+  // BASE scores: point-buy/rolled values + permanent level-up ASI +1s.
+  // Racial ASIs and feat effects are derived at render time (deriveCharacterStats).
   abilities: Abilities
+  // Flexible racial ASI picks, ordered: race pool slots first, then subrace pools
+  raceAsiChoices: AbilityName[]
 
   maxHp: number
   currentHp: number
@@ -113,6 +117,7 @@ export function defaultCharacter(name: string): NewCharacter {
     classes: [],
     languages: [], backstory: '',
     abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+    raceAsiChoices: [],
     maxHp: 0, currentHp: 0, tempHp: 0,
     armorClass: 10, speed: 30, initiativeBonus: 0, spellBonusModifier: 0,
     deathSaves: { successes: 0, failures: 0 },

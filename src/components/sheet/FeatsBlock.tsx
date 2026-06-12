@@ -8,12 +8,14 @@ import { Button } from '@/components/ui/button'
 import { SKILL_ABILITY_MAP } from '@/lib/dice'
 import { ABILITY_FULL_TO_SHORT, ABILITY_LABELS } from '@/lib/characterSetup'
 import type { FeatData } from '@/types/data'
-import type { Character, NewCharacter, AbilityName, SkillName } from '@/types/character'
+import type { Abilities, Character, NewCharacter, AbilityName, SkillName } from '@/types/character'
+import type { DerivedStats } from '@/lib/characterStats'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
 
 interface Props {
   character: Character
+  derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
@@ -61,7 +63,12 @@ function skillDisplayName(skill: SkillName): string {
 
 const ALL_SKILLS = Object.keys(SKILL_ABILITY_MAP) as SkillName[]
 
-function meetsPrereq(prereq: string, character: Character, allFeats: Record<string, FeatData>): boolean {
+function meetsPrereq(
+  prereq: string,
+  character: Character,
+  effectiveAbilities: Abilities,
+  allFeats: Record<string, FeatData>,
+): boolean {
   const p = prereq.trim()
   const pl = p.toLowerCase()
 
@@ -73,16 +80,20 @@ function meetsPrereq(prereq: string, character: Character, allFeats: Record<stri
   const abilityMatch = p.match(/^(strength|dexterity|constitution|intelligence|wisdom|charisma)\s+(?:of\s+)?(\d+)$/i)
   if (abilityMatch) {
     const key = ABILITY_FULL_TO_SHORT[abilityMatch[1].toLowerCase()]
-    return key ? character.abilities[key] >= parseInt(abilityMatch[2]) : true
+    return key ? effectiveAbilities[key] >= parseInt(abilityMatch[2]) : true
   }
 
   const raceSlugs = RACE_PREREQ_MAP[pl]
   if (raceSlugs) return raceSlugs.includes(character.race)
 
-  const classSlug = CLASS_PREREQ_MAP[pl]
-  if (classSlug) return character.class === classSlug
+  const classSlugs = character.classes?.length
+    ? character.classes.map(c => c.classSlug)
+    : [character.class]
 
-  if (SPELLCASTING_PREREQS.has(pl)) return CASTER_CLASSES.has(character.class)
+  const classSlug = CLASS_PREREQ_MAP[pl]
+  if (classSlug) return classSlugs.includes(classSlug)
+
+  if (SPELLCASTING_PREREQS.has(pl)) return classSlugs.some(slug => CASTER_CLASSES.has(slug))
 
   const featChainMatch = p.match(/^(.+?)\s+feat\.?$/i)
   if (featChainMatch) {
@@ -96,8 +107,13 @@ function meetsPrereq(prereq: string, character: Character, allFeats: Record<stri
   return true
 }
 
-function meetsAllPrerequisites(feat: FeatData, character: Character, allFeats: Record<string, FeatData>): boolean {
-  return feat.prerequisites.every(p => meetsPrereq(p, character, allFeats))
+function meetsAllPrerequisites(
+  feat: FeatData,
+  character: Character,
+  effectiveAbilities: Abilities,
+  allFeats: Record<string, FeatData>,
+): boolean {
+  return feat.prerequisites.every(p => meetsPrereq(p, character, effectiveAbilities, allFeats))
 }
 
 function featToDetailItem(_key: string, feat: FeatData): DetailItem {
@@ -117,7 +133,7 @@ interface PendingChoices {
   expertiseSkill?: SkillName
 }
 
-export function FeatsBlock({ character, onSave }: Props) {
+export function FeatsBlock({ character, derived, onSave }: Props) {
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
   const [pickerOpen, setPickerOpen] = useState(false)
   const [viewingKey, setViewingKey] = useState<string | null>(null)
@@ -137,9 +153,9 @@ export function FeatsBlock({ character, onSave }: Props) {
       .map(([key, feat]) => ({
         slug: key,
         detail: featToDetailItem(key, feat),
-        warning: meetsAllPrerequisites(feat, character, allFeats) ? undefined : 'Req. not met',
+        warning: meetsAllPrerequisites(feat, character, derived.effectiveAbilities, allFeats) ? undefined : 'Req. not met',
       })),
-  [allFeats, selectedSet, character])
+  [allFeats, selectedSet, character, derived.effectiveAbilities])
 
   const viewingDetail: DetailItem | null = useMemo(() => {
     if (!viewingKey) return null
@@ -348,7 +364,7 @@ export function FeatsBlock({ character, onSave }: Props) {
             {pendingAsiOptions.map(opt => {
               const ab = ABILITY_FULL_TO_SHORT[opt.toLowerCase()]
               if (!ab) return null
-              const current = character.abilities[ab]
+              const current = derived.effectiveAbilities[ab]
               return (
                 <Button
                   key={opt}

@@ -11,19 +11,21 @@ import { parseHitDie, ABILITY_ORDER, ABILITY_SHORT, ABILITY_FULL_TO_SHORT } from
 import { LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
 import { getSpellcastingInfo, getSpellsKnownIncrease, parseClassSlots } from '@/lib/spellcasting'
 import {
-  computeFeatStatDelta, applyFeatAsi, featHasChoiceAsi, featChoiceAsiOptions,
+  featHasChoiceAsi, featChoiceAsiOptions,
   meetsFeatPrerequisites, type FeatPrereqContext,
 } from '@/lib/characterStats'
 import { loadFeatsData, loadSpellsData } from '@/lib/data'
 import type { SpellLevel } from '@/lib/spellcasting'
 import type { DieType } from '@/types/dice'
 import type { ClassData, SpellData, FeatData } from '@/types/data'
-import type { AbilityName, SkillName, Character, NewCharacter } from '@/types/character'
+import type { Abilities, AbilityName, SkillName, Character, NewCharacter } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import { cn } from '@/lib/utils'
 
 interface Props {
   character: Character
+  // Derived scores (base + racial + feat bonuses) — character.abilities holds base only
+  effectiveAbilities: Abilities
   classRecord: ClassData
   newLevel: number       // new level for THIS class (used for feature/spell lookups)
   newTotalLevel?: number // new total character level (stored as character.level); defaults to newLevel
@@ -47,7 +49,7 @@ function Section({ title, children, accent }: { title: string; children: React.R
   )
 }
 
-export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel, open, onClose, onApply }: Props) {
+export function LevelUpDialog({ character, effectiveAbilities, classRecord, newLevel, newTotalLevel, open, onClose, onApply }: Props) {
   const storedLevel = newTotalLevel ?? newLevel
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
@@ -67,7 +69,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
   const [cantripPickerOpen, setCantripPickerOpen] = useState(false)
 
   const hitDie = parseHitDie(classRecord.hit_die)
-  const conMod = abilityModifier(character.abilities.con)
+  const conMod = abilityModifier(effectiveAbilities.con)
   const avgHpIncrease = Math.floor(hitDie / 2) + 1 + conMod
 
   const oldProf = proficiencyBonus(character.level)
@@ -100,7 +102,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
       ? character.classes.map(c => c.classSlug)
       : [character.class],
     raceSlug: character.race,
-    abilities: character.abilities,
+    abilities: effectiveAbilities,
     knownFeatSlugs: character.feats,
     hasSpellcasting: classRecord.spellcasting !== null,
     hasPactMagic: character.classes.some(c => c.classSlug === 'warlock') || character.class === 'warlock',
@@ -210,17 +212,8 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
         } else if (hasStatEffect) {
           newFeatChoices[chosenFeat] = {}
         }
-        if (feat) {
-          const delta = computeFeatStatDelta(chosenFeat, feat, newFeatChoices)
-          if (Object.keys(delta.abilities).length > 0)
-            changes.abilities = applyFeatAsi(character.abilities, delta.abilities)
-          if (delta.speed !== 0)
-            changes.speed = character.speed + delta.speed
-          if (delta.initiativeBonus !== 0)
-            changes.initiativeBonus = (character.initiativeBonus ?? 0) + delta.initiativeBonus
-          if (delta.saveProficiency && !character.savingThrowProficiencies.includes(delta.saveProficiency))
-            changes.savingThrowProficiencies = [...character.savingThrowProficiencies, delta.saveProficiency]
-        }
+        // Feat stat effects (ASI/speed/initiative/saves) are derived at render
+        // time from feats + featChoices — nothing else to write here
         changes.feats = [...character.feats, chosenFeat]
         changes.featChoices = newFeatChoices
       } else if (asiMode === 'asi' && asiChoices.length > 0) {
@@ -467,7 +460,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
                     <div className="grid grid-cols-3 gap-1">
                       {ABILITY_ORDER.map(ab => {
                         const count = asiChoices.filter(x => x === ab).length
-                        const maxed = character.abilities[ab] + count >= 20
+                        const maxed = effectiveAbilities[ab] + count >= 20
                         const atCap = asiChoices.length >= 2
                         return (
                           <button
@@ -532,7 +525,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
                               {chosenFeatAsiOptions.map(opt => {
                                 const ab = ABILITY_FULL_TO_SHORT[opt.toLowerCase()]
                                 if (!ab) return null
-                                const current = character.abilities[ab] ?? 10
+                                const current = effectiveAbilities[ab] ?? 10
                                 const selected = featAsiChoice === ab
                                 return (
                                   <button

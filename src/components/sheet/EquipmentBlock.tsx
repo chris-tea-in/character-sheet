@@ -9,13 +9,12 @@ import { InfoPopup } from '@/components/InfoPopup'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
-import type { ClassData, WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData } from '@/types/data'
+import type { WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData } from '@/types/data'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
 import type { DerivedStats } from '@/lib/characterStats'
 
 interface Props {
   character: Character
-  classRecord: ClassData | null
   derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
   catalog: EquipmentData | null
@@ -66,7 +65,6 @@ function WeaponRow({
   item,
   weapon,
   character,
-  classRecord,
   derived,
   onUpdate,
   onRemove,
@@ -74,13 +72,12 @@ function WeaponRow({
   item: EquipmentItem
   weapon: WeaponItem
   character: Character
-  classRecord: ClassData | null
   derived: DerivedStats
   onUpdate: (changes: Partial<EquipmentItem>) => void
   onRemove: () => void
 }) {
   const { dispatch } = useRollDispatch(derived)
-  const calc = computeWeaponBonus(weapon, character, classRecord, derived.effectiveAbilities)
+  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities)
   const displayToHit = item.customToHit ?? calc.toHit
   const displayDamage = item.customDamage ?? calc.damage
   const rollModifier = item.customToHit !== undefined
@@ -533,7 +530,7 @@ function buildGearEntries(gear: AdventuringGearItem[]): SelectionEntry[] {
   }))
 }
 
-export function EquipmentBlock({ character, classRecord, derived, onSave, catalog }: Props) {
+export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
   const [weaponPickerOpen, setWeaponPickerOpen] = useState(false)
   const [armorPickerOpen, setArmorPickerOpen] = useState(false)
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
@@ -649,7 +646,6 @@ export function EquipmentBlock({ character, classRecord, derived, onSave, catalo
                     item={item}
                     weapon={weapon}
                     character={character}
-                    classRecord={classRecord}
                     derived={derived}
                     onUpdate={changes => updateItem(item.id, changes)}
                     onRemove={() => removeItem(item.id)}

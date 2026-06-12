@@ -23,7 +23,7 @@ import { loadSetupData, loadEquipmentData, loadFeatsData } from '@/lib/data'
 import { deriveCharacterStats } from '@/lib/characterStats'
 import {
   parseHitDie, RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
-  subclassToDetailItem, backgroundToDetailItem, subraceToDetailItem, getRacialBonuses,
+  subclassToDetailItem, backgroundToDetailItem, subraceToDetailItem,
   slugToTitle, ABILITY_ORDER, ABILITY_LABELS, toSubraceSlug, ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
 import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
@@ -32,7 +32,7 @@ import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { ALL_LANGUAGES, toSkillName } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { ClassData, Race, Subrace, Background, EquipmentData, FeatData } from '@/types/data'
-import type { AbilityName, Abilities, NewCharacter, SkillName } from '@/types/character'
+import type { AbilityName, NewCharacter, SkillName } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
 
@@ -51,13 +51,11 @@ interface RacePrompt {
 
 function RacePromptDialog({
   prompt,
-  currentAbilities,
   onApply,
   onSkip,
 }: {
   prompt: RacePrompt
-  currentAbilities: Abilities
-  onApply: (abilityChanges: Partial<Abilities>, speed: number, asiChoices: AbilityName[]) => void
+  onApply: (asiChoices: AbilityName[]) => void
   onSkip: () => void
 }) {
   const { race } = prompt
@@ -76,13 +74,7 @@ function RacePromptDialog({
   }
 
   function handleApply() {
-    const bonuses = getRacialBonuses(race, asiChoices)
-    const changes: Partial<Abilities> = {}
-    for (const [k, v] of Object.entries(bonuses)) {
-      const ab = k as AbilityName
-      changes[ab] = Math.min(30, (currentAbilities[ab] ?? 10) + (v ?? 0))
-    }
-    onApply(changes, race.base.speed, asiChoices)
+    onApply(asiChoices)
   }
 
   const hasBonuses = Object.keys(fixedBonuses).length > 0 || choicePools.length > 0
@@ -149,7 +141,7 @@ function RacePromptDialog({
             </p>
 
             <p className="text-xs text-muted-foreground">
-              Apply will add these bonuses to your current scores.
+              Bonuses apply to your scores automatically — choose your flexible increases.
             </p>
           </div>
         ) : (
@@ -176,13 +168,11 @@ function RacePromptDialog({
 
 function SubracePromptDialog({
   subrace,
-  currentAbilities,
   onApply,
   onSkip,
 }: {
   subrace: Subrace
-  currentAbilities: Abilities
-  onApply: (abilityChanges: Partial<Abilities>) => void
+  onApply: (asiChoices: AbilityName[]) => void
   onSkip: () => void
 }) {
   const fixedBonuses = subrace.ability_score_increases
@@ -200,20 +190,7 @@ function SubracePromptDialog({
   }
 
   function handleApply() {
-    const changes: Partial<Abilities> = {}
-    for (const [k, v] of Object.entries(fixedBonuses)) {
-      const ab = ABILITY_FULL_TO_SHORT[k.toLowerCase()] ?? k as AbilityName
-      changes[ab] = Math.min(30, (currentAbilities[ab] ?? 10) + (v ?? 0))
-    }
-    let offset = 0
-    for (const pool of choicePools) {
-      for (let i = 0; i < pool.count; i++) {
-        const ab = asiChoices[offset + i]
-        if (ab) changes[ab] = Math.min(30, (currentAbilities[ab] ?? 10) + pool.amount)
-      }
-      offset += pool.count
-    }
-    onApply(changes)
+    onApply(asiChoices)
   }
 
   const hasBonuses = Object.keys(fixedBonuses).length > 0 || choicePools.length > 0
@@ -276,7 +253,7 @@ function SubracePromptDialog({
             )}
 
             <p className="text-xs text-muted-foreground">
-              Apply will add these bonuses to your current scores.
+              Bonuses apply to your scores automatically — choose your flexible increases.
             </p>
           </div>
         ) : (
@@ -585,9 +562,20 @@ export default function CharacterPage() {
     update(id!, changes)
   }
 
+  const currentRaceData = character.race ? (setupData?.races[character.race] ?? null) : null
+
+  // All class records ordered to match character.classes ([0] = primary)
+  const classRecords = useMemo(() => (
+    character.classes?.length
+      ? character.classes.map(c => setupData?.classes[c.classSlug] ?? null)
+      : [classRecord]
+  ), [character.classes, setupData, classRecord])
+
   const derived = useMemo(
-    () => deriveCharacterStats(character, classRecord, equipmentCatalog, featData),
-    [character, classRecord, equipmentCatalog, featData],
+    () => deriveCharacterStats(character, {
+      classes: classRecords, race: currentRaceData, catalog: equipmentCatalog, featData,
+    }),
+    [character, classRecords, currentRaceData, equipmentCatalog, featData],
   )
 
   // Primary class level (classes[0].level, or character.level for single-class legacy)
@@ -625,8 +613,6 @@ export default function CharacterPage() {
   const displayRace = character.race
     ? (setupData?.races[character.race]?.name ?? slugToTitle(character.race))
     : null
-
-  const currentRaceData = character.race ? (setupData?.races[character.race] ?? null) : null
 
   const displaySubrace = useMemo(() => {
     if (!character.subrace || !currentRaceData) return null
@@ -722,16 +708,31 @@ export default function CharacterPage() {
   }
 
   function handleRaceSelect(slug: string) {
-    save({ race: slug, subrace: null })
-    setActiveList(null)
+    if (!character) return
     const race = setupData?.races[slug]
+    // Racial bonuses are derived from base scores at render time — switching
+    // race only swaps the slug, resets recorded picks, and sets the base speed
+    save({
+      race: slug,
+      subrace: null,
+      raceAsiChoices: [],
+      speed: race?.base.speed ?? character.speed,
+    })
+    setActiveList(null)
     if (race) setRacePrompt({ race, slug })
   }
 
   function handleSubraceSelect(slug: string) {
-    save({ subrace: slug })
-    setActiveList(null)
+    if (!character) return
     const sub = currentRaceData?.subraces.find(s => toSubraceSlug(s.name) === slug)
+    // Keep race-pool picks, drop any previous subrace picks (re-chosen in the prompt)
+    const racePoolCount = currentRaceData?.base.asi_choices.reduce((s, p) => s + p.count, 0) ?? 0
+    save({
+      subrace: slug,
+      raceAsiChoices: character.raceAsiChoices.slice(0, racePoolCount),
+      speed: sub?.speed ?? currentRaceData?.base.speed ?? character.speed,
+    })
+    setActiveList(null)
     if (sub) setSubracePrompt(sub)
   }
 
@@ -747,9 +748,9 @@ export default function CharacterPage() {
     if (bg) setBackgroundPrompt(bg)
   }
 
-  function handleRacePromptApply(abilityChanges: Partial<Abilities>, speed: number) {
+  function handleRacePromptApply(asiChoices: AbilityName[]) {
     if (!character) return
-    save({ abilities: { ...character.abilities, ...abilityChanges }, speed })
+    save({ raceAsiChoices: asiChoices })
     setRacePrompt(null)
   }
 
@@ -857,8 +858,8 @@ export default function CharacterPage() {
               : undefined}
           />
           <ProficienciesBlock character={character} classRecord={classRecord} derived={derived} onSave={save} />
-          <FeatsBlock character={character} onSave={save} />
-          <EquipmentBlock character={character} classRecord={classRecord} derived={derived} onSave={save} catalog={equipmentCatalog} />
+          <FeatsBlock character={character} derived={derived} onSave={save} />
+          <EquipmentBlock character={character} derived={derived} onSave={save} catalog={equipmentCatalog} />
           {classRecord && (
             <SpellBlock
               character={character}
@@ -957,8 +958,7 @@ export default function CharacterPage() {
       {racePrompt && (
         <RacePromptDialog
           prompt={racePrompt}
-          currentAbilities={character.abilities}
-          onApply={(changes, speed) => handleRacePromptApply(changes, speed)}
+          onApply={choices => handleRacePromptApply(choices)}
           onSkip={() => setRacePrompt(null)}
         />
       )}
@@ -966,8 +966,11 @@ export default function CharacterPage() {
       {subracePrompt && (
         <SubracePromptDialog
           subrace={subracePrompt}
-          currentAbilities={character.abilities}
-          onApply={changes => { save({ abilities: { ...character.abilities, ...changes } }); setSubracePrompt(null) }}
+          onApply={choices => {
+            // raceAsiChoices was trimmed to the race-pool picks on subrace select
+            save({ raceAsiChoices: [...character.raceAsiChoices, ...choices] })
+            setSubracePrompt(null)
+          }}
           onSkip={() => setSubracePrompt(null)}
         />
       )}
@@ -1005,6 +1008,7 @@ export default function CharacterPage() {
         return (
           <LevelUpDialog
             character={character}
+            effectiveAbilities={derived.effectiveAbilities}
             classRecord={targetRecord}
             newLevel={levelUpTarget.newClassLevel}
             newTotalLevel={levelUpTarget.newTotalLevel}

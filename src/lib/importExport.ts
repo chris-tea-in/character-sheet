@@ -1,9 +1,13 @@
 import { getDb, replaceDb } from '../storage/db'
 import { insertCharacter } from '../storage/characterRepo'
 import { flush } from '../storage'
+import { normalizeCharacterPayload } from '../storage/normalizeStats'
+import { loadSetupData, loadFeatsData } from './data'
 import type { Character, NewCharacter } from '../types/character'
 
-const CHAR_EXPORT_VERSION = 1
+// v1: abilities/speed/initiative stored with racial + feat bonuses baked in
+// v2: abilities are BASE scores + raceAsiChoices; bonuses derived at render
+const CHAR_EXPORT_VERSION = 2
 
 const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const
 
@@ -130,8 +134,20 @@ export async function importCharacter(file: File): Promise<Character> {
 
   validateCharacterPayload(doc.character)
 
+  let character: NewCharacter = doc.character
+  if (version < 2) {
+    // v1 exports have racial/feat bonuses baked into abilities/speed/initiative —
+    // convert to the base-stats model before inserting
+    const [setupData, featData] = await Promise.all([loadSetupData(), loadFeatsData()])
+    character = {
+      ...character,
+      ...normalizeCharacterPayload(character, setupData, featData),
+      raceAsiChoices: [],
+    }
+  }
+
   const db = getDb()
-  const inserted = insertCharacter(db, doc.character)
+  const inserted = insertCharacter(db, character)
   await flush()
   return inserted
 }

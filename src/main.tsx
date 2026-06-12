@@ -3,7 +3,9 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './styles/globals.css'
-import { initDb, type DbInitResult } from './storage'
+import { initDb, getDb, flush, type DbInitResult } from './storage'
+import { normalizeCharacterStats } from './storage/normalizeStats'
+import { loadSetupData, loadFeatsData } from './lib/data'
 
 const root = createRoot(document.getElementById('root')!)
 
@@ -27,6 +29,16 @@ async function bootstrap() {
       </div>
     )
     return
+  }
+
+  // One-time backfill to base-stats storage (see normalizeStats.ts). Runs here
+  // because migrations can't fetch reference data. On fetch failure rows stay
+  // flagged un-normalized and the conversion retries on the next launch.
+  try {
+    const [setupData, featData] = await Promise.all([loadSetupData(), loadFeatsData()])
+    if (normalizeCharacterStats(getDb(), setupData, featData)) await flush()
+  } catch {
+    // data fetch failed — keep rows flagged, retry next launch
   }
 
   root.render(

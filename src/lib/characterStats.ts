@@ -1,7 +1,7 @@
 import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP } from './dice'
-import { ABILITY_FULL_TO_SHORT } from './characterSetup'
+import { ABILITY_FULL_TO_SHORT, getRacialBonuses } from './racialBonuses'
 import type { Character, AbilityName, Abilities, SkillName, SkillProficiency } from '../types/character'
-import type { ArmorItem, WeaponItem, ClassData, FeatData } from '../types/data'
+import type { ArmorItem, WeaponItem, ClassData, FeatData, Race } from '../types/data'
 
 export interface WeaponBonus {
   toHit: string
@@ -32,6 +32,8 @@ export interface DerivedStats {
   hasStealthDisadvantage: boolean
   hitDiceType: number
   advantages: { saves: Set<AbilityName>; skills: Set<SkillName> }
+  effectiveSkillProficiencies: Partial<Record<SkillName, SkillProficiency>>
+  weaponProficiencies: string[]
 }
 
 // ── Feat effect registry ────────────────────────────────────────────────────
@@ -89,28 +91,6 @@ export function computeFeatStatDelta(
     }
   }
   return delta
-}
-
-export function applyFeatAsi(
-  abilities: Abilities,
-  delta: Partial<Record<AbilityName, number>>,
-): Abilities {
-  const result = { ...abilities }
-  for (const [ab, amount] of Object.entries(delta) as [AbilityName, number][]) {
-    result[ab] = Math.min(20, result[ab] + amount)
-  }
-  return result
-}
-
-export function unapplyFeatAsi(
-  abilities: Abilities,
-  delta: Partial<Record<AbilityName, number>>,
-): Abilities {
-  const result = { ...abilities }
-  for (const [ab, amount] of Object.entries(delta) as [AbilityName, number][]) {
-    result[ab] = result[ab] - amount
-  }
-  return result
 }
 
 export function featHasChoiceAsi(feat: FeatData): boolean {
@@ -370,9 +350,10 @@ function parseArmorAC(formula: string, dexMod: number): number {
 
 // ── Weapon proficiency check ─────────────────────────────────────────────────
 
-function isWeaponProficient(weapon: WeaponItem, classRecord: ClassData | null): boolean {
-  if (!classRecord) return false
-  const profs = classRecord.weapon_proficiencies.map(p => p.toLowerCase())
+// `weaponProficiencies` is the lowercased union across all the character's
+// classes (DerivedStats.weaponProficiencies)
+function isWeaponProficient(weapon: WeaponItem, weaponProficiencies: string[]): boolean {
+  const profs = weaponProficiencies
   const wtype = weapon.weapon_type.toLowerCase()
   if (wtype.includes('simple') && profs.some(p => p === 'simple weapons')) return true
   if (wtype.includes('martial') && (profs.includes('martial weapons') || profs.includes('all weapons'))) return true
@@ -385,7 +366,7 @@ function isWeaponProficient(weapon: WeaponItem, classRecord: ClassData | null): 
 export function computeWeaponBonus(
   weapon: WeaponItem,
   character: Character,
-  classRecord: ClassData | null,
+  weaponProficiencies: string[],
   effectiveAbilities?: Abilities,
 ): WeaponBonus {
   const abilities = effectiveAbilities ?? character.abilities
@@ -395,7 +376,7 @@ export function computeWeaponBonus(
   const isRanged = weapon.weapon_type.toLowerCase().includes('ranged')
   const mod = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod
   const abilityLabel = isFinesse ? (dexMod > strMod ? 'DEX' : 'STR') : isRanged ? 'DEX' : 'STR'
-  const pb = isWeaponProficient(weapon, classRecord) ? proficiencyBonus(character.level) : 0
+  const pb = isWeaponProficient(weapon, weaponProficiencies) ? proficiencyBonus(character.level) : 0
   const magicBonus = weapon.bonus ?? 0
   const toHitModifier = mod + pb + magicBonus
   const damageBonus = mod + magicBonus
@@ -423,16 +404,29 @@ export function computeFeatHpBonus(feats: string[], level: number): number {
 
 const ALL_ABILITIES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 
+export interface DeriveContext {
+  // All class records, ordered to match character.classes; [0] = primary
+  classes?: (ClassData | null)[] | null
+  race?: Race | null
+  catalog?: { armor?: ArmorItem[] } | null
+  featData?: Record<string, FeatData> | null
+}
+
 export function deriveCharacterStats(
   character: Character,
-  classData?: ClassData | null,
-  catalog?: { armor?: ArmorItem[] } | null,
-  featData?: Record<string, FeatData> | null,
+  ctx: DeriveContext = {},
 ): DerivedStats {
+  const { race, catalog, featData } = ctx
+  const classRecords = (ctx.classes ?? []).filter((c): c is ClassData => c != null)
+  const classData = ctx.classes?.[0] ?? null
   const pb = proficiencyBonus(character.level)
 
-  // ── Effective Abilities (base + all feat ASIs) ────────────────────────────
+  // ── Effective Abilities (base + racial ASIs + all feat ASIs) ─────────────
   const effectiveAbilities = { ...character.abilities }
+  const racialBonuses = getRacialBonuses(race, character.raceAsiChoices ?? [], character.subrace ?? undefined)
+  for (const [ab, amount] of Object.entries(racialBonuses) as [AbilityName, number][]) {
+    effectiveAbilities[ab] = effectiveAbilities[ab] + amount
+  }
   let featSpeedBonus = 0
   let featInitiativeBonus = 0
   const featDerivedSaves: AbilityName[] = []
@@ -585,6 +579,11 @@ export function deriveCharacterStats(
   // ── Hit dice type ─────────────────────────────────────────────────────────
   const hitDiceType = classData ? parseInt(classData.hit_die.replace('d', ''), 10) : 8
 
+  // ── Weapon proficiencies (union across all classes) ──────────────────────
+  const weaponProficiencies = [
+    ...new Set(classRecords.flatMap(c => c.weapon_proficiencies.map(p => p.toLowerCase()))),
+  ]
+
   // ── Advantages ────────────────────────────────────────────────────────────
   const advantages = getCharacterAdvantages(character)
 
@@ -607,5 +606,7 @@ export function deriveCharacterStats(
     hasStealthDisadvantage,
     hitDiceType,
     advantages,
+    effectiveSkillProficiencies,
+    weaponProficiencies,
   }
 }
