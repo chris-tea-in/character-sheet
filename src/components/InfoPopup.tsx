@@ -13,7 +13,7 @@ export function InfoPopup({ open, onClose, title, description, children }: InfoP
     <Dialog open={open} onOpenChange={open => { if (!open) onClose() }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle style={{ color: 'var(--color-accent-2)' }}>{title}</DialogTitle>
+          <DialogTitle style={{ color: 'var(--color-accent-gold)' }}>{title}</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">{description}</p>
         {children && <div className="mt-4 flex items-center gap-3">{children}</div>}

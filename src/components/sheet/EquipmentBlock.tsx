@@ -327,7 +327,7 @@ const RARITY_COLORS: Record<string, string> = {
   Rare: '#4169e1',
   'Very Rare': '#9400d3',
   Legendary: '#ff8c00',
-  Artifact: 'var(--color-accent)',
+  Artifact: 'var(--color-accent-red)',
 }
 
 function MagicItemRow({

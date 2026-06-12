@@ -10,7 +10,7 @@ export function RollButton({ onClick, advantage, disabled }: Props) {
       onClick={onClick}
       disabled={disabled}
       className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{ background: 'var(--color-accent)', color: '#fff' }}
+      style={{ background: 'var(--color-accent-red)', color: '#fff' }}
       title={advantage ? 'Rolling with advantage' : undefined}
     >
       {advantage ? 'Roll (Adv)' : 'Roll'}
