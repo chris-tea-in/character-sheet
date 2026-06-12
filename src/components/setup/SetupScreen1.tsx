@@ -22,6 +22,7 @@ import {
   slugToTitle,
   subclassToDetailItem,
   getClassAsiLevels,
+  toggleAsiSelection,
   toSubraceSlug,
   ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
@@ -123,13 +124,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
 
   function toggleAsiAbility(slotIdx: number, ab: AbilityName) {
     const choice = draft.levelAsiChoices[slotIdx] ?? { mode: 'asi', asiAbilities: [], featSlug: '' }
-    const current = choice.asiAbilities
-    if (current.includes(ab)) {
-      const idx = current.lastIndexOf(ab)
-      updateAsiChoice(slotIdx, { asiAbilities: current.filter((_, i) => i !== idx) })
-    } else if (current.length < 2) {
-      updateAsiChoice(slotIdx, { asiAbilities: [...current, ab] })
-    }
+    updateAsiChoice(slotIdx, { asiAbilities: toggleAsiSelection(choice.asiAbilities, ab) })
   }
 
   const featPrereqCtx = useMemo((): FeatPrereqContext => {

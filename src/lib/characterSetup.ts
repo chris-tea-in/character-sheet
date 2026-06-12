@@ -311,6 +311,22 @@ export interface LevelAsiChoice {
   featAsiAbility?: AbilityName  // for feats with a choice ASI
 }
 
+// Shared ASI pick toggle (SetupScreen1 + LevelUpDialog). A pick list holds one
+// entry per +1; the same ability twice means +2. First click adds +1, a second
+// click stacks to +2 while under budget, clicking a fully stacked ability
+// clears all its picks.
+export function toggleAsiSelection(
+  current: AbilityName[],
+  ab: AbilityName,
+  budget = 2,
+): AbilityName[] {
+  const count = current.filter(x => x === ab).length
+  if (count === 1 && current.length < budget) return [...current, ab]
+  if (count > 0) return current.filter(x => x !== ab)
+  if (current.length < budget) return [...current, ab]
+  return current
+}
+
 export function getClassAsiLevels(classRecord: ClassData, level: number): number[] {
   return Object.entries(classRecord.levels)
     .filter(([lvl, data]) =>

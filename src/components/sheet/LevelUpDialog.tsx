@@ -7,7 +7,7 @@ import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import { StepperField } from './StepperField'
 import { abilityModifier, proficiencyBonus, rollDie, SKILL_ABILITY_MAP } from '@/lib/dice'
-import { parseHitDie, ABILITY_ORDER, ABILITY_SHORT, ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
+import { parseHitDie, toggleAsiSelection, ABILITY_ORDER, ABILITY_SHORT, ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
 import { LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
 import { getSpellcastingInfo, getSpellsKnownIncrease, parseClassSlots } from '@/lib/spellcasting'
 import {
@@ -170,14 +170,7 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
   }
 
   function toggleAsi(ab: AbilityName) {
-    if (asiChoices.filter(x => x === ab).length > 0) {
-      setAsiChoices(c => {
-        const idx = c.lastIndexOf(ab)
-        return c.filter((_, i) => i !== idx)
-      })
-    } else if (asiChoices.length < 2) {
-      setAsiChoices(c => [...c, ab])
-    }
+    setAsiChoices(c => toggleAsiSelection(c, ab))
   }
 
   function handleApply() {
