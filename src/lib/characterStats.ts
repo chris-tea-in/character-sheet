@@ -519,10 +519,13 @@ export function deriveCharacterStats(
   const passiveInvestigation = 10 + skillModifiers.investigation + passiveInvBonus
 
   // ── Spell stats ───────────────────────────────────────────────────────────
+  // First class with a spellcasting ability — the primary class may be a
+  // non-caster in a multiclass (e.g. Fighter 5 / Wizard 3)
+  const castingClass = classRecords.find(c => c.spellcasting?.ability) ?? null
   let spellAttackBonus = 0
   let spellSaveDC = 0
-  if (classData?.spellcasting?.ability) {
-    const spellAbilKey = ABILITY_FULL_TO_SHORT[classData.spellcasting.ability.toLowerCase()] ?? 'int'
+  if (castingClass?.spellcasting?.ability) {
+    const spellAbilKey = ABILITY_FULL_TO_SHORT[castingClass.spellcasting.ability.toLowerCase()] ?? 'int'
     const spellAbilMod = abilityModifier(effectiveAbilities[spellAbilKey])
     const spellItemBonus = character.spellBonusModifier ?? 0
     spellAttackBonus = spellAbilMod + pb + spellItemBonus
@@ -559,9 +562,13 @@ export function deriveCharacterStats(
       }
 
       if (canComputeAC) {
-        const shieldBonus = shields.length > 0
-          ? parseArmorAC(armorByName.get(shields[0].name.toLowerCase())!.ac_formula, dexMod)
-          : 0
+        let shieldBonus = 0
+        if (shields.length > 0) {
+          const shieldRec = armorByName.get(shields[0].name.toLowerCase())!
+          // Magic shields carry their flat bonus in `bonus` (e.g. "+2 Shield"),
+          // same as body armor above
+          shieldBonus = parseArmorAC(shieldRec.ac_formula, dexMod) + (shieldRec.bonus ?? 0)
+        }
         effectiveAC = baseAC + shieldBonus
       }
     }
