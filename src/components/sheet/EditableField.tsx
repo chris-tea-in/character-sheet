@@ -134,7 +134,9 @@ export function EditableTextarea({
       rows={rows}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
-      onKeyDown={e => e.key === 'Escape' && commit()}
+      onKeyDown={e => {
+        if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+      }}
       className={cn(
         'w-full bg-transparent border border-ring rounded-md px-2 py-1 text-sm focus:outline-none resize-none',
         className,

@@ -47,7 +47,12 @@ function HpSection({
   function changeHp(delta: number) {
     const newHp = Math.min(adjustedMaxHp, Math.max(-99, currentHp + delta))
     const changes: Partial<NewCharacter> = { currentHp: newHp }
-    if (newHp > 0 && currentHp <= 0 && character.deathSaves.failures >= 3) {
+    // RAW: regaining any hit points resets both death-save counters
+    if (
+      newHp > 0 &&
+      currentHp <= 0 &&
+      (character.deathSaves.successes > 0 || character.deathSaves.failures > 0)
+    ) {
       changes.deathSaves = { successes: 0, failures: 0 }
     }
     onSave(changes)
@@ -112,7 +117,7 @@ function HpSection({
           />
           {adjustedMaxHp !== maxHp && (
             <span className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>
-              +{adjustedMaxHp - maxHp} (feat)
+              +{adjustedMaxHp - maxHp} (feat/race)
             </span>
           )}
         </div>

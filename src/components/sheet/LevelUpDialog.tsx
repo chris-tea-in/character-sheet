@@ -316,8 +316,8 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
                   <span className="text-xs text-muted-foreground">or enter manually</span>
                   <StepperField
                     value={hpAdd}
-                    onSave={v => setHpAdd(Math.max(0, v))}
-                    min={0}
+                    onSave={v => setHpAdd(Math.max(1, v))}
+                    min={1}
                     max={50}
                     size="sm"
                   />

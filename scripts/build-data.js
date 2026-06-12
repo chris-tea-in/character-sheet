@@ -154,6 +154,7 @@ if (errors.length) {
   process.exit(1)
 }
 
+mkdirSync('public/data', { recursive: true })
 const outputs = { races, spells, classes, subclasses, feats, backgrounds, equipment }
 for (const [name, data] of Object.entries(outputs)) {
   writeFileSync(`public/data/${name}.json`, JSON.stringify(data, null, 2))
