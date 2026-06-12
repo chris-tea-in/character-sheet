@@ -194,9 +194,9 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   const classSpellEntries: SelectionEntry[] = useMemo(() =>
     Object.entries(allSpells)
       .filter(([key]) => !alreadyKnown.has(key))
-      .filter(([, s]) => s.classes.includes(character.class))
+      .filter(([, s]) => s.classes.includes(classRecord.slug))
       .map(toEntry),
-  [allSpells, alreadyKnown, character.class])
+  [allSpells, alreadyKnown, classRecord.slug])
 
   const allSpellEntries: SelectionEntry[] = useMemo(() =>
     Object.entries(allSpells)

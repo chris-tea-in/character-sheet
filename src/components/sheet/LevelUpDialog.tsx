@@ -132,7 +132,7 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
   )
 
   function buildSpellEntries(level: number | null) {
-    const baseClass = spellBrowseAll ? null : character.class
+    const baseClass = spellBrowseAll ? null : classRecord.slug
     return Object.entries(allSpells)
       .filter(([key, s]) => {
         if (alreadyKnown.has(key)) return false
@@ -160,8 +160,8 @@ export function LevelUpDialog({ character, classRecord, newLevel, newTotalLevel,
       } as SelectionEntry))
   }
 
-  const spellEntries = useMemo(() => buildSpellEntries(null), [allSpells, alreadyKnown, spellBrowseAll, character.class, newMaxSpellLevel])
-  const cantripEntries = useMemo(() => buildSpellEntries(0), [allSpells, alreadyKnown, spellBrowseAll, character.class])
+  const spellEntries = useMemo(() => buildSpellEntries(null), [allSpells, alreadyKnown, spellBrowseAll, classRecord.slug, newMaxSpellLevel])
+  const cantripEntries = useMemo(() => buildSpellEntries(0), [allSpells, alreadyKnown, spellBrowseAll, classRecord.slug])
 
   function rollHp() {
     setHpAdd(Math.max(1, rollDie(hitDie as DieType) + conMod))
