@@ -268,12 +268,17 @@ export function FeatsBlock({ character, derived, onSave }: Props) {
     ? (pendingFeat.effects ?? []).find(e => e.type === 'skill_proficiency')?.count ?? 1
     : 1
 
-  // Skills eligible for expertise: character's current profs + any just-granted skillChoices
+  // Skills eligible for expertise: proficient-but-not-already-expertise (BUG-37),
+  // sourced from derived effective state so feat-granted proficiencies qualify
+  // (BUG-30), plus any skill just granted in this feat's skill phase.
   const proficientSkills = useMemo((): SkillName[] => {
-    const base = new Set(Object.keys(character.skillProficiencies) as SkillName[])
-    for (const sk of (pendingChoices.skillChoices ?? [])) base.add(sk)
-    return ALL_SKILLS.filter(sk => base.has(sk))
-  }, [character.skillProficiencies, pendingChoices.skillChoices])
+    const eligible = new Set<SkillName>()
+    for (const sk of ALL_SKILLS) {
+      if (derived.effectiveSkillProficiencies[sk] === 'proficient') eligible.add(sk)
+    }
+    for (const sk of (pendingChoices.skillChoices ?? [])) eligible.add(sk)
+    return ALL_SKILLS.filter(sk => eligible.has(sk))
+  }, [derived.effectiveSkillProficiencies, pendingChoices.skillChoices])
 
   const [skillPickerSelected, setSkillPickerSelected] = useState<SkillName[]>([])
 
@@ -394,7 +399,7 @@ export function FeatsBlock({ character, derived, onSave }: Props) {
             Choose {skillProfCount === 1 ? 'a skill' : `${skillProfCount} skills`} to gain proficiency in:
           </p>
           <div className="grid grid-cols-2 gap-1.5 max-h-64 overflow-y-auto">
-            {ALL_SKILLS.filter(sk => !character.skillProficiencies[sk]).map(sk => {
+            {ALL_SKILLS.filter(sk => !derived.effectiveSkillProficiencies[sk]).map(sk => {
               const selected = skillPickerSelected.includes(sk)
               const disabled = !selected && skillPickerSelected.length >= skillProfCount
               return (

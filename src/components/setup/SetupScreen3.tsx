@@ -53,17 +53,20 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
 
-  // Skill choices from class — "any" means all 18 skills are valid (e.g. Bard)
-  const rawSkillOpts = cls?.skill_choices.options ?? []
-  const skillOptions: SkillName[] = rawSkillOpts.some(o => o.trim().toLowerCase() === 'any')
-    ? (Object.keys(SKILL_DISPLAY_MAP) as SkillName[])
-    : rawSkillOpts.map((o) => toSkillName(o)).filter(Boolean) as SkillName[]
-  const skillCount = cls?.skill_choices.count ?? 0
-
   // Skills already granted by background (read-only)
   const bgSkills: SkillName[] = (bg?.skill_proficiencies ?? [])
     .map((s) => toSkillName(s))
     .filter(Boolean) as SkillName[]
+
+  // Skill choices from class — "any" means all 18 skills are valid (e.g. Bard).
+  // Background-granted skills are excluded: picking one would collapse to a
+  // single proficiency on save and waste a class pick (BUG-27).
+  const rawSkillOpts = cls?.skill_choices.options ?? []
+  const skillOptions: SkillName[] = (rawSkillOpts.some(o => o.trim().toLowerCase() === 'any')
+    ? (Object.keys(SKILL_DISPLAY_MAP) as SkillName[])
+    : rawSkillOpts.map((o) => toSkillName(o)).filter(Boolean) as SkillName[]
+  ).filter(s => !bgSkills.includes(s))
+  const skillCount = cls?.skill_choices.count ?? 0
 
   // Language choices from background
   const langChoiceCount = bg?.language_choices ?? 0

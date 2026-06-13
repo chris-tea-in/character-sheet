@@ -33,6 +33,10 @@ export interface DerivedStats {
   hitDiceType: number
   advantages: { saves: Set<AbilityName>; skills: Set<SkillName> }
   effectiveSkillProficiencies: Partial<Record<SkillName, SkillProficiency>>
+  // Skills whose effective proficiency/expertise comes from a feat (not the
+  // stored record) — the UI shows these filled but locked so a dot click can't
+  // write a duplicate stored copy (BUG-30)
+  featSkillGrants: { proficient: SkillName[]; expertise: SkillName[] }
   weaponProficiencies: string[]
 }
 
@@ -460,6 +464,7 @@ export function deriveCharacterStats(
   const effectiveSkillProficiencies: Partial<Record<SkillName, SkillProficiency>> = {
     ...character.skillProficiencies,
   }
+  const featSkillGrants: { proficient: SkillName[]; expertise: SkillName[] } = { proficient: [], expertise: [] }
   if (featData) {
     for (const slug of character.feats) {
       const feat = featData[slug]
@@ -469,11 +474,15 @@ export function deriveCharacterStats(
       const hasExpertise = (feat.effects ?? []).some(e => e.type === 'expertise')
       if (hasSkillProf && choices?.skillChoices) {
         for (const sk of choices.skillChoices) {
-          if (!effectiveSkillProficiencies[sk]) effectiveSkillProficiencies[sk] = 'proficient'
+          if (!effectiveSkillProficiencies[sk]) {
+            effectiveSkillProficiencies[sk] = 'proficient'
+            featSkillGrants.proficient.push(sk)
+          }
         }
       }
       if (hasExpertise && choices?.expertiseSkill) {
         effectiveSkillProficiencies[choices.expertiseSkill] = 'expertise'
+        featSkillGrants.expertise.push(choices.expertiseSkill)
       }
     }
   }
@@ -614,6 +623,7 @@ export function deriveCharacterStats(
     hitDiceType,
     advantages,
     effectiveSkillProficiencies,
+    featSkillGrants,
     weaponProficiencies,
   }
 }

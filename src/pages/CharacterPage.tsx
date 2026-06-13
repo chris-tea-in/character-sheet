@@ -564,6 +564,13 @@ export default function CharacterPage() {
 
   const currentRaceData = character.race ? (setupData?.races[character.race] ?? null) : null
 
+  // Background-granted skills — excluded from the class skill-pick cap (BUG-29)
+  const backgroundSkills = useMemo((): SkillName[] => (
+    (setupData?.backgrounds[character.background]?.skill_proficiencies ?? [])
+      .map(toSkillName)
+      .filter((s): s is SkillName => s !== null)
+  ), [setupData, character.background])
+
   // All class records ordered to match character.classes ([0] = primary)
   const classRecords = useMemo(() => (
     character.classes?.length
@@ -859,7 +866,7 @@ export default function CharacterPage() {
                 }))
               : undefined}
           />
-          <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} catalog={equipmentCatalog} derived={derived} onSave={save} />
+          <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} catalog={equipmentCatalog} derived={derived} onSave={save} />
           <FeatsBlock character={character} derived={derived} onSave={save} />
           <EquipmentBlock character={character} derived={derived} onSave={save} catalog={equipmentCatalog} />
           {classRecord && (
