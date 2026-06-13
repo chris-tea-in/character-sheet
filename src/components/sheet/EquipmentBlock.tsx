@@ -487,8 +487,9 @@ function buildWeaponEntries(weapons: WeaponItem[]): SelectionEntry[] {
     return {
       slug: w.name,
       detail: {
+        // damage_dice/damage_type are nullable on magic weapons (BUG-51) — guard
         name: w.name,
-        subtitle: `${w.weapon_type} · ${w.damage_dice} ${w.damage_type}`,
+        subtitle: `${w.weapon_type}${w.damage_dice ? ` · ${w.damage_dice}${w.damage_type ? ` ${w.damage_type}` : ''}` : ''}`,
         sections: [
           { label: 'Properties', value: w.properties.length ? w.properties : ['None'] },
           ...(w.cost ? [{ label: 'Cost', value: w.cost }] : []),

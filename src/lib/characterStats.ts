@@ -330,25 +330,32 @@ export function meetsFeatPrerequisites(feat: FeatData, ctx: FeatPrereqContext): 
 }
 
 // ── AC formula parser ────────────────────────────────────────────────────────
-// Handles: "18", "+2", "11 + DEX modifier", "13 + DEX modifier (max 2)"
+// Handles the mundane and magic-armor shapes seen in the data (BUG-49):
+//   "18", "+2", "11 + DEX modifier", "13 + DEX modifier (max 2)",
+//   "12 + Dex + 1", "14 + Dex (max 2) + 1", "14 + Dex (max 2)", "16 + 3", "18 + 1"
+// "Varies"/"Varies + N" is handled by the caller (manual-AC fallback), not here.
 
 function parseArmorAC(formula: string, dexMod: number): number {
   const trimmed = formula.trim()
 
-  // Shield: "+2"
+  // Pure flat/shield bonus: "+2", "+2 vs ranged (...)"
   if (trimmed.startsWith('+')) {
     return parseInt(trimmed.slice(1), 10) || 0
   }
 
-  const deхPattern = /^(\d+)\s*\+\s*DEX modifier(\s*\(max\s*(\d+)\))?$/i
-  const match = trimmed.match(deхPattern)
-  if (match) {
-    const base = parseInt(match[1], 10)
-    const cap = match[3] !== undefined ? parseInt(match[3], 10) : Infinity
-    return base + Math.min(dexMod, cap)
+  // base [+ Dex [(max C)]] [+ flat]; "Dex", "DEX modifier", "Dexterity modifier" all accepted
+  const m = trimmed.match(
+    /^(\d+)(\s*\+\s*dex(?:terity)?(?:\s*modifier)?)?(\s*\(\s*max\s*(\d+)\s*\))?(\s*\+\s*(\d+))?$/i,
+  )
+  if (m) {
+    const base = parseInt(m[1], 10)
+    const hasDex = m[2] !== undefined
+    const cap = m[4] !== undefined ? parseInt(m[4], 10) : Infinity
+    const flat = m[6] !== undefined ? parseInt(m[6], 10) : 0
+    return base + (hasDex ? Math.min(dexMod, cap) : 0) + flat
   }
 
-  // Plain number
+  // Plain number fallback
   return parseInt(trimmed, 10) || 0
 }
 
@@ -563,7 +570,8 @@ export function deriveCharacterStats(
       if (bodyPieces.length > 0) {
         const bodyArmor = armorByName.get(bodyPieces[0].name.toLowerCase())!
         if (bodyArmor.stealth_disadvantage) hasStealthDisadvantage = true
-        if (bodyArmor.ac_formula === 'Varies') {
+        // "Varies" / "Varies + N" can't be computed — fall back to manual AC entry
+        if (bodyArmor.ac_formula.trim().toLowerCase().startsWith('varies')) {
           canComputeAC = false
         } else {
           baseAC = parseArmorAC(bodyArmor.ac_formula, dexMod) + (bodyArmor.bonus ?? 0)
