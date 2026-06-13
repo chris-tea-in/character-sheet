@@ -141,6 +141,13 @@ const equipment = (() => {
   return out
 })()
 
+// Warn on equipment files outside the allowlist so staging files can't silently strand
+const allowedEquipment = new Set(EQUIPMENT_CATEGORIES.map(c => `${c.type}.json`))
+for (const f of readdirSync('data/equipment')) {
+  if (f.endsWith('.json') && !allowedEquipment.has(f))
+    warnings.push(`equipment/${f}: not in EQUIPMENT_CATEGORIES — ignored`)
+}
+
 const rules = readJson('data/rules.json')
 
 if (warnings.length) {

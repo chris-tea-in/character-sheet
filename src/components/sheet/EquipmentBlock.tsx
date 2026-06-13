@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { StepperField } from './StepperField'
 import { generateId } from '@/lib/uuid'
-import { computeWeaponBonus, SPELL_BONUS_ITEM_NAMES } from '@/lib/characterStats'
-import { InfoPopup } from '@/components/InfoPopup'
+import { computeWeaponBonus } from '@/lib/characterStats'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
@@ -552,7 +551,6 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
   const [weaponPickerOpen, setWeaponPickerOpen] = useState(false)
   const [armorPickerOpen, setArmorPickerOpen] = useState(false)
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
-  const [showSpellBonusPrompt, setShowSpellBonusPrompt] = useState(false)
 
   const weaponByName = useMemo(
     () => new Map((catalog?.weapons ?? []).map(w => [w.name.toLowerCase(), w])),
@@ -623,23 +621,12 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
     onSave({ equipment: character.equipment.map(e => e.id === id ? { ...e, ...changes } : e) })
   }
   function removeItem(id: string) {
-    const removed = character.equipment.find(e => e.id === id)
     onSave({ equipment: character.equipment.filter(e => e.id !== id) })
-    // Removing a spell-focus item: re-open the prompt so the player can lower or
-    // clear the now-stale bonus (BUG-21) — otherwise it inflates forever
-    if (removed && SPELL_BONUS_ITEM_NAMES.has(removed.name.toLowerCase()) && character.spellBonusModifier) {
-      setShowSpellBonusPrompt(true)
-    }
   }
   function addItem(name: string, displayCategory?: 'weapon' | 'armor' | 'item') {
     const newItem: EquipmentItem = { id: generateId(), name, quantity: 1 }
     if (displayCategory) newItem.displayCategory = displayCategory
     onSave({ equipment: [...character.equipment, newItem] })
-    // Always prompt when a spell-focus item is added so stacking bonuses can be
-    // updated, not only when the modifier was previously unset (BUG-09)
-    if (SPELL_BONUS_ITEM_NAMES.has(name.toLowerCase())) {
-      setShowSpellBonusPrompt(true)
-    }
   }
   function addCustomItem() {
     onSave({ equipment: [...character.equipment, { id: generateId(), name: 'New item', quantity: 1 }] })
@@ -856,21 +843,6 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
           setGearPickerOpen(false)
         }}
       />
-      <InfoPopup
-        open={showSpellBonusPrompt}
-        onClose={() => setShowSpellBonusPrompt(false)}
-        title="Spell Bonus Modifier"
-        description="This item adds a flat bonus to your spell attack rolls and spell save DC. Enter only the item's bonus value — the app calculates your base values automatically. Clear this if you lose the item or break attunement."
-      >
-        <StepperField
-          value={character.spellBonusModifier ?? 0}
-          onSave={v => onSave({ spellBonusModifier: Math.max(0, v) })}
-          min={0}
-          max={5}
-          size="sm"
-        />
-        <Button onClick={() => setShowSpellBonusPrompt(false)}>Done</Button>
-      </InfoPopup>
     </section>
   )
 }

@@ -1,7 +1,7 @@
 import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP } from './dice'
 import { ABILITY_FULL_TO_SHORT, getRacialBonuses } from './racialBonuses'
 import type { Character, AbilityName, Abilities, SkillName, SkillProficiency } from '../types/character'
-import type { ArmorItem, WeaponItem, ClassData, FeatData, Race } from '../types/data'
+import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem } from '../types/data'
 
 export interface WeaponBonus {
   toHit: string
@@ -183,18 +183,6 @@ const ITEM_ADV_ENTRIES: Array<{ name: string; entry: AdvantageEntry }> = [
 const ITEM_ADV_MAP = new Map(
   ITEM_ADV_ENTRIES.map(({ name, entry }) => [name.toLowerCase(), entry]),
 )
-
-export const SPELL_BONUS_ITEM_NAMES = new Set([
-  'arcane grimoire',
-  'arcane grimoire +1',
-  'arcane grimoire +2',
-  'arcane grimoire +3',
-  'bloodwell vial',
-  'bloodwell vial +1',
-  'bloodwell vial +2',
-  'bloodwell vial +3',
-  'robe of the archmagi',
-])
 
 export function getCharacterAdvantages(character: Character): { saves: Set<AbilityName>; skills: Set<SkillName> } {
   const saves = new Set<AbilityName>()
@@ -419,7 +407,7 @@ export interface DeriveContext {
   // All class records, ordered to match character.classes; [0] = primary
   classes?: (ClassData | null)[] | null
   race?: Race | null
-  catalog?: { armor?: ArmorItem[] } | null
+  catalog?: { armor?: ArmorItem[]; wondrous_items?: WondrousItem[] } | null
   featData?: Record<string, FeatData> | null
 }
 
@@ -543,9 +531,30 @@ export function deriveCharacterStats(
   if (castingClass?.spellcasting?.ability) {
     const spellAbilKey = ABILITY_FULL_TO_SHORT[castingClass.spellcasting.ability.toLowerCase()] ?? 'int'
     const spellAbilMod = abilityModifier(effectiveAbilities[spellAbilKey])
-    const spellItemBonus = character.spellBonusModifier ?? 0
-    spellAttackBonus = spellAbilMod + pb + spellItemBonus
-    spellSaveDC = 8 + spellAbilMod + pb + spellItemBonus
+    const manualBonus = character.spellBonusModifier ?? 0
+
+    // Render-time spell-focus bonuses from equipped wondrous items, scoped to the
+    // casting class (class === null applies to any caster). The manual
+    // spellBonusModifier remains as a homebrew override for un-annotated focuses.
+    let focusAttack = 0
+    let focusDc = 0
+    if (catalog?.wondrous_items) {
+      const focusByName = new Map(
+        catalog.wondrous_items
+          .filter(i => i.spell_focus)
+          .map(i => [i.name.toLowerCase(), i.spell_focus!]),
+      )
+      for (const item of character.equipment) {
+        const focus = focusByName.get(item.name.toLowerCase())
+        if (!focus) continue
+        if (focus.class !== null && focus.class !== castingClass.slug) continue
+        if (focus.attack) focusAttack += focus.bonus
+        if (focus.save_dc) focusDc += focus.bonus
+      }
+    }
+
+    spellAttackBonus = spellAbilMod + pb + focusAttack + manualBonus
+    spellSaveDC = 8 + spellAbilMod + pb + focusDc + manualBonus
   }
 
   // ── Effective AC + stealth disadvantage ──────────────────────────────────

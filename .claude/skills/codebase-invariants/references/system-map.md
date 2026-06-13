@@ -39,10 +39,11 @@ RENDER   CharacterPage ─▶ deriveCharacterStats(character,        ▼
 | `skillProficiencies` (also) | `effectiveSkillProficiencies`, `featSkillGrants` | feat skill/expertise grants; UI renders + locks from these, not the raw record |
 | `hitDiceUsed` (single-class) / `hitDiceUsedByClass` (multiclass) | — | per-class hit-dice pools; migration v10 added the keyed field |
 | — | `weaponProficiencies` | lowercased union across ALL class records |
-| — | `spellAttackBonus`, `spellSaveDC` | first class record with `spellcasting.ability` + `spellBonusModifier` |
+| `spellBonusModifier` (manual override, default 0) | `spellAttackBonus`, `spellSaveDC` | first class record with `spellcasting.ability` + equipped `wondrous_items.spell_focus` (scoped to casting class; `class:null` = any) + manual override |
 
-`DeriveContext`: `{ classes?: (ClassData|null)[], race?, catalog?: { armor? }, featData? }` —
-`classes` ordered to match `character.classes`, `[0]` = primary.
+`DeriveContext`: `{ classes?: (ClassData|null)[], race?, catalog?: { armor?, wondrous_items? }, featData? }` —
+`classes` ordered to match `character.classes`, `[0]` = primary. `catalog` is the
+full `EquipmentData`; `wondrous_items` is read for `spell_focus` derivation.
 
 ## The three dualities (where bugs breed)
 
@@ -93,7 +94,9 @@ RENDER   CharacterPage ─▶ deriveCharacterStats(character,        ▼
 
 `scripts/build-data.js`: `data/**` → validate → `public/data/*.json`. Equipment is
 read from the fixed 11-file `EQUIPMENT_CATEGORIES` allowlist — any other file in
-`data/equipment/` is invisible (no warning). Weapon/firearm `damage_dice`/
-`damage_type` are nullable; consumers must null-guard. `data/` and `public/data/`
+`data/equipment/` is not compiled, but as of 2026-06-13 the build **warns** on it
+(stray-file guard after the equipment IIFE) so staging files can't strand
+silently. Weapon/firearm `damage_dice`/`damage_type` are nullable; consumers must
+null-guard. `data/` and `public/data/`
 are gitignored: data fixes have no commits and must be re-applied if `data/` is
 restored from backup.

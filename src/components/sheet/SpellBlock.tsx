@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, X, BookOpen } from 'lucide-react'
+import { Plus, X, BookOpen, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { InfoPopup } from '@/components/InfoPopup'
@@ -259,9 +259,18 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
       {/* Spell slot tracker */}
       <div className="rounded-lg border border-border bg-card p-3 space-y-3">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Spell Slots
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Spell Slots
+            </p>
+            <button
+              onClick={() => setBonusEditorOpen(true)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Manual spell-focus override"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          </div>
           <div className="flex gap-4 text-center">
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Attack</p>
@@ -271,9 +280,9 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                   onClick={() => setBonusEditorOpen(true)}
                   className="text-[9px] hover:opacity-75 transition-opacity"
                   style={{ color: 'var(--color-accent-gold)' }}
-                  title="Edit spell-focus bonus"
+                  title="Edit manual spell-focus override"
                 >
-                  +{character.spellBonusModifier} (item)
+                  +{character.spellBonusModifier} (manual)
                 </button>
               )}
             </div>
@@ -285,9 +294,9 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                   onClick={() => setBonusEditorOpen(true)}
                   className="text-[9px] hover:opacity-75 transition-opacity"
                   style={{ color: 'var(--color-accent-gold)' }}
-                  title="Edit spell-focus bonus"
+                  title="Edit manual spell-focus override"
                 >
-                  +{character.spellBonusModifier} (item)
+                  +{character.spellBonusModifier} (manual)
                 </button>
               )}
             </div>
@@ -407,12 +416,14 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         tabs={spellTabs}
       />
 
-      {/* Spell-focus bonus editor — permanent edit/clear path (BUG-21) */}
+      {/* Manual spell-focus override — homebrew/un-cataloged focuses only.
+          Catalog focus items (Rod of the Pact Keeper, Wand of the War Mage, …)
+          apply automatically at render time when equipped; leave this at 0 for them. */}
       <InfoPopup
         open={bonusEditorOpen}
         onClose={() => setBonusEditorOpen(false)}
-        title="Spell Focus Bonus"
-        description="Flat bonus to your spell attack rolls and spell save DC from a focus item (e.g. Rod of the Pact Keeper). Set to 0 if you lose the item or break attunement."
+        title="Manual Spell-Focus Override"
+        description="Flat bonus to your spell attack rolls and spell save DC for a homebrew or un-cataloged focus. Catalog focus items apply automatically when equipped — leave this at 0 for them to avoid double-counting."
       >
         <StepperField
           value={character.spellBonusModifier ?? 0}

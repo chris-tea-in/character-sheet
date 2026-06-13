@@ -11,14 +11,17 @@ any new invariant the fix established. Grep patterns are ripgrep syntax.
 
 ## INV-1 — Effects apply exactly once, at render time — ENFORCED
 
-Stored fields are base values. Racial ASIs and feat effects (`FeatStatDelta`,
-`FEAT_EFFECTS`, `SUBRACE_HP_BONUS`) apply only inside `deriveCharacterStats`.
-Write sites record choices (`feats`, `featChoices`, `raceAsiChoices`) — never
+Stored fields are base values. Racial ASIs, feat effects (`FeatStatDelta`,
+`FEAT_EFFECTS`, `SUBRACE_HP_BONUS`), and equipped-item effects (armor `ac_formula`,
+wondrous `spell_focus`) apply only inside `deriveCharacterStats`. Write sites
+record choices (`feats`, `featChoices`, `raceAsiChoices`, `equipment`) — never
 resulting stat changes. Both failure directions are real: write-time bake ⇒
 double-count; no application ⇒ data silently ignored (see `feature-effect-system`
-skill for the second direction).
+skill for the second direction). Spell-focus bonuses joined this set 2026-06-13
+(session 3): `wondrous_items.spell_focus` derives into `spellAttackBonus`/
+`spellSaveDC`; the manual `spellBonusModifier` is now an override-only field.
 
-- Members (fixed): BUG-01, 02, 05, 13, 36
+- Members (fixed): BUG-01, 02, 05, 13, 36; spell focus BUG-09/21 (render-time, session 3)
 - Recipe: in any write site (characterSetup.ts, LevelUpDialog, FeatsBlock,
   CharacterPage dialogs), flag arithmetic on `abilities`, `speed`,
   `initiativeBonus`, or `maxHp` that mirrors a derive-time computation:
@@ -80,11 +83,19 @@ describe. Audit display and behavior sites as a pair.
 Whatever an add path establishes (prompts, derived bookkeeping, modifier sources),
 the remove path must tear down or re-prompt.
 
-- Members fixed (2026-06-13): BUG-09 (add always prompts for the spell-focus
-  bonus), BUG-21 (removeItem re-prompts when a bonus item is removed, and the
-  SpellBlock "+N (item)" badge is a permanent editor).
-- Recipe: for each `addX`, read the paired `removeX` and diff their side effects:
-  `rg -n "SPELL_BONUS_ITEM_NAMES|spellBonusModifier" src/`
+- Members structurally dissolved (2026-06-13, session 3): BUG-09/21 no longer
+  exist as add/remove-symmetry problems — the spell-focus bonus moved to
+  **render-time derivation** (INV-1). Equipped focus items annotated with
+  `spell_focus: {bonus, attack, save_dc, class}` in `wondrous_items.json`
+  contribute to `spellAttackBonus`/`spellSaveDC` inside `deriveCharacterStats`,
+  scoped to the casting class (`class: null` = any caster). No add/remove prompt,
+  no `SPELL_BONUS_ITEM_NAMES` set (deleted). `character.spellBonusModifier`
+  survives only as a manual homebrew override (SpellBlock pencil affordance) for
+  un-cataloged focuses — default 0.
+- Recipe: for each `addX`, read the paired `removeX` and diff their side effects.
+  For spell focus specifically there is now nothing to tear down (derive-time);
+  verify no write site mutates `spellBonusModifier` on equip/unequip:
+  `rg -n "spellBonusModifier|spell_focus" src/`
 
 ## INV-7 — Threshold-crossing state resets per RAW — ENFORCED
 
@@ -129,7 +140,7 @@ from the raw record.
 - Recipe: `rg -n "skillProficiencies" src/ -l` — any new consumer that COUNTS or
   GATES must subtract `backgroundSkills` and `featSkillGrants.*`.
 
-## INV-10 — Data pipeline allowlist and nullable shapes — OPEN
+## INV-10 — Data pipeline allowlist and nullable shapes — ENFORCED
 
 Only the 11 `EQUIPMENT_CATEGORIES` files compile; other files in `data/equipment/`
 are silently invisible. Weapon/firearm `damage_dice`/`damage_type` are nullable —
@@ -139,13 +150,17 @@ display templates must null-guard. Validator required-fields are the contract
 - Fixed (2026-06-13): 49 (`parseArmorAC` handles the magic-armor shapes;
   "Varies"/"Varies + N" → manual-AC fallback), 51 (weapon damage templates
   null-guard `damage_dice`/`damage_type`). Data fixes 45/47/48/50 applied to the
-  gitignored `data/` tree (re-apply if restored from backup). BUG-43 JSON typo
-  fixed (file parses) but still stranded.
-- Still open: BUG-42 (217 stranded `_gap_*` wondrous items), BUG-44 (obsolete
-  `gear.json`), and the MERGE half of BUG-43 — all content merge/delete decisions
-  for the maintainer, not code.
+  gitignored `data/` tree (re-apply if restored from backup).
+- Stranded-files family closed (2026-06-13, session 3): BUG-42 (`_gap_*` files
+  were obsolete string checklists, all 217 names already live → deleted), BUG-43
+  (11 genuinely-new items merged into `wondrous_items.json`, staging file deleted),
+  BUG-44 (`gear.json` deleted; Fargab/Narycrash dropped). **Recurrence is now
+  guarded:** `build-data.js` scans `data/equipment/` after the equipment IIFE and
+  pushes a warning for any `*.json` outside the allowlist (warning only, never an
+  error) — a new staging file can no longer strand silently.
 - Recipe: `rg -n '\$\{.*damage_dice' src/` (raw interpolation);
-  `ls data/equipment/` vs the allowlist in build-data.js.
+  `ls data/equipment/` should equal the allowlist; `npm run build:data` must emit
+  no `not in EQUIPMENT_CATEGORIES` warning.
 
 ---
 

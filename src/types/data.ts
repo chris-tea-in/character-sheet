@@ -86,6 +86,8 @@ export interface WondrousItem {
   attunement_note?: string
   source?: string
   description?: string
+  /** Spell-focus bonus applied at render time when equipped (see deriveCharacterStats). */
+  spell_focus?: { bonus: number; attack: boolean; save_dc: boolean; class: string | null }
 }
 
 export interface CurrencyItem {

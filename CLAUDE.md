@@ -40,7 +40,7 @@ data/                  # Source data — gitignored, local disk only (see Data C
   races/               # 46 .json files (one per race; subrace variants defined inside each file)
   spells/              # 567 .json files
   subclasses/          # 122 .json files (keyed classSlug:subclassSlug)
-  equipment/           # 11 pipeline category files + untracked staging files the build ignores (see Equipment Categories below)
+  equipment/           # exactly the 11 pipeline category files (staging files removed 2026-06-13; build now warns on strays)
   rules.json           # Flat rules reference
 public/
   data/                # Compiled output of build-data.js — do not edit by hand
@@ -162,7 +162,7 @@ Append to the `migrations` array in [src/storage/migrations.ts](src/storage/migr
 | `tools.json` | `tools` | name, tool_category |
 | `siege_equipment.json` | `siege_equipment` | name |
 - `damage_dice`/`damage_type` are **nullable** on weapons and firearms (Net, ammunition entries, generic magic weapons) — display code must null-guard.
-- The build reads **only** the 11 files above (`EQUIPMENT_CATEGORIES` allowlist in `build-data.js`). Any other file in `data/equipment/` is silently ignored — staging files currently in that state: `gear.json`, `_gap_*.json`, `_new_wondrous_rings_rods_scrolls_wands_staffs.json` (the last has a JSON syntax error). See bugs.md BUG-42/43/44 before merging or deleting them.
+- The build reads **only** the 11 files above (`EQUIPMENT_CATEGORIES` allowlist in `build-data.js`). Any other `*.json` in `data/equipment/` is not compiled, but the build now emits a `not in EQUIPMENT_CATEGORIES` **warning** for it (stray-file guard) so staging files can't strand silently. All prior staging files were resolved 2026-06-13 (BUG-42/43/44 fixed): the 11 new graded variants merged into `wondrous_items.json`; the `_gap_*`, `gear.json`, and `_new_wondrous_*` files deleted.
 - `_review` arrays in any entry produce warnings but do not block the build.
 - Validation errors exit with code 1 — the build stops.
 - Subclass files use `key: "classSlug:subclassSlug"` — the build validates this matches the entry's own `classSlug` + `subclassSlug` fields.
@@ -183,7 +183,7 @@ All domain types live in [src/types/character.ts](src/types/character.ts).
 - `abilities` — **base scores** (point-buy/rolled + permanent level-up ASI +1s). Racial ASIs and feat bonuses are NOT baked in — they derive at render time
 - `raceAsiChoices` — `AbilityName[]` — flexible racial ASI picks, ordered race pool slots first, then subrace pools
 - `feats` / `featChoices` — feat slugs + per-feat player choices (`asiAbility`, `skillChoices`, `expertiseSkill`)
-- `spellBonusModifier` — manual bonus from spell-focus items (e.g. Rod of the Pact Keeper); added to spell attack and save DC
+- `spellBonusModifier` — **manual override only** (default 0) for homebrew/un-cataloged spell focuses; added to spell attack and save DC. Catalog focus items (Rod of the Pact Keeper, Wand of the War Mage, …) carry a `spell_focus` annotation and derive their bonus at render time in `deriveCharacterStats` — leave this at 0 for them (BUG-09/21 render-time refactor, 2026-06-13)
 - `toolProficiencies` — free-form tool names from the equipment catalog
 - `skillProficiencies` — `Partial<Record<SkillName, 'proficient' | 'expertise'>>` (records *that*, not *why* — no source tracking yet; see bugs.md BUG-29 family)
 - `savingThrowProficiencies` — `AbilityName[]`
@@ -455,13 +455,13 @@ Current entry counts in `data/` (as of 2026-06-12):
 | equipment/trinkets | 100 | PHB d100 table |
 | equipment/firearms | 13 | Renaissance, Modern, Futuristic |
 | equipment/explosives | 7 | Renaissance & Modern |
-| equipment/wondrous_items | 581 | DMG/XGE/TCE + adventure-sourced items |
+| equipment/wondrous_items | 592 | DMG/XGE/TCE + adventure-sourced; 9 carry `spell_focus` for render-time spell attack/DC |
 | equipment/currency | 5 | cp, sp, ep, gp, pp |
 | equipment/poisons | 14 | DMG poison table |
 | equipment/tools | 37 | Artisan tools, gaming sets, instruments, other |
 | equipment/siege_equipment | 6 | Ballista, Cannon, Mangonel, Ram, Siege Tower, Trebuchet |
 
-Not compiled (outside the `EQUIPMENT_CATEGORIES` allowlist, pending merge-or-delete decision — bugs.md BUG-42/43/44): `gear.json` (100 dirty scrape-staging entries), `_gap_uncommon/rare/veryrare.json` (217 wondrous items), `_new_wondrous_rings_rods_scrolls_wands_staffs.json` (~100 items, invalid JSON).
+All former staging files resolved 2026-06-13 (BUG-42/43/44 fixed): `_gap_*` were obsolete name-only checklists (all 217 already live → deleted), the 11 genuinely-new graded variants from `_new_wondrous_*` merged into `wondrous_items.json`, and `gear.json` deleted (only Fargab/Narycrash were unique; dropped). `data/equipment/` now holds exactly the 11 allowlist files.
 
 Class roster: `barbarian`, `bard`, `cleric`, `druid`, `fighter`, `monk`, `paladin`, `ranger`, `rogue`, `sorcerer`, `warlock`, `wizard`, `artificer`, `blood-hunter`
 
