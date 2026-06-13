@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, X, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
+import { InfoPopup } from '@/components/InfoPopup'
+import { StepperField } from './StepperField'
 import { getSpellcastingInfo, PACT_SLOT_KEY } from '@/lib/spellcasting'
 import type { SpellcastingProfile, CasterKind, SpellLevel } from '@/lib/spellcasting'
 import { useRollDispatch } from '@/lib/useRollDispatch'
@@ -154,6 +156,7 @@ function SpellRow({
 export function SpellBlock({ character, classRecord, classLevel, derived, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
+  const [bonusEditorOpen, setBonusEditorOpen] = useState(false)
   const { dispatch } = useRollDispatch(derived)
 
   useEffect(() => {
@@ -264,14 +267,28 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Attack</p>
               <p className="text-sm font-bold">{spellAttackMod >= 0 ? `+${spellAttackMod}` : `${spellAttackMod}`}</p>
               {!!character.spellBonusModifier && (
-                <p className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>+{character.spellBonusModifier} (item)</p>
+                <button
+                  onClick={() => setBonusEditorOpen(true)}
+                  className="text-[9px] hover:opacity-75 transition-opacity"
+                  style={{ color: 'var(--color-accent-gold)' }}
+                  title="Edit spell-focus bonus"
+                >
+                  +{character.spellBonusModifier} (item)
+                </button>
               )}
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Save DC</p>
               <p className="text-sm font-bold">{derived.spellSaveDC}</p>
               {!!character.spellBonusModifier && (
-                <p className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>+{character.spellBonusModifier} (item)</p>
+                <button
+                  onClick={() => setBonusEditorOpen(true)}
+                  className="text-[9px] hover:opacity-75 transition-opacity"
+                  style={{ color: 'var(--color-accent-gold)' }}
+                  title="Edit spell-focus bonus"
+                >
+                  +{character.spellBonusModifier} (item)
+                </button>
               )}
             </div>
           </div>
@@ -389,6 +406,23 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         onSelect={addSpell}
         tabs={spellTabs}
       />
+
+      {/* Spell-focus bonus editor — permanent edit/clear path (BUG-21) */}
+      <InfoPopup
+        open={bonusEditorOpen}
+        onClose={() => setBonusEditorOpen(false)}
+        title="Spell Focus Bonus"
+        description="Flat bonus to your spell attack rolls and spell save DC from a focus item (e.g. Rod of the Pact Keeper). Set to 0 if you lose the item or break attunement."
+      >
+        <StepperField
+          value={character.spellBonusModifier ?? 0}
+          onSave={v => onSave({ spellBonusModifier: Math.max(0, v) })}
+          min={0}
+          max={5}
+          size="sm"
+        />
+        <Button onClick={() => setBonusEditorOpen(false)}>Done</Button>
+      </InfoPopup>
     </section>
   )
 }

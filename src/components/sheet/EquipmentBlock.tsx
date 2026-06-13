@@ -61,6 +61,18 @@ const CURRENCY_KEYS: Array<{ key: keyof Currency; label: string }> = [
 ]
 
 
+// Parse a free-form custom damage string ("2d6+4 fire") into roll components.
+// Falls back to null when no dice notation is present.
+function parseCustomDamage(s: string): { damageDice: string; damageBonus: number; damageType: string } | null {
+  const m = s.match(/(\d+d\d+)\s*([+-]\s*\d+)?\s*([a-zA-Z]+)?/)
+  if (!m) return null
+  return {
+    damageDice: m[1],
+    damageBonus: m[2] ? parseInt(m[2].replace(/\s+/g, ''), 10) : 0,
+    damageType: m[3] ?? '',
+  }
+}
+
 function WeaponRow({
   item,
   weapon,
@@ -83,6 +95,11 @@ function WeaponRow({
   const rollModifier = item.customToHit !== undefined
     ? (parseInt(item.customToHit.replace(/^\+/, ''), 10) || 0)
     : calc.toHitModifier
+  // Honor a custom damage override when it parses; otherwise use computed values (BUG-20)
+  const customDmg = item.customDamage ? parseCustomDamage(item.customDamage) : null
+  const rollDamageDice = customDmg?.damageDice ?? calc.damageDice
+  const rollDamageBonus = customDmg?.damageBonus ?? calc.damageBonus
+  const rollDamageType = customDmg?.damageType || calc.damageType
   const [expanded, setExpanded] = useState(false)
   const [editingStats, setEditingStats] = useState(false)
   const [toHitDraft, setToHitDraft] = useState(displayToHit)
@@ -115,7 +132,7 @@ function WeaponRow({
           <span className="text-muted-foreground">{displayDamage}</span>
         </div>
         <RollButton
-          onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: calc.damageDice, damageBonus: calc.damageBonus, damageType: calc.damageType })}
+          onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType })}
         />
       </div>
 
@@ -605,13 +622,21 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
     onSave({ equipment: character.equipment.map(e => e.id === id ? { ...e, ...changes } : e) })
   }
   function removeItem(id: string) {
+    const removed = character.equipment.find(e => e.id === id)
     onSave({ equipment: character.equipment.filter(e => e.id !== id) })
+    // Removing a spell-focus item: re-open the prompt so the player can lower or
+    // clear the now-stale bonus (BUG-21) — otherwise it inflates forever
+    if (removed && SPELL_BONUS_ITEM_NAMES.has(removed.name.toLowerCase()) && character.spellBonusModifier) {
+      setShowSpellBonusPrompt(true)
+    }
   }
   function addItem(name: string, displayCategory?: 'weapon' | 'armor' | 'item') {
     const newItem: EquipmentItem = { id: generateId(), name, quantity: 1 }
     if (displayCategory) newItem.displayCategory = displayCategory
     onSave({ equipment: [...character.equipment, newItem] })
-    if (SPELL_BONUS_ITEM_NAMES.has(name.toLowerCase()) && !character.spellBonusModifier) {
+    // Always prompt when a spell-focus item is added so stacking bonuses can be
+    // updated, not only when the modifier was previously unset (BUG-09)
+    if (SPELL_BONUS_ITEM_NAMES.has(name.toLowerCase())) {
       setShowSpellBonusPrompt(true)
     }
   }
