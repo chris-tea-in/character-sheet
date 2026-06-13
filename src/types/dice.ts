@@ -8,6 +8,7 @@ export type RollKind =
   | { type: 'save';   ability: AbilityName; advantage?: boolean }
   | { type: 'ability'; ability: AbilityName; advantage?: boolean }
   | { type: 'attack'; label: string; modifier: number; damageDice?: string; damageBonus?: number; damageType?: string }
+  | { type: 'heal';   label: string; die: DieType; modifier: number }
 
 export interface RollResult {
   natural:  number   // the kept die (max when advantage)

@@ -20,6 +20,8 @@ function buildLabel(kind: RollKind, modifier: number): string {
       return `${kind.ability.toUpperCase()} check (${sign}${modifier})${adv}`
     case 'attack':
       return `${kind.label} (${sign}${modifier})`
+    case 'heal':
+      return `${kind.label} (${sign}${modifier})`
   }
 }
 
@@ -50,9 +52,9 @@ export const useDiceStore = create<DiceState>()((set) => ({
   modal: null,
 
   roll: (kind, derived) => {
-    const d1 = kind.type === 'raw' ? rollDie(kind.die) : rollDie(20)
-    const hasAdvantage = kind.type !== 'raw' && kind.type !== 'attack' && kind.advantage === true
-    const hasDisadvantage = kind.type !== 'raw' && kind.type !== 'attack' && kind.advantage === false
+    const d1 = kind.type === 'raw' || kind.type === 'heal' ? rollDie(kind.die) : rollDie(20)
+    const hasAdvantage = 'advantage' in kind && kind.advantage === true
+    const hasDisadvantage = 'advantage' in kind && kind.advantage === false
     const d2 = (hasAdvantage || hasDisadvantage) ? rollDie(20) : undefined
     const natural = d2 !== undefined ? (hasAdvantage ? Math.max(d1, d2) : Math.min(d1, d2)) : d1
     const natural2 = d2 !== undefined ? (hasAdvantage ? Math.min(d1, d2) : Math.max(d1, d2)) : undefined
@@ -64,7 +66,7 @@ export const useDiceStore = create<DiceState>()((set) => ({
       modifier = derived.saveModifiers[kind.ability]
     } else if (kind.type === 'ability') {
       modifier = abilityModifier(derived.effectiveAbilities[kind.ability])
-    } else if (kind.type === 'attack') {
+    } else if (kind.type === 'attack' || kind.type === 'heal') {
       modifier = kind.modifier
     }
 

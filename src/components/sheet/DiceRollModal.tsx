@@ -23,7 +23,8 @@ function rollDamage(damageDice: string, damageBonus: number, isCrit: boolean) {
 // ── Crit/fumble label ────────────────────────────────────────────────────────
 
 function CritLabel({ natural, kind }: { natural: number; kind: string }) {
-  if (kind === 'raw') return null
+  // Crit labels are only meaningful for d20-based rolls, not raw dice or hit-die heals
+  if (kind === 'raw' || kind === 'heal') return null
   if (natural === 20) {
     return (
       <p className="text-sm font-bold" style={{ color: 'var(--color-accent-gold)' }}>
@@ -48,7 +49,8 @@ function ResultBody() {
   const closeModal = useDiceStore(s => s.closeModal)
   const { entry } = modal
   const { natural, natural2, modifier, total } = entry.result
-  const isRaw = entry.kind.type === 'raw'
+  // Heal (hit-die) rolls show like a raw die — no crit highlighting
+  const isRaw = entry.kind.type === 'raw' || entry.kind.type === 'heal'
   const isRawD20 = entry.kind.type === 'raw' && entry.kind.die === 20
   const isNat20 = (!isRaw || isRawD20) && natural === 20
   const isNat1 = (!isRaw || isRawD20) && natural === 1
@@ -85,7 +87,7 @@ function ResultBody() {
             </div>
           </div>
         )}
-        {!isRaw && modifier !== 0 && (
+        {entry.kind.type !== 'raw' && modifier !== 0 && (
           <p className="text-xs text-muted-foreground">
             {natural}{modifier >= 0 ? ' + ' : ' − '}{Math.abs(modifier)}
           </p>

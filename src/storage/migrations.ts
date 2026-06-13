@@ -132,4 +132,11 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN stats_normalized INTEGER NOT NULL DEFAULT 0`)
     },
   },
+  {
+    version: 10,
+    up: (db) => {
+      // Per-class hit-dice spending for multiclass characters (keyed by class slug)
+      db.run(`ALTER TABLE characters ADD COLUMN hit_dice_used_by_class TEXT NOT NULL DEFAULT '{}'`)
+    },
+  },
 ]

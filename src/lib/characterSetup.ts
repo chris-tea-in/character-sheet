@@ -337,6 +337,32 @@ export function getClassAsiLevels(classRecord: ClassData, level: number): number
     .sort((a, b) => a - b)
 }
 
+// One ASI/feat slot per qualifying class level, across the primary class and all
+// extra classes (BUG-19). Order matches levelAsiChoices indexing: primary class
+// slots first, then each extra class in order.
+export interface AsiSlot {
+  classSlug: string
+  classLevel: number  // the level within that class at which the ASI occurs
+}
+
+export function getAllAsiSlots(draft: SetupDraft, data: SetupData): AsiSlot[] {
+  const slots: AsiSlot[] = []
+  const primary = data.classes[draft.classSlug]
+  if (primary) {
+    for (const lvl of getClassAsiLevels(primary, draft.level)) {
+      slots.push({ classSlug: draft.classSlug, classLevel: lvl })
+    }
+  }
+  for (const ec of draft.extraClasses) {
+    const cls = data.classes[ec.classSlug]
+    if (!cls) continue
+    for (const lvl of getClassAsiLevels(cls, ec.level)) {
+      slots.push({ classSlug: ec.classSlug, classLevel: lvl })
+    }
+  }
+  return slots
+}
+
 export function isLevelAsiComplete(
   draft: SetupDraft,
   data: SetupData,
@@ -345,7 +371,7 @@ export function isLevelAsiComplete(
   if (!draft.classSlug) return true
   const cls = data.classes[draft.classSlug]
   if (!cls) return true
-  const count = getClassAsiLevels(cls, draft.level).length
+  const count = getAllAsiSlots(draft, data).length
   for (let i = 0; i < count; i++) {
     const choice = draft.levelAsiChoices[i]
     if (!choice) return false
@@ -527,9 +553,10 @@ export function draftToNewCharacter(
   const featChoices: Record<string, { asiAbility?: AbilityName }> = {}
   const featAbilityDeltas: Partial<Record<AbilityName, number>> = {}
   // Edit mode: level-ASI +1s are already in the stored base abilities, and
-  // feats/featChoices are preserved from the existing record by the edit merge
-  const asiLevels = cls && !draft.editMode ? getClassAsiLevels(cls, draft.level) : []
-  for (let i = 0; i < asiLevels.length; i++) {
+  // feats/featChoices are preserved from the existing record by the edit merge.
+  // Slots span all classes (primary + extras) so secondary-class ASIs apply (BUG-19).
+  const asiSlots = cls && !draft.editMode ? getAllAsiSlots(draft, data) : []
+  for (let i = 0; i < asiSlots.length; i++) {
     const choice = draft.levelAsiChoices[i]
     if (choice?.mode === 'asi') {
       for (const ab of choice.asiAbilities) {

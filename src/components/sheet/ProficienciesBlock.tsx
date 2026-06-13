@@ -14,6 +14,9 @@ import type { DerivedStats } from '@/lib/characterStats'
 interface Props {
   character: Character
   classRecord: ClassData | null
+  // All class records ordered to match character.classes ([0] = primary).
+  // Used for per-class expertise/skill caps in multiclass characters.
+  classRecords?: (ClassData | null)[]
   catalog?: EquipmentData | null
   derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
@@ -31,12 +34,16 @@ type Tab = 'skills' | 'saves' | 'tools'
 // Feats that grant 1 expertise slot each.
 const EXPERTISE_FEATS = new Set(['skill-expert', 'prodigy'])
 
-// Count expertise slots from class levels (each "Expertise" feature = 2) plus feats (each = 1).
-function getExpertiseCap(classRecord: ClassData | null, level: number, feats: string[]): number {
+// Count expertise slots: each class contributes its "Expertise" features (2 each)
+// counted only up to THAT class's level, plus expertise-granting feats (1 each).
+function getExpertiseCap(
+  classLevels: Array<{ rec: ClassData; level: number }>,
+  feats: string[],
+): number {
   let cap = 0
-  if (classRecord) {
+  for (const { rec, level } of classLevels) {
     for (let lvl = 1; lvl <= level; lvl++) {
-      if (classRecord.levels[String(lvl)]?.features.includes('Expertise')) cap += 2
+      if (rec.levels[String(lvl)]?.features.includes('Expertise')) cap += 2
     }
   }
   for (const slug of feats) {
@@ -131,10 +138,18 @@ function SaveDot({
   )
 }
 
-export function ProficienciesBlock({ character, classRecord, catalog, derived, onSave }: Props) {
+export function ProficienciesBlock({ character, classRecord, classRecords, catalog, derived, onSave }: Props) {
   const [tab, setTab] = useState<Tab>('skills')
   const { dispatch } = useRollDispatch(derived)
   const hasClass = !!classRecord
+
+  // Per-class (record, level) pairs for expertise/skill caps — falls back to the
+  // single primary class for legacy characters with an empty classes[] array
+  const classLevels: Array<{ rec: ClassData; level: number }> = character.classes?.length
+    ? character.classes
+        .map((c, i) => ({ rec: classRecords?.[i] ?? null, level: c.level }))
+        .filter((p): p is { rec: ClassData; level: number } => p.rec !== null)
+    : (classRecord ? [{ rec: classRecord, level: character.level }] : [])
 
   // Class-granted saves — only these are interactive when class is set
   const classSaveSet = new Set<AbilityName>(
@@ -159,8 +174,8 @@ export function ProficienciesBlock({ character, classRecord, catalog, derived, o
   ).length
   const atClassSkillCap = classSkillMax !== Infinity && currentClassSkillCount >= classSkillMax
 
-  // Expertise cap: class features (2 each) + expertise-granting feats (1 each)
-  const expertiseCap = getExpertiseCap(classRecord, character.level, character.feats)
+  // Expertise cap: class features (2 each, per class level) + expertise feats (1 each)
+  const expertiseCap = getExpertiseCap(classLevels, character.feats)
   const currentExpertiseCount = Object.values(character.skillProficiencies).filter(v => v === 'expertise').length
   const atExpertiseCap = currentExpertiseCount >= expertiseCap
 

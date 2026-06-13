@@ -60,6 +60,7 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     spellBonusModifier: (row['spell_bonus_modifier'] as number) ?? 0,
     deathSaves: JSON.parse(row['death_saves'] as string),
     hitDiceUsed: row['hit_dice_used'] as number,
+    hitDiceUsedByClass: JSON.parse(row['hit_dice_used_by_class'] as string ?? '{}'),
     inspiration: Boolean(row['inspiration']),
     skillProficiencies: JSON.parse(row['skill_proficiencies'] as string),
     savingThrowProficiencies: JSON.parse(row['saving_throw_proficiencies'] as string),
@@ -139,9 +140,9 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, feats, feat_choices, tool_proficiencies, classes,
-        race_asi_choices, stats_normalized, created_at, updated_at
+        race_asi_choices, hit_dice_used_by_class, stats_normalized, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race ?? '', data.subrace ?? null, data.class ?? '', data.subclass ?? null, data.background ?? '',
@@ -163,6 +164,7 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         JSON.stringify(data.toolProficiencies ?? []),
         JSON.stringify(data.classes ?? []),
         JSON.stringify(data.raceAsiChoices ?? []),
+        JSON.stringify(data.hitDiceUsedByClass ?? {}),
         1, // app-created characters are born normalized (base abilities stored)
         now, now,
       ],
@@ -196,7 +198,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         name=?, race_slug=?, subrace=?, class_slug=?, subclass=?, background_slug=?,
         level=?, xp=?, progression_type=?, alignment=?, languages=?, backstory=?,
         abilities=?, max_hp=?, current_hp=?, temp_hp=?,
-        armor_class=?, speed=?, initiative_bonus=?, spell_bonus_modifier=?, death_saves=?, hit_dice_used=?, inspiration=?,
+        armor_class=?, speed=?, initiative_bonus=?, spell_bonus_modifier=?, death_saves=?, hit_dice_used=?, hit_dice_used_by_class=?, inspiration=?,
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
         equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?, classes=?,
@@ -210,7 +212,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         merged.maxHp, merged.currentHp, merged.tempHp,
         merged.armorClass, merged.speed, merged.initiativeBonus ?? 0, merged.spellBonusModifier ?? 0,
         JSON.stringify(merged.deathSaves),
-        merged.hitDiceUsed, merged.inspiration ? 1 : 0,
+        merged.hitDiceUsed, JSON.stringify(merged.hitDiceUsedByClass ?? {}), merged.inspiration ? 1 : 0,
         JSON.stringify(merged.skillProficiencies),
         JSON.stringify(merged.savingThrowProficiencies),
         JSON.stringify(merged.spellSlotsUsed),

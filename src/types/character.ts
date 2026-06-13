@@ -76,6 +76,9 @@ export interface Character {
 
   deathSaves: DeathSaves
   hitDiceUsed: number
+  // Multiclass hit-dice spending, keyed by class slug; single-class
+  // characters use the flat hitDiceUsed counter instead
+  hitDiceUsedByClass: Partial<Record<string, number>>
   inspiration: boolean
 
   skillProficiencies: Partial<Record<SkillName, SkillProficiency>>
@@ -121,7 +124,7 @@ export function defaultCharacter(name: string): NewCharacter {
     maxHp: 0, currentHp: 0, tempHp: 0,
     armorClass: 10, speed: 30, initiativeBonus: 0, spellBonusModifier: 0,
     deathSaves: { successes: 0, failures: 0 },
-    hitDiceUsed: 0, inspiration: false,
+    hitDiceUsed: 0, hitDiceUsedByClass: {}, inspiration: false,
     skillProficiencies: {},
     savingThrowProficiencies: [],
     spells: [], spellSlotsUsed: {},

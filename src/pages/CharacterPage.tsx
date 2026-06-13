@@ -850,6 +850,8 @@ export default function CharacterPage() {
             onSave={save}
             classHitDice={character.classes?.length > 1
               ? character.classes.map(c => ({
+                  classSlug: c.classSlug,
+                  className: slugToTitle(c.classSlug),
                   hitDie: setupData?.classes[c.classSlug]
                     ? parseHitDie(setupData.classes[c.classSlug].hit_die)
                     : derived.hitDiceType,
@@ -857,7 +859,7 @@ export default function CharacterPage() {
                 }))
               : undefined}
           />
-          <ProficienciesBlock character={character} classRecord={classRecord} derived={derived} onSave={save} />
+          <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} catalog={equipmentCatalog} derived={derived} onSave={save} />
           <FeatsBlock character={character} derived={derived} onSave={save} />
           <EquipmentBlock character={character} derived={derived} onSave={save} catalog={equipmentCatalog} />
           {classRecord && (
