@@ -648,6 +648,7 @@ export function draftToNewCharacter(
     spellBonusModifier: 0,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0,
+    hitDiceUsedByClass: {},
     inspiration: false,
     skillProficiencies,
     savingThrowProficiencies,

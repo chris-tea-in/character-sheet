@@ -35,7 +35,9 @@ RENDER   CharacterPage ─▶ deriveCharacterStats(character,        ▼
 | `maxHp` (rolled/average only) | `adjustedMaxHp` | Tough (`FEAT_EFFECTS`), `SUBRACE_HP_BONUS` (hill-dwarf) |
 | `skillProficiencies` | `effectiveSkillProficiencies`, `skillModifiers` | feat skill grants (Skilled, Prodigy) |
 | `savingThrowProficiencies` | `effectiveSaveProficiencies`, `saveModifiers` | feat save proficiencies (Resilient) |
-| `armorClass` (manual fallback) | `effectiveAC` | equipped armor `ac_formula` + `bonus`, shield + `bonus` |
+| `armorClass` (manual fallback) | `effectiveAC` | equipped armor `ac_formula` (parser handles magic shapes + `Varies` fallback) + `bonus`, shield + `bonus` |
+| `skillProficiencies` (also) | `effectiveSkillProficiencies`, `featSkillGrants` | feat skill/expertise grants; UI renders + locks from these, not the raw record |
+| `hitDiceUsed` (single-class) / `hitDiceUsedByClass` (multiclass) | — | per-class hit-dice pools; migration v10 added the keyed field |
 | — | `weaponProficiencies` | lowercased union across ALL class records |
 | — | `spellAttackBonus`, `spellSaveDC` | first class record with `spellcasting.ability` + `spellBonusModifier` |
 
@@ -64,20 +66,28 @@ RENDER   CharacterPage ─▶ deriveCharacterStats(character,        ▼
 - Slot counts in class data are **strings**; `"-"` = 0. Warlock uses
   `class_specific` keys (`"Spell Slots"`, `"Slot Level"`) — always go through
   `parseClassSlots()` (src/lib/spellcasting.ts).
-- `computeMulticlassSlots` runs for any `classes.length > 1` and currently
-  misapplies the PHB multiclass table to lone half-casters (BUG-38, open) and
-  drops warlock pact slots when multiclassed (BUG-16, open).
-- One `SpellBlock` per casting class is rendered; `overrideSlotProfile` (multiclass
-  profile) REPLACES the per-class profile when passed.
+- `computeMulticlassSlots(classes, classData)` (takes class records as of
+  2026-06-13): a lone standard caster uses its own class slot table; ≥2 use the
+  PHB multiclass table; a multiclassed warlock contributes a separate pact pool
+  via the `slots+pact` profile variant (tracked under `PACT_SLOT_KEY = -1` so it
+  never collides with same-level standard slots). BUG-16/38 fixed.
+- `SpellBlock` renders the override profile when passed; `slots+pact` shows both
+  the standard slot rows and a separate pact pip row.
 
 ## Persistence specifics
 
-- Migrations (src/storage/migrations.ts) are append-only; version = last + 1;
-  one BEGIN/COMMIT per migration. They run in `initDb()` before first render and
-  must also run on imported DB blobs (importExport.ts) before the blob is adopted.
+- Migrations (src/storage/migrations.ts) run in **array order**, and the runner
+  (db.ts) stamps `schema_version` to each migration's version as it goes. A new
+  migration MUST be appended at the END of the array (version = last + 1), never
+  inserted by number — an out-of-order entry leaves `schema_version` at the last
+  array element's version and re-runs the higher migration on next boot, crashing
+  on duplicate DDL. One BEGIN/COMMIT per migration. Latest is v10
+  (`hit_dice_used_by_class`). They run in `initDb()` before first render and must
+  also run on imported DB blobs (importExport.ts) before the blob is adopted.
 - Roll history is session-only (Zustand `useDiceStore`) — never persisted.
-- `storageError` covers IndexedDB flush failures only; SQL-write rejections are
-  currently unhandled (BUG-40, open).
+- `storageError` covers IndexedDB flush failures AND SQL-write rejections: the
+  store wraps insert/update/delete in try/catch and sets `storageError` (create
+  rethrows so the wizard doesn't navigate to a non-existent character). BUG-40 fixed.
 
 ## Data pipeline
 
