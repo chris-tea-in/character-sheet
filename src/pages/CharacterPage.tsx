@@ -584,8 +584,8 @@ export default function CharacterPage() {
     : character.level
 
   // Multiclass slot override — null when single-class (SpellBlock uses per-class slots)
-  const multiclassSlotProfile = character.classes?.length > 1
-    ? computeMulticlassSlots(character.classes)
+  const multiclassSlotProfile = character.classes?.length > 1 && setupData
+    ? computeMulticlassSlots(character.classes, setupData.classes)
     : null
 
   // When multiclassed, derive casterKind from the actual spellcasting classes (not just primary)

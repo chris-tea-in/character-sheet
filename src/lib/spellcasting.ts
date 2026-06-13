@@ -3,10 +3,23 @@ import type { ClassEntry } from '@/types/character'
 
 export type SpellLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
+// Sentinel key for the warlock pact-slot pool in spellSlotsUsed when it coexists
+// with standard slots (slots+pact). Negative so it never collides with a real
+// spell level. Pure-warlock characters key pact usage by its actual slot level.
+export const PACT_SLOT_KEY = -1
+
 export type SpellcastingProfile =
   | { kind: 'none' }
   | { kind: 'slots'; slotsByLevel: Partial<Record<SpellLevel, number>>; cantripsKnown: number }
   | { kind: 'pact'; slotCount: number; slotLevel: SpellLevel; cantripsKnown: number }
+  // Multiclass warlock + another caster: standard slots AND a separate pact pool
+  | {
+      kind: 'slots+pact'
+      slotsByLevel: Partial<Record<SpellLevel, number>>
+      pactSlotCount: number
+      pactSlotLevel: SpellLevel
+      cantripsKnown: number
+    }
 
 // "Known" casters: bard, ranger, sorcerer, warlock — have explicit Spells Known count
 // "Prepared" casters: wizard, cleric, druid, paladin — prepare from full list, no fixed count
@@ -133,27 +146,59 @@ function casterLevelContribution(classSlug: string, level: number): number {
   return 0  // non-casters and warlock (pact magic uses separate tracking)
 }
 
+const STANDARD_CASTER_SLUGS = ['bard', 'cleric', 'druid', 'sorcerer', 'wizard', 'artificer', 'paladin', 'ranger']
+
 export function isSpellcasterClass(classSlug: string): boolean {
-  return casterLevelContribution(classSlug, 1) > 0 || classSlug === 'warlock'
+  return STANDARD_CASTER_SLUGS.includes(classSlug) || classSlug === 'warlock'
 }
 
 export function computeMulticlassSlots(
   classes: ClassEntry[],
+  classData: Record<string, ClassData>,
 ): SpellcastingProfile | null {
   if (classes.length <= 1) return null  // single class: use normal per-class logic
 
-  const effectiveLevel = classes.reduce((sum, c) => sum + casterLevelContribution(c.classSlug, c.level), 0)
-  if (effectiveLevel === 0) return null  // no spellcasting classes
+  // Standard (non-pact) spellcasting classes that actually have slots at their level.
+  // A lone half-caster (e.g. Paladin 5) has slots from level 2, so it qualifies here.
+  const standardCasters = classes.filter(
+    c => parseClassSlots(classData[c.classSlug], c.level).kind === 'slots',
+  )
 
-  const clampedLevel = Math.min(effectiveLevel, 20)
-  const slots = MULTICLASS_SLOT_TABLE[clampedLevel]
-  if (!slots || Object.keys(slots).length === 0) return null
+  // Warlock pact magic is a separate pool, additive to standard slots (BUG-16)
+  const warlock = classes.find(c => c.classSlug === 'warlock')
+  const pactProfile = warlock ? parseClassSlots(classData['warlock'], warlock.level) : { kind: 'none' as const }
+  const pact = pactProfile.kind === 'pact' ? pactProfile : null
 
-  return {
-    kind: 'slots',
-    slotsByLevel: slots as Partial<Record<SpellLevel, number>>,
-    cantripsKnown: 0,
+  // Standard slots: a single caster uses its OWN class table (BUG-38 — the PHB
+  // multiclass rounding only applies when combining ≥2 spellcasting classes);
+  // two or more use the multiclass table keyed by summed effective caster level.
+  let standardSlots: Partial<Record<SpellLevel, number>> | null = null
+  if (standardCasters.length === 1) {
+    const only = parseClassSlots(classData[standardCasters[0].classSlug], standardCasters[0].level)
+    if (only.kind === 'slots') standardSlots = only.slotsByLevel
+  } else if (standardCasters.length >= 2) {
+    const effectiveLevel = standardCasters.reduce(
+      (sum, c) => sum + casterLevelContribution(c.classSlug, c.level), 0)
+    const slots = MULTICLASS_SLOT_TABLE[Math.min(effectiveLevel, 20)]
+    if (slots && Object.keys(slots).length > 0) standardSlots = slots as Partial<Record<SpellLevel, number>>
   }
+
+  if (standardSlots && pact) {
+    return {
+      kind: 'slots+pact',
+      slotsByLevel: standardSlots,
+      pactSlotCount: pact.slotCount,
+      pactSlotLevel: pact.slotLevel,
+      cantripsKnown: 0,
+    }
+  }
+  if (standardSlots) {
+    return { kind: 'slots', slotsByLevel: standardSlots, cantripsKnown: 0 }
+  }
+  if (pact) {
+    return { kind: 'pact', slotCount: pact.slotCount, slotLevel: pact.slotLevel, cantripsKnown: pact.cantripsKnown }
+  }
+  return null
 }
 
 export function getSpellsKnownIncrease(

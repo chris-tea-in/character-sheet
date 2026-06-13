@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, X, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
-import { getSpellcastingInfo } from '@/lib/spellcasting'
+import { getSpellcastingInfo, PACT_SLOT_KEY } from '@/lib/spellcasting'
 import type { SpellcastingProfile, CasterKind, SpellLevel } from '@/lib/spellcasting'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { loadSpellsData } from '@/lib/data'
@@ -277,6 +277,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
           </div>
         </div>
 
+        {/* Pure pact pool (single-class warlock) — keyed by its slot level */}
         {profile.kind === 'pact' && (
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground w-8">{ORDINALS[profile.slotLevel]}</span>
@@ -288,7 +289,8 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
           </div>
         )}
 
-        {profile.kind === 'slots' &&
+        {/* Standard slot rows (single-class casters and multiclass slots/slots+pact) */}
+        {(profile.kind === 'slots' || profile.kind === 'slots+pact') &&
           Object.entries(profile.slotsByLevel).map(([k, total]) => {
             const level = parseInt(k, 10) as SpellLevel
             const used = character.spellSlotsUsed[level] ?? 0
@@ -300,6 +302,23 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
               </div>
             )
           })}
+
+        {/* Pact pool alongside standard slots — separate counter (BUG-16) */}
+        {profile.kind === 'slots+pact' && (
+          <div className="flex items-center gap-3 pt-1 border-t border-border">
+            <span className="text-[11px] text-muted-foreground w-8 flex-none" title="Pact slots refresh on a short rest">
+              Pact
+            </span>
+            <SlotPips
+              total={profile.pactSlotCount}
+              used={character.spellSlotsUsed[PACT_SLOT_KEY] ?? 0}
+              onToggle={n => setSlotUsed(PACT_SLOT_KEY as SpellLevel, n)}
+            />
+            <span className="text-xs text-muted-foreground ml-auto">
+              {ORDINALS[profile.pactSlotLevel]}-level · short rest
+            </span>
+          </div>
+        )}
 
         {profile.kind !== 'none' && profile.cantripsKnown > 0 && (
           <p className="text-xs text-muted-foreground">
