@@ -135,15 +135,15 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const spellEntries: SelectionEntry[] = useMemo(() =>
     Object.entries(allSpells)
       .filter(([key, s]) => {
+        // Spells known/prepared are NOT capped per level by slot counts (BUG-24);
+        // only the spell's level must be castable (a slot of that level exists)
         if (s.level === 0 || s.level > maxSpellLevel) return false
         if (selectedSet.has(key)) return false
         if (!browseAll && !classMatches(s.classes, draft.classSlug)) return false
-        const cap = slotsByLevel[s.level]
-        if (cap !== undefined && (selectedSpellLevelCounts[s.level] ?? 0) >= cap) return false
         return true
       })
       .map(([key, s]) => toSpellEntry(key, s)),
-  [allSpells, selectedSet, browseAll, draft.classSlug, maxSpellLevel, slotsByLevel, selectedSpellLevelCounts])
+  [allSpells, selectedSet, browseAll, draft.classSlug, maxSpellLevel])
 
   function toggleSkill(skill: SkillName) {
     const current = draft.skillProficiencies
@@ -449,25 +449,25 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
               />
             ))}
           </div>
-          {Object.entries(slotsByLevel).some(([lvl, cap]) => (selectedSpellLevelCounts[Number(lvl)] ?? 0) < cap) && (
-            <div className="mt-2 space-y-1">
+          {/* Always available — prepared count (WIS/INT mod + level) routinely
+              exceeds per-level slot counts, so the slot pips don't gate it (BUG-24) */}
+          <div className="mt-2 space-y-1">
+            <button
+              onClick={() => setPickerMode('spell')}
+              className="text-sm hover:opacity-75"
+              style={{ color: 'var(--color-accent-gold)' }}
+            >
+              + Choose spell
+            </button>
+            <div>
               <button
-                onClick={() => setPickerMode('spell')}
-                className="text-sm hover:opacity-75"
-                style={{ color: 'var(--color-accent-gold)' }}
+                onClick={() => setBrowseAll(b => !b)}
+                className="text-[11px] text-muted-foreground hover:text-foreground underline"
               >
-                + Choose spell
+                {browseAll ? 'Show class spells only' : 'Browse all classes'}
               </button>
-              <div>
-                <button
-                  onClick={() => setBrowseAll(b => !b)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground underline"
-                >
-                  {browseAll ? 'Show class spells only' : 'Browse all classes'}
-                </button>
-              </div>
             </div>
-          )}
+          </div>
         </Field>
       )}
 
@@ -495,11 +495,7 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
         open={pickerMode === 'spell'}
         onClose={() => setPickerMode(null)}
         onSelect={key => {
-          const spellLevel = allSpells[key]?.level
-          if (spellLevel !== undefined) {
-            const cap = slotsByLevel[spellLevel]
-            if (cap !== undefined && (selectedSpellLevelCounts[spellLevel] ?? 0) >= cap) return
-          }
+          // No per-level cap (BUG-24) — only the total spellsKnown limit closes the picker
           const newSpells = [...draft.spellSlugs, key]
           onChange({ spellSlugs: newSpells })
           if (spellInfo?.spellsKnown && newSpells.length >= spellInfo.spellsKnown) setPickerMode(null)
