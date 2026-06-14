@@ -1,6 +1,28 @@
-import type { AbilityName } from './character'
+import type { AbilityName, SkillName } from './character'
 
 // ── Equipment catalog types ────────────────────────────────────────────────
+
+/**
+ * Structured mechanical effect carried by a magic item. Applied exactly once, at
+ * render time, in deriveCharacterStats — and only while the item is attuned
+ * (EquipmentItem.attuned). Magic-item ability changes are NOT capped at 20
+ * (unlike feat ASIs): `ability_set` takes the max of current vs. value and may
+ * exceed 20; `ability_bonus` is additive and uncapped.
+ */
+export type ItemEffect =
+  | { type: 'ac'; amount: number }                                  // flat AC (Ring/Cloak of Protection)
+  | { type: 'save'; ability: AbilityName | 'all'; amount: number }  // save bonus
+  | { type: 'ability_set'; ability: AbilityName; value: number }    // Amulet of Health (CON 19), Belt of Giant Str
+  | { type: 'ability_bonus'; ability: AbilityName; amount: number } // additive ability bump
+  | { type: 'skill'; skill: SkillName; amount: number }             // flat skill bonus
+  | { type: 'speed'; amount: number }
+  | { type: 'initiative'; amount: number }
+  | { type: 'damage'; amount: number }                              // flat bonus to weapon & unarmed damage
+  | { type: 'spell_attack'; amount: number }
+  | { type: 'spell_save_dc'; amount: number }
+  // Overrides the unarmed strike (Demon Armor: 1d8 slashing, +1 atk/dmg). Any
+  // field omitted keeps the unarmed default (1 + STR bludgeoning, no bonus).
+  | { type: 'unarmed'; dice?: string; damageType?: string; attackBonus?: number; damageBonus?: number }
 
 export interface WeaponItem {
   name: string
@@ -20,6 +42,7 @@ export interface WeaponItem {
   base_weapon_type?: string | null
   bonus?: number | null
   special_properties?: string[]
+  effects?: ItemEffect[]  // applied at render time while attuned
 }
 
 export interface ArmorItem {
@@ -39,6 +62,7 @@ export interface ArmorItem {
   description?: string
   base_armor_type?: string | null
   bonus?: number | null
+  effects?: ItemEffect[]  // applied at render time while attuned
 }
 
 export interface AdventuringGearItem {
@@ -86,8 +110,7 @@ export interface WondrousItem {
   attunement_note?: string
   source?: string
   description?: string
-  /** Spell-focus bonus applied at render time when equipped (see deriveCharacterStats). */
-  spell_focus?: { bonus: number; attack: boolean; save_dc: boolean; class: string | null }
+  effects?: ItemEffect[]  // applied at render time while attuned (spell-focus items use spell_attack/spell_save_dc here)
 }
 
 export interface CurrencyItem {

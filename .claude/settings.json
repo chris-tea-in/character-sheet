@@ -84,20 +84,32 @@
       "PowerShell(node $env:TEMP\\\\audit-d4.js)",
       "PowerShell(node scripts/build-data.js 2>&1)",
       "PowerShell(node scripts/build-data.js | Select-Object -Last 6; \"EXIT: $LASTEXITCODE\"; git status --porcelain public/data | Select-Object -First 5)",
-      "Bash(git check-ignore *)",
-      "Bash(echo \"exit: $?\")",
-      "Bash(node -e \"const d=require\\('./public/data/classes.json'\\); console.log\\(JSON.stringify\\(d.warlock.spellcasting\\)\\)\")",
-      "PowerShell(\\(Get-Command gh -ErrorAction SilentlyContinue\\).Source)",
-      "Bash(node \"/c/Users/buyp1/AppData/Local/Temp/restructure-bugs.cjs\")",
-      "Bash(cd \"/c/Users/buyp1/Workspace/dnd-character-sheet\" && grep -n '^## .*BUG-\\\\|^# ' bugs.md | head -80)",
-      "Read(//c/c/Users/buyp1/Workspace/dnd-character-sheet/**)",
-      "Bash(sed -n '1,20p' bugs.md)",
-      "Bash(sed -n '514,522p' bugs.md)",
-      "Bash(sed -n '1110,1114p' bugs.md)",
-      "Bash(sed -n '625,632p' bugs.md)",
-      "Bash(sed -n '845,852p' bugs.md)",
-      "Bash(rm -f \"/c/Users/buyp1/AppData/Local/Temp/restructure-bugs.cjs\")",
-      "Edit(/.claude/skills/codebase-invariants/**)"
+      "Bash(git commit -q -m 'track skill proficiency sources for caps, dots, and pickers \\(BUG-27, BUG-29, BUG-30, BUG-37\\) *)",
+      "Read",
+      "Bash(git checkout*)",
+      "Bash(git branch*)",
+      "Bash(git switch*)",
+      "Bash(npm run *)",
+      "WebFetch(domain:dnd5e.wikidot.com)",
+      "Edit(/.claude/skills/codebase-invariants/**)",
+      "Bash(Get-ChildItem -Recurse \"c:\\\\Users\\\\buyp1\\\\Workspace\\\\dnd-character-sheet\\\\data\" -Filter \"*.json\")",
+      "Bash(Get-ChildItem data\\\\subclasses -Name)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(mkdir -p /c/Users/buyp1/.claude/skill-observations/archive)",
+      "PowerShell(Get-ChildItem data\\\\spells -Name | Where-Object { $_ -match \"\\\\-ua\" } | Sort-Object)",
+      "PowerShell(Get-ChildItem data\\\\spells -Name | Where-Object { $_ -match \"antagonize|draconic-transformation|fizban|nathair|raulothim|spray-of-cards|summon-draconic\" } | Sort-Object)",
+      "Bash(node -e \"console.log\\(require\\('./package.json'\\).scripts.build\\)\")",
+      "Bash(git commit -q -m 'complete hitDiceUsedByClass literal, restructure bug log, refresh invariants *)"
+    ],
+    "deny": [
+      "Bash(git push origin main*)",
+      "Bash(git push origin master*)",
+      "Bash(git push -u origin main*)",
+      "Bash(git push -u origin master*)",
+      "Bash(git push --force origin main*)",
+      "Bash(git push origin HEAD:main*)",
+      "Bash(git push origin HEAD:master*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\buyp1\\.claude\\skill-observations",
@@ -105,5 +117,20 @@
       "C:\\Users\\buyp1\\AppData\\Local\\Temp"
     ]
   },
-  "model": "claude-fable-5"
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "if": "Bash(git push*)",
+            "statusMessage": "Checking push target is not main/master",
+            "command": "node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const c=(JSON.parse(s).tool_input.command||'');if(/\\b(main|master)\\b/i.test(c)){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:'Push to main/master is blocked. Push to the feature branch and open a PR.'}}))}})\""
+          }
+        ]
+      }
+    ]
+  }
 }

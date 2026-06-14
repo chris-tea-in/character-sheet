@@ -13,6 +13,9 @@ function parseDamageDice(notation: string): { count: number; sides: number } {
 }
 
 function rollDamage(damageDice: string, damageBonus: number, isCrit: boolean) {
+  // Flat, no-die damage (e.g. Unarmed Strike = 1 + STR): nothing to roll, crit
+  // doubles dice only — so the total is just the bonus.
+  if (!damageDice) return { rolls: [] as number[], total: damageBonus }
   const { count, sides } = parseDamageDice(damageDice)
   const dieCount = isCrit ? count * 2 : count
   const rolls = Array.from({ length: dieCount }, () => rollDie(sides as DieType))
@@ -110,7 +113,7 @@ function HitBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const setModalDamage = useDiceStore(s => s.setModalDamage)
-  const { entry, damageDice, damageBonus = 0, isCrit } = modal
+  const { entry, damageDice, damageBonus = 0, damageType, isCrit } = modal
   const { natural, modifier, total } = entry.result
   const isNat20 = natural === 20
   const isNat1 = natural === 1
@@ -122,12 +125,13 @@ function HitBody() {
     : undefined
 
   function handleRollDamage(crit: boolean) {
-    if (!damageDice) return
-    const { rolls, total: dmgTotal } = rollDamage(damageDice, damageBonus, crit)
+    const { rolls, total: dmgTotal } = rollDamage(damageDice ?? '', damageBonus, crit)
     setModalDamage(rolls, dmgTotal)
   }
 
-  const hasDamage = !!damageDice
+  // Damage phase applies to any attack that has a die OR a flat typed amount
+  // (Unarmed Strike has no die but a fixed bludgeoning total).
+  const hasDamage = !!damageDice || !!damageType
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">

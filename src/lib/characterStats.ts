@@ -1,7 +1,7 @@
-import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP } from './dice'
+import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP, SKILL_DISPLAY_MAP, formatBonus } from './dice'
 import { ABILITY_FULL_TO_SHORT, getRacialBonuses } from './racialBonuses'
 import type { Character, AbilityName, Abilities, SkillName, SkillProficiency } from '../types/character'
-import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem } from '../types/data'
+import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem, ItemEffect } from '../types/data'
 
 export interface WeaponBonus {
   toHit: string
@@ -38,6 +38,10 @@ export interface DerivedStats {
   // write a duplicate stored copy (BUG-30)
   featSkillGrants: { proficient: SkillName[]; expertise: SkillName[] }
   weaponProficiencies: string[]
+  // Flat damage bonus from attuned items — added to weapon and unarmed damage
+  itemDamageBonus: number
+  // Unarmed-strike override from attuned items (e.g. Demon Armor → 1d8 slashing)
+  unarmedStrike: { dice?: string; damageType?: string; attackBonus: number; damageBonus: number }
 }
 
 // ── Feat effect registry ────────────────────────────────────────────────────
@@ -367,6 +371,7 @@ export function computeWeaponBonus(
   character: Character,
   weaponProficiencies: string[],
   effectiveAbilities?: Abilities,
+  itemDamageBonus = 0,
 ): WeaponBonus {
   const abilities = effectiveAbilities ?? character.abilities
   const strMod = abilityModifier(abilities.str)
@@ -378,7 +383,8 @@ export function computeWeaponBonus(
   const pb = isWeaponProficient(weapon, weaponProficiencies) ? proficiencyBonus(character.level) : 0
   const magicBonus = weapon.bonus ?? 0
   const toHitModifier = mod + pb + magicBonus
-  const damageBonus = mod + magicBonus
+  // Flat item damage bonus adds to damage only, not to-hit
+  const damageBonus = mod + magicBonus + itemDamageBonus
   const dmgBonusStr = damageBonus !== 0 ? (damageBonus > 0 ? `+${damageBonus}` : `${damageBonus}`) : ''
 
   return {
@@ -403,11 +409,131 @@ export function computeFeatHpBonus(feats: string[], level: number): number {
 
 const ALL_ABILITIES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 
+// ── Attuned magic-item effects ────────────────────────────────────────────────
+// Magic items contribute their catalog `effects` only while attuned. This is the
+// single application point (INV-1 / feature-effect-system). Unlike feat ASIs,
+// item ability changes are NOT capped at 20: `ability_set` takes the max of the
+// current score vs. the target (Amulet of Health → CON 19, Belt → STR 29);
+// `ability_bonus` is additive and uncapped.
+
+interface AttunedItemEffects {
+  acBonus: number
+  saveBonuses: Partial<Record<AbilityName, number>>
+  abilitySets: Partial<Record<AbilityName, number>>
+  abilityBonuses: Partial<Record<AbilityName, number>>
+  skillBonuses: Partial<Record<SkillName, number>>
+  speed: number
+  initiative: number
+  damage: number
+  spellAttack: number
+  spellSaveDC: number
+  unarmed: { dice?: string; damageType?: string; attackBonus: number; damageBonus: number }
+}
+
+function computeAttunedItemEffects(
+  character: Character,
+  catalog?: { weapons?: WeaponItem[]; armor?: ArmorItem[]; wondrous_items?: WondrousItem[] } | null,
+): AttunedItemEffects {
+  const acc: AttunedItemEffects = {
+    acBonus: 0, saveBonuses: {}, abilitySets: {}, abilityBonuses: {},
+    skillBonuses: {}, speed: 0, initiative: 0, damage: 0, spellAttack: 0, spellSaveDC: 0,
+    unarmed: { attackBonus: 0, damageBonus: 0 },
+  }
+  if (!catalog) return acc
+
+  const effectsByName = new Map<string, ItemEffect[]>()
+  for (const list of [catalog.wondrous_items, catalog.armor, catalog.weapons]) {
+    for (const entry of (list ?? [])) {
+      if (entry.effects?.length) effectsByName.set(entry.name.toLowerCase(), entry.effects)
+    }
+  }
+  if (effectsByName.size === 0) return acc
+
+  for (const item of character.equipment) {
+    if (!item.attuned) continue
+    const effects = effectsByName.get(item.name.toLowerCase())
+    if (!effects) continue
+    for (const e of effects) {
+      switch (e.type) {
+        case 'ac':
+          acc.acBonus += e.amount
+          break
+        case 'save':
+          if (e.ability === 'all') {
+            for (const ab of ALL_ABILITIES) acc.saveBonuses[ab] = (acc.saveBonuses[ab] ?? 0) + e.amount
+          } else {
+            acc.saveBonuses[e.ability] = (acc.saveBonuses[e.ability] ?? 0) + e.amount
+          }
+          break
+        case 'ability_bonus':
+          acc.abilityBonuses[e.ability] = (acc.abilityBonuses[e.ability] ?? 0) + e.amount
+          break
+        case 'ability_set':
+          // Multiple setters on one ability: keep the highest target (RAW: a set never lowers a score)
+          acc.abilitySets[e.ability] = Math.max(acc.abilitySets[e.ability] ?? 0, e.value)
+          break
+        case 'skill':
+          acc.skillBonuses[e.skill] = (acc.skillBonuses[e.skill] ?? 0) + e.amount
+          break
+        case 'speed':
+          acc.speed += e.amount
+          break
+        case 'initiative':
+          acc.initiative += e.amount
+          break
+        case 'damage':
+          acc.damage += e.amount
+          break
+        case 'unarmed':
+          // dice/type: last attuned override wins; bonuses stack
+          if (e.dice) acc.unarmed.dice = e.dice
+          if (e.damageType) acc.unarmed.damageType = e.damageType
+          acc.unarmed.attackBonus += e.attackBonus ?? 0
+          acc.unarmed.damageBonus += e.damageBonus ?? 0
+          break
+        case 'spell_attack':
+          acc.spellAttack += e.amount
+          break
+        case 'spell_save_dc':
+          acc.spellSaveDC += e.amount
+          break
+      }
+    }
+  }
+  return acc
+}
+
+const ABILITY_ABBR: Record<AbilityName, string> = {
+  str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA',
+}
+
+// One-line human summary of an item's effects, for the Attuned section UI.
+export function summarizeItemEffects(effects: ItemEffect[] | undefined): string {
+  if (!effects?.length) return ''
+  const parts: string[] = []
+  for (const e of effects) {
+    switch (e.type) {
+      case 'ac':           parts.push(`${formatBonus(e.amount)} AC`); break
+      case 'save':         parts.push(`${formatBonus(e.amount)} ${e.ability === 'all' ? 'all saves' : `${ABILITY_ABBR[e.ability]} save`}`); break
+      case 'ability_set':  parts.push(`${ABILITY_ABBR[e.ability]} ${e.value}`); break
+      case 'ability_bonus':parts.push(`${formatBonus(e.amount)} ${ABILITY_ABBR[e.ability]}`); break
+      case 'skill':        parts.push(`${formatBonus(e.amount)} ${SKILL_DISPLAY_MAP[e.skill]}`); break
+      case 'speed':        parts.push(`${formatBonus(e.amount)} ft speed`); break
+      case 'initiative':   parts.push(`${formatBonus(e.amount)} initiative`); break
+      case 'damage':       parts.push(`${formatBonus(e.amount)} damage`); break
+      case 'unarmed':      parts.push(`unarmed ${[e.dice, e.damageType].filter(Boolean).join(' ') || 'override'}`); break
+      case 'spell_attack': parts.push(`${formatBonus(e.amount)} spell atk`); break
+      case 'spell_save_dc':parts.push(`${formatBonus(e.amount)} spell DC`); break
+    }
+  }
+  return parts.join(' · ')
+}
+
 export interface DeriveContext {
   // All class records, ordered to match character.classes; [0] = primary
   classes?: (ClassData | null)[] | null
   race?: Race | null
-  catalog?: { armor?: ArmorItem[]; wondrous_items?: WondrousItem[] } | null
+  catalog?: { weapons?: WeaponItem[]; armor?: ArmorItem[]; wondrous_items?: WondrousItem[] } | null
   featData?: Record<string, FeatData> | null
 }
 
@@ -482,10 +608,24 @@ export function deriveCharacterStats(
     }
   }
 
+  // ── Attuned magic-item effects ─────────────────────────────────────────────
+  // Applied on top of base + racial + feat. Item ability changes are uncapped
+  // (RAW: items can raise a score above 20). Skill bonuses reuse the feat channel.
+  const itemEffects = computeAttunedItemEffects(character, catalog)
+  for (const [ab, amount] of Object.entries(itemEffects.abilityBonuses) as [AbilityName, number][]) {
+    effectiveAbilities[ab] = effectiveAbilities[ab] + amount
+  }
+  for (const [ab, value] of Object.entries(itemEffects.abilitySets) as [AbilityName, number][]) {
+    effectiveAbilities[ab] = Math.max(effectiveAbilities[ab], value)
+  }
+  for (const [sk, bonus] of Object.entries(itemEffects.skillBonuses) as [SkillName, number][]) {
+    flatSkillBonuses[sk] = (flatSkillBonuses[sk] ?? 0) + bonus
+  }
+
   // ── Combat stats ──────────────────────────────────────────────────────────
   const dexMod = abilityModifier(effectiveAbilities.dex)
-  const effectiveSpeed = character.speed + featSpeedBonus
-  const effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus
+  const effectiveSpeed = character.speed + featSpeedBonus + itemEffects.speed
+  const effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus + itemEffects.initiative
   const effectiveInitiative = dexMod + effectiveInitiativeBonus
 
   // ── Effective save proficiencies (class + feat) ───────────────────────────
@@ -508,7 +648,8 @@ export function deriveCharacterStats(
   const saveModifiers = {} as Record<AbilityName, number>
   for (const ability of ALL_ABILITIES) {
     const abilMod = abilityModifier(effectiveAbilities[ability])
-    saveModifiers[ability] = abilMod + (effectiveSaveProficiencies.includes(ability) ? pb : 0)
+    const itemSave = itemEffects.saveBonuses[ability] ?? 0
+    saveModifiers[ability] = abilMod + (effectiveSaveProficiencies.includes(ability) ? pb : 0) + itemSave
   }
 
   // ── Passive stats ─────────────────────────────────────────────────────────
@@ -533,28 +674,11 @@ export function deriveCharacterStats(
     const spellAbilMod = abilityModifier(effectiveAbilities[spellAbilKey])
     const manualBonus = character.spellBonusModifier ?? 0
 
-    // Render-time spell-focus bonuses from equipped wondrous items, scoped to the
-    // casting class (class === null applies to any caster). The manual
-    // spellBonusModifier remains as a homebrew override for un-annotated focuses.
-    let focusAttack = 0
-    let focusDc = 0
-    if (catalog?.wondrous_items) {
-      const focusByName = new Map(
-        catalog.wondrous_items
-          .filter(i => i.spell_focus)
-          .map(i => [i.name.toLowerCase(), i.spell_focus!]),
-      )
-      for (const item of character.equipment) {
-        const focus = focusByName.get(item.name.toLowerCase())
-        if (!focus) continue
-        if (focus.class !== null && focus.class !== castingClass.slug) continue
-        if (focus.attack) focusAttack += focus.bonus
-        if (focus.save_dc) focusDc += focus.bonus
-      }
-    }
-
-    spellAttackBonus = spellAbilMod + pb + focusAttack + manualBonus
-    spellSaveDC = 8 + spellAbilMod + pb + focusDc + manualBonus
+    // Spell-focus bonuses come from attuned items' `spell_attack`/`spell_save_dc`
+    // effects (computeAttunedItemEffects). The manual spellBonusModifier remains a
+    // homebrew override for un-cataloged focuses.
+    spellAttackBonus = spellAbilMod + pb + itemEffects.spellAttack + manualBonus
+    spellSaveDC = 8 + spellAbilMod + pb + itemEffects.spellSaveDC + manualBonus
   }
 
   // ── Effective AC + stealth disadvantage ──────────────────────────────────
@@ -600,6 +724,13 @@ export function deriveCharacterStats(
     }
   }
 
+  // Flat AC from attuned items (Ring/Cloak of Protection) stacks on worn armor;
+  // with no computed armor it applies over the manual armorClass the sheet already
+  // uses as the unarmored fallback (preserves e.g. a caster's Mage Armor value).
+  if (itemEffects.acBonus !== 0) {
+    effectiveAC = (effectiveAC ?? character.armorClass) + itemEffects.acBonus
+  }
+
   // ── Adjusted Max HP ───────────────────────────────────────────────────────
   let hpBonus = 0
   for (const slug of character.feats) {
@@ -642,5 +773,7 @@ export function deriveCharacterStats(
     effectiveSkillProficiencies,
     featSkillGrants,
     weaponProficiencies,
+    itemDamageBonus: itemEffects.damage,
+    unarmedStrike: itemEffects.unarmed,
   }
 }

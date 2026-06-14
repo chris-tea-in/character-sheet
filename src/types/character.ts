@@ -37,6 +37,7 @@ export interface EquipmentItem {
   customDamage?: string  // overrides catalog damage display
   customToHit?: string   // overrides calculated to-hit display
   displayCategory?: 'weapon' | 'armor' | 'item'  // for magic items: which section to show in
+  attuned?: boolean      // when true, the item's catalog `effects` apply at render time (deriveCharacterStats) and it renders in the Attuned section
 }
 
 export interface CharacterSpell {

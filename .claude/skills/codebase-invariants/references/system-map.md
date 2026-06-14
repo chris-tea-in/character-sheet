@@ -39,7 +39,7 @@ RENDER   CharacterPage ─▶ deriveCharacterStats(character,        ▼
 | `skillProficiencies` (also) | `effectiveSkillProficiencies`, `featSkillGrants` | feat skill/expertise grants; UI renders + locks from these, not the raw record |
 | `hitDiceUsed` (single-class) / `hitDiceUsedByClass` (multiclass) | — | per-class hit-dice pools; migration v10 added the keyed field |
 | — | `weaponProficiencies` | lowercased union across ALL class records |
-| `spellBonusModifier` (manual override, default 0) | `spellAttackBonus`, `spellSaveDC` | first class record with `spellcasting.ability` + equipped `wondrous_items.spell_focus` (scoped to casting class; `class:null` = any) + manual override |
+| `spellBonusModifier` (manual override, default 0); `equipment[].attuned` | `spellAttackBonus`, `spellSaveDC`, `effectiveAC`, `effectiveAbilities`, `saveModifiers`, `skillModifiers`, `effectiveSpeed`, `effectiveInitiativeBonus` | first class record with `spellcasting.ability` + attuned items' `effects` (`spell_attack`/`spell_save_dc`, via `computeAttunedItemEffects`) + manual override. Attuned magic-item `effects` (ac/save/ability/skill/speed/init/damage) fold into the matching derived field (damage → `itemDamageBonus`, applied to weapon + unarmed damage); item ability changes are uncapped (replaced `wondrous_items.spell_focus`, 2026-06-14) |
 
 `DeriveContext`: `{ classes?: (ClassData|null)[], race?, catalog?: { armor?, wondrous_items? }, featData? }` —
 `classes` ordered to match `character.classes`, `[0]` = primary. `catalog` is the

@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Plus, X, Pencil, Check } from 'lucide-react'
+import { Plus, X, Pencil, Check, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { StepperField } from './StepperField'
 import { generateId } from '@/lib/uuid'
-import { computeWeaponBonus } from '@/lib/characterStats'
+import { computeWeaponBonus, summarizeItemEffects } from '@/lib/characterStats'
+import { abilityModifier } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
@@ -72,6 +73,61 @@ function parseCustomDamage(s: string): { damageDice: string; damageBonus: number
   }
 }
 
+function AttuneToggle({ attuned, onToggle }: { attuned?: boolean; onToggle?: () => void }) {
+  if (!onToggle) return null
+  return (
+    <button
+      onClick={onToggle}
+      className="flex items-center gap-1 hover:opacity-75 transition-opacity"
+      style={attuned ? { color: 'var(--color-accent-gold)' } : undefined}
+    >
+      <Sparkles className="h-3.5 w-3.5" />
+      <span>{attuned ? 'Unattune' : 'Attune'}</span>
+    </button>
+  )
+}
+
+// Always-present, unremovable unarmed strike. RAW: to-hit = STR mod + proficiency
+// (every creature is proficient), damage = 1 + STR mod bludgeoning. Derived at
+// render time so it tracks ability items, racial ASIs, etc.
+function UnarmedRow({ derived }: { derived: DerivedStats }) {
+  const { dispatch } = useRollDispatch(derived)
+  const strMod = abilityModifier(derived.effectiveAbilities.str)
+  const override = derived.unarmedStrike
+
+  // An attuned item (e.g. Demon Armor) can replace the unarmed die/type and add
+  // attack/damage bonuses; otherwise the base is 1 + STR bludgeoning.
+  const damageDice = override.dice ?? ''
+  const damageType = override.damageType ?? 'bludgeoning'
+  const baseFlat = damageDice ? 0 : 1
+  const toHitModifier = strMod + derived.proficiencyBonus + override.attackBonus
+  const damageBonus = baseFlat + strMod + derived.itemDamageBonus + override.damageBonus
+  const toHit = toHitModifier >= 0 ? `+${toHitModifier}` : `${toHitModifier}`
+  const dmgBonusStr = damageBonus !== 0 ? (damageBonus > 0 ? `+${damageBonus}` : `${damageBonus}`) : ''
+  const damageDisplay = damageDice
+    ? `${damageDice}${dmgBonusStr} ${damageType}`
+    : `${damageBonus} ${damageType}`
+
+  return (
+    <div className="border-b border-border last:border-0">
+      <div className="flex items-center gap-2 py-2">
+        <span className="flex-1 text-left text-sm font-medium truncate min-w-0">
+          Unarmed Strike
+        </span>
+        <div className="flex items-center gap-2 text-xs flex-none">
+          <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+            {toHit}
+          </span>
+          <span className="text-muted-foreground">{damageDisplay}</span>
+        </div>
+        <RollButton
+          onClick={() => dispatch({ type: 'attack', label: 'Unarmed Strike', modifier: toHitModifier, damageDice, damageBonus, damageType })}
+        />
+      </div>
+    </div>
+  )
+}
+
 function WeaponRow({
   item,
   weapon,
@@ -79,6 +135,7 @@ function WeaponRow({
   derived,
   onUpdate,
   onRemove,
+  onToggleAttune,
 }: {
   item: EquipmentItem
   weapon: WeaponItem
@@ -86,9 +143,10 @@ function WeaponRow({
   derived: DerivedStats
   onUpdate: (changes: Partial<EquipmentItem>) => void
   onRemove: () => void
+  onToggleAttune?: () => void
 }) {
   const { dispatch } = useRollDispatch(derived)
-  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities)
+  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus)
   const displayToHit = item.customToHit ?? calc.toHit
   const displayDamage = item.customDamage ?? calc.damage
   const rollModifier = item.customToHit !== undefined
@@ -184,13 +242,16 @@ function WeaponRow({
                 <Pencil className="h-3 w-3" />
                 <span>Edit stats</span>
               </button>
-              <button
-                onClick={onRemove}
-                className="flex items-center gap-1 hover:text-destructive transition-colors ml-auto"
-              >
-                <X className="h-3.5 w-3.5" />
-                <span>Remove</span>
-              </button>
+              <div className="ml-auto flex items-center gap-3">
+                <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
+                <button
+                  onClick={onRemove}
+                  className="flex items-center gap-1 hover:text-destructive transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Remove</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -203,10 +264,12 @@ function ArmorRow({
   item,
   armor,
   onRemove,
+  onToggleAttune,
 }: {
   item: EquipmentItem
   armor: ArmorItem
   onRemove: () => void
+  onToggleAttune?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -248,7 +311,8 @@ function ArmorRow({
               <span><span className="font-semibold text-foreground">Weight:</span> {armor.weight}</span>
             )}
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end items-center gap-3">
+            <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
             <button
               onClick={onRemove}
               className="flex items-center gap-1 hover:text-destructive transition-colors"
@@ -267,10 +331,12 @@ function ItemRow({
   item,
   onUpdate,
   onRemove,
+  onToggleAttune,
 }: {
   item: EquipmentItem
   onUpdate: (changes: Partial<EquipmentItem>) => void
   onRemove: () => void
+  onToggleAttune?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [editingName, setEditingName] = useState(false)
@@ -323,13 +389,16 @@ function ItemRow({
             >
               <Pencil className="h-3 w-3" />
             </button>
-            <button
-              onClick={onRemove}
-              className="flex items-center gap-1 text-muted-foreground hover:text-destructive transition-colors ml-auto"
-            >
-              <X className="h-3.5 w-3.5" />
-              <span className="text-xs">Remove</span>
-            </button>
+            <div className="ml-auto flex items-center gap-3 text-xs">
+              <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
+              <button
+                onClick={onRemove}
+                className="flex items-center gap-1 text-muted-foreground hover:text-destructive transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>Remove</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -350,10 +419,12 @@ function MagicItemRow({
   item,
   wondrousItem,
   onRemove,
+  onToggleAttune,
 }: {
   item: EquipmentItem
   wondrousItem: WondrousItem
   onRemove: () => void
+  onToggleAttune?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const rarityColor = RARITY_COLORS[wondrousItem.rarity] ?? 'var(--color-text-muted)'
@@ -382,7 +453,8 @@ function MagicItemRow({
           {wondrousItem.description && (
             <p>{wondrousItem.description}</p>
           )}
-          <div className="flex justify-end">
+          <div className="flex justify-end items-center gap-3">
+            <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
             <button
               onClick={onRemove}
               className="flex items-center gap-1 hover:text-destructive transition-colors"
@@ -401,10 +473,12 @@ function MagicArmorRow({
   item,
   armor,
   onRemove,
+  onToggleAttune,
 }: {
   item: EquipmentItem
   armor: ArmorItem
   onRemove: () => void
+  onToggleAttune?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const rarityColor = RARITY_COLORS[armor.rarity ?? ''] ?? 'var(--color-text-muted)'
@@ -433,7 +507,8 @@ function MagicArmorRow({
       {expanded && (
         <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
           {armor.description && <p>{armor.description}</p>}
-          <div className="flex justify-end">
+          <div className="flex justify-end items-center gap-3">
+            <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
             <button
               onClick={onRemove}
               className="flex items-center gap-1 hover:text-destructive transition-colors"
@@ -599,20 +674,24 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
     return [{ label: 'Gear', entries: gearEntries }, ...typeTabs]
   }, [gearEntries, wondrousEntries])
 
+  // Attuned items are pulled out of their normal category lists into the Attuned section
+  const attunedItems = character.equipment.filter(e => e.attuned)
+  const attunedCount = attunedItems.length
+
   const weaponItems = character.equipment.filter(
-    e => weaponByName.has(e.name.toLowerCase()) ||
-      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'weapon'),
+    e => !e.attuned && (weaponByName.has(e.name.toLowerCase()) ||
+      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'weapon')),
   )
   const armorItems = character.equipment.filter(
-    e => armorByName.has(e.name.toLowerCase()) ||
-      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'armor'),
+    e => !e.attuned && (armorByName.has(e.name.toLowerCase()) ||
+      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'armor')),
   )
   const wondrousInItems = character.equipment.filter(
-    e => wondrousItemByName.has(e.name.toLowerCase()) &&
+    e => !e.attuned && wondrousItemByName.has(e.name.toLowerCase()) &&
       (e.displayCategory === 'item' || e.displayCategory === undefined),
   )
   const gearItems = character.equipment.filter(
-    e => !weaponByName.has(e.name.toLowerCase()) &&
+    e => !e.attuned && !weaponByName.has(e.name.toLowerCase()) &&
       !armorByName.has(e.name.toLowerCase()) &&
       !wondrousItemByName.has(e.name.toLowerCase()),
   )
@@ -634,6 +713,63 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
   function setCurrency(key: keyof Currency, value: number) {
     onSave({ currency: { ...character.currency, [key]: value } })
   }
+  function toggleAttune(item: EquipmentItem) {
+    updateItem(item.id, { attuned: !item.attuned })
+  }
+
+  // Look up a catalog item's effects (for the Attuned-section summary line)
+  function itemEffectsFor(name: string) {
+    const n = name.toLowerCase()
+    return weaponByName.get(n)?.effects ?? armorByName.get(n)?.effects ?? wondrousItemByName.get(n)?.effects
+  }
+
+  // Dispatch an equipment item to the right row component by catalog type.
+  // Shared across every section, including Attuned.
+  function renderRow(item: EquipmentItem) {
+    const n = item.name.toLowerCase()
+    const weapon = weaponByName.get(n)
+    if (weapon) {
+      return (
+        <WeaponRow
+          key={item.id}
+          item={item}
+          weapon={weapon}
+          character={character}
+          derived={derived}
+          onUpdate={changes => updateItem(item.id, changes)}
+          onRemove={() => removeItem(item.id)}
+          onToggleAttune={() => toggleAttune(item)}
+        />
+      )
+    }
+    const armor = armorByName.get(n)
+    if (armor) {
+      return armor.magical
+        ? <MagicArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} onToggleAttune={() => toggleAttune(item)} />
+        : <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} onToggleAttune={() => toggleAttune(item)} />
+    }
+    const wondrousItem = wondrousItemByName.get(n)
+    if (wondrousItem) {
+      return (
+        <MagicItemRow
+          key={item.id}
+          item={item}
+          wondrousItem={wondrousItem}
+          onRemove={() => removeItem(item.id)}
+          onToggleAttune={() => toggleAttune(item)}
+        />
+      )
+    }
+    return (
+      <ItemRow
+        key={item.id}
+        item={item}
+        onUpdate={changes => updateItem(item.id, changes)}
+        onRemove={() => removeItem(item.id)}
+        onToggleAttune={() => toggleAttune(item)}
+      />
+    )
+  }
 
   return (
     <section className="space-y-3">
@@ -641,45 +777,52 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
         Equipment
       </h2>
 
+      {/* Attuned — magic items whose effects are active; pulled out of the lists below */}
+      {attunedItems.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Attuned
+            </p>
+            <span
+              className="text-xs font-semibold"
+              style={{ color: attunedCount > 3 ? 'var(--color-accent-gold)' : 'var(--color-text-muted)' }}
+            >
+              {attunedCount}/3
+            </span>
+          </div>
+          {attunedCount > 3 && (
+            <p className="text-xs mb-2" style={{ color: 'var(--color-accent-gold)' }}>
+              Attuned to more than 3 items — a character can normally attune to at most 3.
+            </p>
+          )}
+          <div>
+            {attunedItems.map(item => {
+              const summary = summarizeItemEffects(itemEffectsFor(item.name))
+              return (
+                <div key={item.id}>
+                  {renderRow(item)}
+                  {summary && (
+                    <p className="text-[11px] px-1 pb-1.5 -mt-1" style={{ color: 'var(--color-accent-gold)' }}>
+                      {summary}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Weapons */}
       <div className="rounded-lg border border-border bg-card p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
           Weapons
         </p>
-        {weaponItems.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No weapons.</p>
-        ) : (
-          <div>
-            {weaponItems.map(item => {
-              const weapon = weaponByName.get(item.name.toLowerCase())
-              if (weapon) {
-                return (
-                  <WeaponRow
-                    key={item.id}
-                    item={item}
-                    weapon={weapon}
-                    character={character}
-                    derived={derived}
-                    onUpdate={changes => updateItem(item.id, changes)}
-                    onRemove={() => removeItem(item.id)}
-                  />
-                )
-              }
-              const wondrousItem = wondrousItemByName.get(item.name.toLowerCase())
-              if (wondrousItem) {
-                return (
-                  <MagicItemRow
-                    key={item.id}
-                    item={item}
-                    wondrousItem={wondrousItem}
-                    onRemove={() => removeItem(item.id)}
-                  />
-                )
-              }
-              return null
-            })}
-          </div>
-        )}
+        <div>
+          <UnarmedRow derived={derived} />
+          {weaponItems.map(renderRow)}
+        </div>
         <Button
           variant="ghost"
           size="sm"
@@ -699,28 +842,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
         {armorItems.length === 0 ? (
           <p className="text-sm text-muted-foreground">No armor.</p>
         ) : (
-          <div>
-            {armorItems.map(item => {
-              const armor = armorByName.get(item.name.toLowerCase())
-              if (armor) {
-                return armor.magical
-                  ? <MagicArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} />
-                  : <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} />
-              }
-              const wondrousItem = wondrousItemByName.get(item.name.toLowerCase())
-              if (wondrousItem) {
-                return (
-                  <MagicItemRow
-                    key={item.id}
-                    item={item}
-                    wondrousItem={wondrousItem}
-                    onRemove={() => removeItem(item.id)}
-                  />
-                )
-              }
-              return null
-            })}
-          </div>
+          <div>{armorItems.map(renderRow)}</div>
         )}
         <Button
           variant="ghost"
@@ -742,25 +864,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
           <p className="text-sm text-muted-foreground">No items yet.</p>
         ) : (
           <div>
-            {gearItems.map(item => (
-              <ItemRow
-                key={item.id}
-                item={item}
-                onUpdate={changes => updateItem(item.id, changes)}
-                onRemove={() => removeItem(item.id)}
-              />
-            ))}
-            {wondrousInItems.map(item => {
-              const wondrousItem = wondrousItemByName.get(item.name.toLowerCase())!
-              return (
-                <MagicItemRow
-                  key={item.id}
-                  item={item}
-                  wondrousItem={wondrousItem}
-                  onRemove={() => removeItem(item.id)}
-                />
-              )
-            })}
+            {gearItems.map(renderRow)}
+            {wondrousInItems.map(renderRow)}
           </div>
         )}
         <div className="flex gap-2 mt-2">

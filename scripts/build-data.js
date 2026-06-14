@@ -20,6 +20,56 @@ function requireFields(entry, fields, label) {
   }
 }
 
+// ── ItemEffect validation (mirrors the ItemEffect union in src/types/data.ts) ──
+const EFFECT_ABILITIES = new Set(['str', 'dex', 'con', 'int', 'wis', 'cha'])
+const EFFECT_SKILLS = new Set([
+  'acrobatics', 'animalHandling', 'arcana', 'athletics', 'deception', 'history',
+  'insight', 'intimidation', 'investigation', 'medicine', 'nature', 'perception',
+  'performance', 'persuasion', 'religion', 'sleightOfHand', 'stealth', 'survival',
+])
+const isNum = v => typeof v === 'number' && !Number.isNaN(v)
+
+function validateEffects(item, label) {
+  if (item.effects === undefined) return
+  if (!Array.isArray(item.effects)) {
+    errors.push(`${label}: "effects" must be an array`)
+    return
+  }
+  item.effects.forEach((e, i) => {
+    const at = `${label}: effects[${i}]`
+    switch (e?.type) {
+      case 'ac': case 'speed': case 'initiative': case 'damage': case 'spell_attack': case 'spell_save_dc':
+        if (!isNum(e.amount)) errors.push(`${at} (${e.type}): "amount" must be a number`)
+        break
+      case 'save':
+        if (e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability))
+          errors.push(`${at} (save): invalid ability "${e.ability}"`)
+        if (!isNum(e.amount)) errors.push(`${at} (save): "amount" must be a number`)
+        break
+      case 'ability_bonus':
+        if (!EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (ability_bonus): invalid ability "${e.ability}"`)
+        if (!isNum(e.amount)) errors.push(`${at} (ability_bonus): "amount" must be a number`)
+        break
+      case 'ability_set':
+        if (!EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (ability_set): invalid ability "${e.ability}"`)
+        if (!isNum(e.value)) errors.push(`${at} (ability_set): "value" must be a number`)
+        break
+      case 'skill':
+        if (!EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (skill): invalid skill "${e.skill}"`)
+        if (!isNum(e.amount)) errors.push(`${at} (skill): "amount" must be a number`)
+        break
+      case 'unarmed':
+        if (e.dice !== undefined && typeof e.dice !== 'string') errors.push(`${at} (unarmed): "dice" must be a string`)
+        if (e.damageType !== undefined && typeof e.damageType !== 'string') errors.push(`${at} (unarmed): "damageType" must be a string`)
+        if (e.attackBonus !== undefined && !isNum(e.attackBonus)) errors.push(`${at} (unarmed): "attackBonus" must be a number`)
+        if (e.damageBonus !== undefined && !isNum(e.damageBonus)) errors.push(`${at} (unarmed): "damageBonus" must be a number`)
+        break
+      default:
+        errors.push(`${at}: unknown effect type "${e?.type}"`)
+    }
+  })
+}
+
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
@@ -134,6 +184,7 @@ const equipment = (() => {
         if (item[f] === undefined || item[f] === null)
           errors.push(`${label}: missing required field "${f}"`)
       }
+      if (type === 'weapons' || type === 'armor' || type === 'wondrous_items') validateEffects(item, label)
       if (item._review?.length) warnings.push(`${label}: has ${item._review.length} _review note(s)`)
     }
     out[type] = entries

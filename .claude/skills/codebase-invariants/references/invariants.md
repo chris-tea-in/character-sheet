@@ -12,16 +12,25 @@ any new invariant the fix established. Grep patterns are ripgrep syntax.
 ## INV-1 — Effects apply exactly once, at render time — ENFORCED
 
 Stored fields are base values. Racial ASIs, feat effects (`FeatStatDelta`,
-`FEAT_EFFECTS`, `SUBRACE_HP_BONUS`), and equipped-item effects (armor `ac_formula`,
-wondrous `spell_focus`) apply only inside `deriveCharacterStats`. Write sites
-record choices (`feats`, `featChoices`, `raceAsiChoices`, `equipment`) — never
-resulting stat changes. Both failure directions are real: write-time bake ⇒
-double-count; no application ⇒ data silently ignored (see `feature-effect-system`
-skill for the second direction). Spell-focus bonuses joined this set 2026-06-13
-(session 3): `wondrous_items.spell_focus` derives into `spellAttackBonus`/
-`spellSaveDC`; the manual `spellBonusModifier` is now an override-only field.
+`FEAT_EFFECTS`, `SUBRACE_HP_BONUS`), worn-armor AC (`ac_formula` + `bonus`), and
+attuned magic-item effects apply only inside `deriveCharacterStats`. Write sites
+record choices (`feats`, `featChoices`, `raceAsiChoices`, `equipment`, and the
+`EquipmentItem.attuned` flag) — never resulting stat changes. Both failure
+directions are real: write-time bake ⇒ double-count; no application ⇒ data
+silently ignored (see `feature-effect-system` skill for the second direction).
+**Attuned-item effects (2026-06-14):** magic items carry a structured
+`effects: ItemEffect[]` array (ac/save/ability_set/ability_bonus/skill/speed/
+initiative/damage [global flat, weapon+unarmed]/unarmed [unarmed-only die/type +
+atk/dmg override]/spell_attack/spell_save_dc). `computeAttunedItemEffects` is the single
+application helper — it reads effects ONLY for items with `attuned === true` and
+folds them into the matching derived fields. Item ability changes are **uncapped**
+(distinct from the feat-ASI `Math.min(20, …)` path). This **replaced** the old
+`wondrous_items.spell_focus` mechanism: spell-focus items are now authored as
+`spell_attack`/`spell_save_dc` effects and require attunement (previously merely
+equipped). The manual `spellBonusModifier` remains an override-only field.
 
-- Members (fixed): BUG-01, 02, 05, 13, 36; spell focus BUG-09/21 (render-time, session 3)
+- Members (fixed): BUG-01, 02, 05, 13, 36; spell focus BUG-09/21 (render-time,
+  session 3; folded into attuned-item `effects` 2026-06-14)
 - Recipe: in any write site (characterSetup.ts, LevelUpDialog, FeatsBlock,
   CharacterPage dialogs), flag arithmetic on `abilities`, `speed`,
   `initiativeBonus`, or `maxHp` that mirrors a derive-time computation:
@@ -85,17 +94,17 @@ the remove path must tear down or re-prompt.
 
 - Members structurally dissolved (2026-06-13, session 3): BUG-09/21 no longer
   exist as add/remove-symmetry problems — the spell-focus bonus moved to
-  **render-time derivation** (INV-1). Equipped focus items annotated with
-  `spell_focus: {bonus, attack, save_dc, class}` in `wondrous_items.json`
-  contribute to `spellAttackBonus`/`spellSaveDC` inside `deriveCharacterStats`,
-  scoped to the casting class (`class: null` = any caster). No add/remove prompt,
-  no `SPELL_BONUS_ITEM_NAMES` set (deleted). `character.spellBonusModifier`
-  survives only as a manual homebrew override (SpellBlock pencil affordance) for
-  un-cataloged focuses — default 0.
+  **render-time derivation** (INV-1). As of 2026-06-14 the `spell_focus` field is
+  gone entirely: spell-focus items are authored as `spell_attack`/`spell_save_dc`
+  entries in their `effects` array and apply via `computeAttunedItemEffects` while
+  attuned (per-class scoping dropped in v1). No add/remove prompt, no
+  `SPELL_BONUS_ITEM_NAMES` set. `character.spellBonusModifier` survives only as a
+  manual homebrew override (SpellBlock pencil affordance) — default 0.
 - Recipe: for each `addX`, read the paired `removeX` and diff their side effects.
-  For spell focus specifically there is now nothing to tear down (derive-time);
-  verify no write site mutates `spellBonusModifier` on equip/unequip:
-  `rg -n "spellBonusModifier|spell_focus" src/`
+  Attunement toggles are pure flag flips (`updateItem(id, { attuned })`) — effects
+  derive at render time, so there is nothing to tear down. Verify no write site
+  bakes item effects or mutates `spellBonusModifier` on attune/unattune:
+  `rg -n "spellBonusModifier|spell_focus|attuned" src/`
 
 ## INV-7 — Threshold-crossing state resets per RAW — ENFORCED
 
