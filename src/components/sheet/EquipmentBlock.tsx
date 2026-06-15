@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Plus, X, Pencil, Check, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
+import { InfoPopup } from '@/components/InfoPopup'
 import { StepperField } from './StepperField'
 import { generateId } from '@/lib/uuid'
 import { computeWeaponBonus, summarizeItemEffects, isVariableBaseArmor } from '@/lib/characterStats'
@@ -276,7 +277,7 @@ function WeaponRow({
   onToggleActive,
   charges,
   variableBase = false,
-  baseOptions = [],
+  onChooseBase,
 }: {
   item: EquipmentItem
   weapon: WeaponItem
@@ -289,7 +290,7 @@ function WeaponRow({
   onToggleActive?: () => void
   charges?: ItemCharges
   variableBase?: boolean
-  baseOptions?: SelectionEntry[]
+  onChooseBase?: () => void
 }) {
   const { dispatch } = useRollDispatch(derived)
   const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus)
@@ -311,7 +312,6 @@ function WeaponRow({
   const rollDamageType = customDmg?.damageType || calc.damageType
   const [expanded, setExpanded] = useState(false)
   const [editingStats, setEditingStats] = useState(false)
-  const [basePickerOpen, setBasePickerOpen] = useState(false)
   const [toHitDraft, setToHitDraft] = useState(displayToHit)
   const [damageDraft, setDamageDraft] = useState(displayDamage)
 
@@ -356,7 +356,7 @@ function WeaponRow({
               {item.baseWeapon
                 ? <span style={{ color: 'var(--color-accent-gold)' }}>{item.baseWeapon}</span>
                 : <span className="italic">not set — using default</span>}
-              <button onClick={() => setBasePickerOpen(true)} className="underline hover:text-foreground transition-colors">
+              <button onClick={onChooseBase} className="underline hover:text-foreground transition-colors">
                 {item.baseWeapon ? 'Change' : 'Choose'}
               </button>
               {item.baseWeapon && (
@@ -430,16 +430,6 @@ function WeaponRow({
             </div>
           )}
         </div>
-      )}
-      {variableBase && (
-        <SelectionList
-          entries={baseOptions}
-          value={item.baseWeapon ?? ''}
-          title="Choose Base Weapon"
-          open={basePickerOpen}
-          onClose={() => setBasePickerOpen(false)}
-          onSelect={name => { onUpdate({ baseWeapon: name }); setBasePickerOpen(false) }}
-        />
       )}
     </div>
   )
@@ -684,7 +674,7 @@ function MagicArmorRow({
   active,
   onToggleActive,
   variableBase = false,
-  baseOptions = [],
+  onChooseBase,
 }: {
   item: EquipmentItem
   armor: ArmorItem
@@ -694,10 +684,9 @@ function MagicArmorRow({
   active: boolean
   onToggleActive?: () => void
   variableBase?: boolean
-  baseOptions?: SelectionEntry[]
+  onChooseBase?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [basePickerOpen, setBasePickerOpen] = useState(false)
   const rarityColor = RARITY_COLORS[armor.rarity ?? ''] ?? 'var(--color-text-muted)'
   // armor is already resolved to the chosen base (renderRow), so ac_formula is real
   // unless the base hasn't been picked yet (still "Varies").
@@ -739,7 +728,7 @@ function MagicArmorRow({
               {item.baseArmor
                 ? <span style={{ color: 'var(--color-accent-gold)' }}>{item.baseArmor}</span>
                 : <span className="italic">not set — AC uses manual entry</span>}
-              <button onClick={() => setBasePickerOpen(true)} className="underline hover:text-foreground transition-colors">
+              <button onClick={onChooseBase} className="underline hover:text-foreground transition-colors">
                 {item.baseArmor ? 'Change' : 'Choose'}
               </button>
               {item.baseArmor && (
@@ -763,16 +752,6 @@ function MagicArmorRow({
             </button>
           </div>
         </div>
-      )}
-      {variableBase && (
-        <SelectionList
-          entries={baseOptions}
-          value={item.baseArmor ?? ''}
-          title="Choose Base Armor"
-          open={basePickerOpen}
-          onClose={() => setBasePickerOpen(false)}
-          onSelect={name => { onUpdate({ baseArmor: name }); setBasePickerOpen(false) }}
-        />
       )}
     </div>
   )
@@ -881,6 +860,11 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
   const [weaponPickerOpen, setWeaponPickerOpen] = useState(false)
   const [armorPickerOpen, setArmorPickerOpen] = useState(false)
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
+  // Variable-base ("any sword/any armor") item whose base picker is open, and the
+  // item being prompted to pick a base after activation. Lifted here so the equip
+  // flow and the in-row "Change" control share one picker.
+  const [basePickerItem, setBasePickerItem] = useState<EquipmentItem | null>(null)
+  const [basePrompt, setBasePrompt] = useState<EquipmentItem | null>(null)
 
   const weaponByName = useMemo(
     () => new Map((catalog?.weapons ?? []).map(w => [w.name.toLowerCase(), w])),
@@ -947,27 +931,43 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
     return requiresAttunementFor(item.name) ? !!item.attuned : !!item.equipped
   }
 
-  // Active items (worn armor / equipped weapons / attuned or equipped magic items)
-  // also surface in the Loadout block — but they STILL appear in their type section
-  // below, tagged. So the type-section filters no longer exclude active items.
+  // For "any sword / any armor" magic items: which base must be chosen, and whether
+  // one is still missing.
+  function baseKind(item: EquipmentItem): 'weapon' | 'armor' | null {
+    const n = item.name.toLowerCase()
+    const w = weaponByName.get(n)
+    if (w && isVariableBaseWeapon(w)) return 'weapon'
+    const a = armorByName.get(n)
+    if (a && isVariableBaseArmor(a)) return 'armor'
+    return null
+  }
+  function needsBase(item: EquipmentItem): boolean {
+    const kind = baseKind(item)
+    if (kind === 'weapon') return !item.baseWeapon
+    if (kind === 'armor') return !item.baseArmor
+    return false
+  }
+
+  // Active items (worn armor / equipped weapons / attuned or equipped magic items) are
+  // pulled out of their type sections and shown ONLY in the Loadout block below.
   const activeItems = character.equipment.filter(isActive)
   // The 3-item cap applies only to attune-required items; equipping costs nothing.
   const attunedCount = activeItems.filter(e => requiresAttunementFor(e.name)).length
 
   const weaponItems = character.equipment.filter(
-    e => weaponByName.has(e.name.toLowerCase()) ||
-      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'weapon'),
+    e => !isActive(e) && (weaponByName.has(e.name.toLowerCase()) ||
+      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'weapon')),
   )
   const armorItems = character.equipment.filter(
-    e => armorByName.has(e.name.toLowerCase()) ||
-      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'armor'),
+    e => !isActive(e) && (armorByName.has(e.name.toLowerCase()) ||
+      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'armor')),
   )
   const wondrousInItems = character.equipment.filter(
-    e => wondrousItemByName.has(e.name.toLowerCase()) &&
+    e => !isActive(e) && wondrousItemByName.has(e.name.toLowerCase()) &&
       (e.displayCategory === 'item' || e.displayCategory === undefined),
   )
   const gearItems = character.equipment.filter(
-    e => !weaponByName.has(e.name.toLowerCase()) &&
+    e => !isActive(e) && !weaponByName.has(e.name.toLowerCase()) &&
       !armorByName.has(e.name.toLowerCase()) &&
       !wondrousItemByName.has(e.name.toLowerCase()),
   )
@@ -1014,6 +1014,10 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
       return e
     })
     onSave({ equipment: next })
+
+    // Activating a variable-base item with no base chosen → prompt the user to pick
+    // one (and then redirect into the picker), so stats actually apply.
+    if (turningOn && needsBase(item)) setBasePrompt(item)
   }
 
   // Look up a catalog item's effects (for the Loadout summary line)
@@ -1023,10 +1027,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
   }
 
 
-  // Dispatch an equipment item to the right row component by catalog type.
-  // Shared by the type sections (Weapons/Armor/Items) AND the Loadout block — the
-  // same item renders, with full controls, in both places (each instance keeps its
-  // own expand state). The in-row ActiveTag marks worn/attuned items in both.
+  // Dispatch an equipment item to the right row component by catalog type. Active
+  // items render here in the Loadout block; inactive ones in their type section.
   function renderRow(item: EquipmentItem) {
     const n = item.name.toLowerCase()
     const reqAtt = requiresAttunementFor(item.name)
@@ -1050,9 +1052,6 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
           }
         }
       }
-      const baseOptions = variableBase
-        ? buildWeaponEntries(baseWeaponCandidates(weapon.base_weapon_type, catalog?.weapons ?? []))
-        : []
       return (
         <WeaponRow
           key={item.id}
@@ -1067,7 +1066,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
           onToggleActive={onToggleActive}
           charges={weapon.charges}
           variableBase={variableBase}
-          baseOptions={baseOptions}
+          onChooseBase={() => setBasePickerItem(item)}
         />
       )
     }
@@ -1092,9 +1091,6 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
           }
         }
       }
-      const baseOptions = variableBase
-        ? buildArmorEntries(baseArmorCandidates(armor.base_armor_type, catalog?.armor ?? []))
-        : []
       return (
         <MagicArmorRow
           key={item.id}
@@ -1106,7 +1102,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
           active={active}
           onToggleActive={onToggleActive}
           variableBase={variableBase}
-          baseOptions={baseOptions}
+          onChooseBase={() => setBasePickerItem(item)}
         />
       )
     }
@@ -1138,14 +1134,26 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
     )
   }
 
+  // Centralized base picker — opened by the activation prompt, the Loadout "set base"
+  // pill, or a row's Choose/Change button (all set basePickerItem).
+  const bpKind = basePickerItem ? baseKind(basePickerItem) : null
+  const basePickerEntries: SelectionEntry[] = !basePickerItem
+    ? []
+    : bpKind === 'weapon'
+    ? buildWeaponEntries(baseWeaponCandidates(weaponByName.get(basePickerItem.name.toLowerCase())?.base_weapon_type, catalog?.weapons ?? []))
+    : bpKind === 'armor'
+    ? buildArmorEntries(baseArmorCandidates(armorByName.get(basePickerItem.name.toLowerCase())?.base_armor_type, catalog?.armor ?? []))
+    : []
+  const promptKind = basePrompt ? baseKind(basePrompt) : null
+
   return (
     <section className="space-y-3">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Equipment
       </h2>
 
-      {/* Loadout — compact, read-only summary of everything currently worn/wielded/
-          attuned. Each item also appears (with full controls) in its type section. */}
+      {/* Loadout — everything currently worn/wielded/attuned, pulled out of the type
+          sections below. Full controls (expand for base/charges/edit/remove) live here. */}
       {activeItems.length > 0 && (
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center justify-between mb-2">
@@ -1170,6 +1178,15 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
               return (
                 <div key={item.id}>
                   {renderRow(item)}
+                  {needsBase(item) && (
+                    <button
+                      onClick={() => setBasePickerItem(item)}
+                      className="text-[11px] px-1 pb-1.5 -mt-1 underline hover:opacity-75 transition-opacity"
+                      style={{ color: 'var(--color-accent-gold)' }}
+                    >
+                      ⚠ Set base {baseKind(item) === 'armor' ? 'armor' : 'weapon'} — stats inactive until you do
+                    </button>
+                  )}
                   {summary && (
                     <p className="text-[11px] px-1 pb-1.5 -mt-1" style={{ color: 'var(--color-accent-gold)' }}>
                       {summary}
@@ -1316,6 +1333,36 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
           setGearPickerOpen(false)
         }}
       />
+
+      {/* Centralized base picker for variable-base ("any sword / any armor") items */}
+      <SelectionList
+        entries={basePickerEntries}
+        value={(bpKind === 'weapon' ? basePickerItem?.baseWeapon : basePickerItem?.baseArmor) ?? ''}
+        title={bpKind === 'armor' ? 'Choose Base Armor' : 'Choose Base Weapon'}
+        open={!!basePickerItem}
+        onClose={() => setBasePickerItem(null)}
+        onSelect={name => {
+          if (basePickerItem) updateItem(basePickerItem.id, bpKind === 'weapon' ? { baseWeapon: name } : { baseArmor: name })
+          setBasePickerItem(null)
+        }}
+      />
+
+      {/* Prompt shown when a variable-base item is activated without a base chosen */}
+      <InfoPopup
+        open={!!basePrompt}
+        onClose={() => setBasePrompt(null)}
+        title={`Choose a base ${promptKind === 'armor' ? 'armor' : 'weapon'}`}
+        description={basePrompt
+          ? `"${basePrompt.name}" is forged from any ${promptKind === 'armor' ? 'armor' : 'weapon'} — pick the base it's built on so its ${promptKind === 'armor' ? 'AC' : 'damage'} applies. Until you do, it falls back to ${promptKind === 'armor' ? 'your manual AC entry' : 'the default damage'}.`
+          : ''}
+      >
+        <Button onClick={() => { setBasePickerItem(basePrompt); setBasePrompt(null) }}>
+          Choose base
+        </Button>
+        <Button variant="outline" onClick={() => setBasePrompt(null)}>
+          Later
+        </Button>
+      </InfoPopup>
     </section>
   )
 }

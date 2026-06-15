@@ -36,9 +36,10 @@ any armor merely present in inventory). Body-armor/shield equip is **exclusive**
 (EquipmentBlock `toggleActive` unwears the same slot) so the AC source is
 unambiguous. Weapons treat `equipped` as a **loadout label only** — it surfaces them
 in the Loadout block + activates any magic `effects[]`, but never blocks rolling
-(base to-hit/damage from `computeWeaponBonus` is always available). The **Loadout**
-block renders the SAME full `renderRow` rows as the type sections (each item shows,
-with full controls + description, in both places; in-row `ActiveTag` marks it). The
+(base to-hit/damage from `computeWeaponBonus` is always available). Active items are
+**pulled out** of their type sections (the `weaponItems`/`armorItems`/`wondrousInItems`/
+`gearItems` filters exclude `isActive(e)`) and render only in the **Loadout** block via
+`renderRow` (full controls; in-row `ActiveTag` marks Attuned vs Equipped). The
 **`damage_dice`** effect (rider damage of another type, e.g. Flame Tongue → +2d6
 fire) is **weapon-specific**: it is read from the weapon's OWN `effects` in
 `WeaponRow` (gated on the weapon being active) and threaded through the attack as
@@ -56,7 +57,12 @@ analog: `EquipmentItem.baseArmor` stores the chosen mundane armor and `resolveAr
 in the AC block swaps its `ac_formula`/`armor_type`/`stealth_disadvantage`/
 `strength_requirement` into the magic entry (keeping `bonus` + `effects`) before the
 SAME `parseArmorAC` path — no data mutation, no forked AC route. Unset → `ac_formula`
-stays "Varies", `canComputeAC = false`, AC falls back to the manual stepper. The unarmored AC effects (`ac` with
+stays "Varies", `canComputeAC = false`, AC falls back to the manual stepper. The base
+picker is **centralized** on `EquipmentBlock` (`basePickerItem`); rows open it via an
+`onChooseBase` callback (not local state). Activating a variable-base item with no base
+chosen (`needsBase`) fires an `InfoPopup` prompt → "Choose base" opens the picker; a
+persistent gold "set base" pill in the Loadout row covers dismissed/pre-existing cases.
+The unarmored AC effects (`ac` with
 `condition:'unarmored'`, and `unarmored_ac` set-base) apply only when no body armor
 is worn — an app-knowable condition. This **replaced** the old
 `wondrous_items.spell_focus` mechanism: spell-focus items are now authored as

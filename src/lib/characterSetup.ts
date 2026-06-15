@@ -7,7 +7,7 @@ import { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug } from '@/lib/ra
 export { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug }
 import type { AbilityName, Abilities, Character, NewCharacter, SkillName, SkillProficiency, EquipmentItem } from '@/types/character'
 import type { DetailItem } from '@/types/detail-item'
-import type { Race, Subrace, ClassData, SubclassData, Background, EquipmentGrant, FeatData, SpellData } from '@/types/data'
+import type { Race, Subrace, ClassData, SubclassData, Background, EquipmentGrant, FeatData, SpellData, ArmorItem } from '@/types/data'
 import type { SetupData } from '@/lib/data'
 
 // ---------------------------------------------------------------------------
@@ -528,6 +528,25 @@ function namesToEquipmentItems(names: string[]): EquipmentItem[] {
   const counts = new Map<string, number>()
   for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1)
   return [...counts.entries()].map(([name, quantity]) => ({ id: generateId(), name, quantity }))
+}
+
+// Mark the first body-armor item and the first shield in a starting kit as worn so
+// AC computes out of the box (the AC derivation only counts equipped/attuned armor).
+// Exclusive per slot, matching EquipmentBlock.toggleActive. Mundane starting gear
+// never requires attunement, so only the `equipped` flag is set; weapons are left
+// alone (their `equipped` flag is a Loadout label only, never gates rolling).
+export function equipStartingArmor(equipment: EquipmentItem[], armor: ArmorItem[]): EquipmentItem[] {
+  const byName = new Map(armor.map(a => [a.name.toLowerCase(), a]))
+  let bodyDone = false
+  let shieldDone = false
+  return equipment.map(item => {
+    const a = byName.get(item.name.toLowerCase())
+    if (!a) return item
+    const isShield = a.armor_type === 'Shield'
+    if (isShield && !shieldDone) { shieldDone = true; return { ...item, equipped: true } }
+    if (!isShield && !bodyDone) { bodyDone = true; return { ...item, equipped: true } }
+    return item
+  })
 }
 
 // ---------------------------------------------------------------------------

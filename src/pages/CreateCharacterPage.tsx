@@ -14,11 +14,12 @@ import {
   INITIAL_DRAFT,
   characterToDraft,
   draftToNewCharacter,
+  equipStartingArmor,
   isEquipmentComplete,
   isLevelAsiComplete,
 } from '@/lib/characterSetup'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
-import { loadSetupData, loadFeatsData, loadSpellsData } from '@/lib/data'
+import { loadSetupData, loadFeatsData, loadSpellsData, loadEquipmentData } from '@/lib/data'
 import { useCharacterStore } from '@/store/characters'
 import type { SetupDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
@@ -255,6 +256,12 @@ export default function CreateCharacterPage() {
         updateCharacter(editId, changes)
         navigate(`/character/${editId}`)
       } else {
+        // Auto-equip the starting body armor + shield so AC is correct out of the
+        // box (the AC derivation only counts worn armor). The catalog load is cached.
+        const catalog = await loadEquipmentData().catch(() => null)
+        if (catalog?.armor) {
+          newCharData.equipment = equipStartingArmor(newCharData.equipment, catalog.armor)
+        }
         const created = await createCharacter(newCharData)
         navigate(`/character/${created.id}`)
       }
