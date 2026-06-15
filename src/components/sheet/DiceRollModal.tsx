@@ -113,7 +113,7 @@ function HitBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const setModalDamage = useDiceStore(s => s.setModalDamage)
-  const { entry, damageDice, damageBonus = 0, damageType, isCrit } = modal
+  const { entry, damageDice, damageBonus = 0, damageType, extraDamage = [], isCrit } = modal
   const { natural, modifier, total } = entry.result
   const isNat20 = natural === 20
   const isNat1 = natural === 1
@@ -126,12 +126,17 @@ function HitBody() {
 
   function handleRollDamage(crit: boolean) {
     const { rolls, total: dmgTotal } = rollDamage(damageDice ?? '', damageBonus, crit)
-    setModalDamage(rolls, dmgTotal)
+    // Each rider (e.g. Flame Tongue +2d6 fire) rolls its own dice, crit doubles them
+    const extraResults = extraDamage.map(ed => {
+      const r = rollDamage(ed.dice, 0, crit)
+      return { damageType: ed.damageType, rolls: r.rolls, total: r.total }
+    })
+    setModalDamage(rolls, dmgTotal, extraResults)
   }
 
   // Damage phase applies to any attack that has a die OR a flat typed amount
-  // (Unarmed Strike has no die but a fixed bludgeoning total).
-  const hasDamage = !!damageDice || !!damageType
+  // (Unarmed Strike has no die but a fixed bludgeoning total) OR a rider.
+  const hasDamage = !!damageDice || !!damageType || extraDamage.length > 0
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">
@@ -180,7 +185,10 @@ function HitBody() {
 function DamageBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
-  const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, isCrit } = modal
+  const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, extraDamageResults = [], isCrit } = modal
+
+  const grandTotal = damageTotal + extraDamageResults.reduce((s, e) => s + e.total, 0)
+  const hasRiders = extraDamageResults.length > 0
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">
@@ -196,10 +204,22 @@ function DamageBody() {
           </p>
         )}
         <span className="text-6xl font-black tabular-nums" style={{ color: 'var(--color-accent-gold)' }}>
-          {damageTotal}
+          {grandTotal}
         </span>
-        {damageType && (
-          <p className="text-xs text-muted-foreground capitalize">{damageType}</p>
+        {/* Per-type breakdown when there are riders; otherwise just the main type */}
+        {hasRiders ? (
+          <div className="flex flex-col items-center gap-0.5 mt-1">
+            <p className="text-xs text-muted-foreground capitalize">
+              {damageTotal} {damageType || 'damage'}
+            </p>
+            {extraDamageResults.map((e, i) => (
+              <p key={i} className="text-xs capitalize" style={{ color: 'var(--color-accent-gold)' }}>
+                + {e.total} {e.damageType} <span className="text-muted-foreground">[{e.rolls.join(', ')}]</span>
+              </p>
+            ))}
+          </div>
+        ) : (
+          damageType && <p className="text-xs text-muted-foreground capitalize">{damageType}</p>
         )}
       </div>
 

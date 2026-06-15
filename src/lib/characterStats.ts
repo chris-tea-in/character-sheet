@@ -1,6 +1,6 @@
 import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP, SKILL_DISPLAY_MAP, formatBonus } from './dice'
 import { ABILITY_FULL_TO_SHORT, getRacialBonuses } from './racialBonuses'
-import type { Character, AbilityName, Abilities, SkillName, SkillProficiency } from '../types/character'
+import type { Character, AbilityName, Abilities, SkillName, SkillProficiency, EquipmentItem } from '../types/character'
 import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem, ItemEffect } from '../types/data'
 
 export interface WeaponBonus {
@@ -42,6 +42,11 @@ export interface DerivedStats {
   itemDamageBonus: number
   // Unarmed-strike override from attuned items (e.g. Demon Armor → 1d8 slashing)
   unarmedStrike: { dice?: string; damageType?: string; attackBonus: number; damageBonus: number }
+  // Languages granted by active items (e.g. Demon Armor → Abyssal) — derived, never stored
+  itemGrantedLanguages: string[]
+  // Damage resistances / immunities granted by active items — derived, read-only display
+  resistances: string[]
+  immunities: string[]
 }
 
 // ── Feat effect registry ────────────────────────────────────────────────────
@@ -351,6 +356,33 @@ function parseArmorAC(formula: string, dexMod: number): number {
   return parseInt(trimmed, 10) || 0
 }
 
+// ── Variable-base armor resolution ───────────────────────────────────────────
+// "Armor of Resistance / +1 Plate / Adamantine Armor" etc. are forged from any
+// armor ("Varies" formula). The player picks the mundane base (EquipmentItem.
+// baseArmor); its ac_formula/type/stealth/STR replace the unresolvable "Varies"
+// while the magic entry's bonus + effects stay. This is the single resolution
+// point — feeds the SAME parseArmorAC path, no data mutation.
+
+export function isVariableBaseArmor(a: ArmorItem): boolean {
+  return a.ac_formula.trim().toLowerCase().startsWith('varies') || /\bany\b/i.test(a.base_armor_type ?? '')
+}
+
+function resolveArmor(item: EquipmentItem, rec: ArmorItem, armorByName: Map<string, ArmorItem>): ArmorItem {
+  if (isVariableBaseArmor(rec) && item.baseArmor) {
+    const base = armorByName.get(item.baseArmor.toLowerCase())
+    if (base) {
+      return {
+        ...rec,
+        ac_formula: base.ac_formula,
+        armor_type: base.armor_type,
+        stealth_disadvantage: base.stealth_disadvantage,
+        strength_requirement: base.strength_requirement,
+      }
+    }
+  }
+  return rec
+}
+
 // ── Weapon proficiency check ─────────────────────────────────────────────────
 
 // `weaponProficiencies` is the lowercased union across all the character's
@@ -409,15 +441,18 @@ export function computeFeatHpBonus(feats: string[], level: number): number {
 
 const ALL_ABILITIES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 
-// ── Attuned magic-item effects ────────────────────────────────────────────────
-// Magic items contribute their catalog `effects` only while attuned. This is the
-// single application point (INV-1 / feature-effect-system). Unlike feat ASIs,
+// ── Active magic-item effects ─────────────────────────────────────────────────
+// Magic items contribute their catalog `effects` only while *active*: an
+// attune-required item when `attuned`, a non-attune item when `equipped`. This is
+// the single application point (INV-1 / feature-effect-system). Unlike feat ASIs,
 // item ability changes are NOT capped at 20: `ability_set` takes the max of the
 // current score vs. the target (Amulet of Health → CON 19, Belt → STR 29);
 // `ability_bonus` is additive and uncapped.
 
-interface AttunedItemEffects {
-  acBonus: number
+interface ActiveItemEffects {
+  acBonus: number               // unconditional flat AC (Ring/Cloak of Protection)
+  unarmoredAcBonus: number      // flat AC that applies only when no body armor (Bracers of Defense)
+  unarmoredAcBase: number | null // sets unarmored AC base (Robe of the Archmagi → 15)
   saveBonuses: Partial<Record<AbilityName, number>>
   abilitySets: Partial<Record<AbilityName, number>>
   abilityBonuses: Partial<Record<AbilityName, number>>
@@ -425,38 +460,65 @@ interface AttunedItemEffects {
   speed: number
   initiative: number
   damage: number
+  maxHp: number
+  resistances: string[]
+  immunities: string[]
   spellAttack: number
   spellSaveDC: number
+  languages: string[]
   unarmed: { dice?: string; damageType?: string; attackBonus: number; damageBonus: number }
 }
 
-function computeAttunedItemEffects(
+function computeActiveItemEffects(
   character: Character,
   catalog?: { weapons?: WeaponItem[]; armor?: ArmorItem[]; wondrous_items?: WondrousItem[] } | null,
-): AttunedItemEffects {
-  const acc: AttunedItemEffects = {
-    acBonus: 0, saveBonuses: {}, abilitySets: {}, abilityBonuses: {},
-    skillBonuses: {}, speed: 0, initiative: 0, damage: 0, spellAttack: 0, spellSaveDC: 0,
-    unarmed: { attackBonus: 0, damageBonus: 0 },
+): ActiveItemEffects {
+  const acc: ActiveItemEffects = {
+    acBonus: 0, unarmoredAcBonus: 0, unarmoredAcBase: null,
+    saveBonuses: {}, abilitySets: {}, abilityBonuses: {},
+    skillBonuses: {}, speed: 0, initiative: 0, damage: 0, maxHp: 0,
+    resistances: [], immunities: [], spellAttack: 0, spellSaveDC: 0,
+    languages: [], unarmed: { attackBonus: 0, damageBonus: 0 },
   }
   if (!catalog) return acc
 
-  const effectsByName = new Map<string, ItemEffect[]>()
+  // name → { effects, requiresAttunement }. Attune-required items gate on
+  // `attuned`; non-attune items gate on `equipped`.
+  const byName = new Map<string, { effects: ItemEffect[]; requiresAttunement: boolean }>()
   for (const list of [catalog.wondrous_items, catalog.armor, catalog.weapons]) {
     for (const entry of (list ?? [])) {
-      if (entry.effects?.length) effectsByName.set(entry.name.toLowerCase(), entry.effects)
+      if (entry.effects?.length) {
+        byName.set(entry.name.toLowerCase(), {
+          effects: entry.effects,
+          requiresAttunement: entry.attunement ?? false,
+        })
+      }
     }
   }
-  if (effectsByName.size === 0) return acc
+  if (byName.size === 0) return acc
 
   for (const item of character.equipment) {
-    if (!item.attuned) continue
-    const effects = effectsByName.get(item.name.toLowerCase())
-    if (!effects) continue
-    for (const e of effects) {
+    const entry = byName.get(item.name.toLowerCase())
+    if (!entry) continue
+    const active = entry.requiresAttunement ? !!item.attuned : !!item.equipped
+    if (!active) continue
+    for (const e of entry.effects) {
       switch (e.type) {
         case 'ac':
-          acc.acBonus += e.amount
+          if (e.condition === 'unarmored') acc.unarmoredAcBonus += e.amount
+          else acc.acBonus += e.amount
+          break
+        case 'unarmored_ac':
+          acc.unarmoredAcBase = Math.max(acc.unarmoredAcBase ?? 0, e.base)
+          break
+        case 'max_hp':
+          acc.maxHp += (e.amount ?? 0) + (e.perLevel ?? 0) * character.level
+          break
+        case 'resistance':
+          if (!acc.resistances.includes(e.damageType.toLowerCase())) acc.resistances.push(e.damageType.toLowerCase())
+          break
+        case 'immunity':
+          if (!acc.immunities.includes(e.damageType.toLowerCase())) acc.immunities.push(e.damageType.toLowerCase())
           break
         case 'save':
           if (e.ability === 'all') {
@@ -483,6 +545,9 @@ function computeAttunedItemEffects(
           break
         case 'damage':
           acc.damage += e.amount
+          break
+        case 'language':
+          if (!acc.languages.includes(e.name)) acc.languages.push(e.name)
           break
         case 'unarmed':
           // dice/type: last attuned override wins; bonuses stack
@@ -513,7 +578,17 @@ export function summarizeItemEffects(effects: ItemEffect[] | undefined): string 
   const parts: string[] = []
   for (const e of effects) {
     switch (e.type) {
-      case 'ac':           parts.push(`${formatBonus(e.amount)} AC`); break
+      case 'ac':           parts.push(`${formatBonus(e.amount)} AC${e.condition === 'unarmored' ? ' (unarmored)' : ''}`); break
+      case 'unarmored_ac': parts.push(`AC ${e.base} + DEX (unarmored)`); break
+      case 'max_hp': {
+        const hp: string[] = []
+        if (e.amount) hp.push(`${formatBonus(e.amount)} HP`)
+        if (e.perLevel) hp.push(`${formatBonus(e.perLevel)} HP/lvl`)
+        parts.push(hp.join(' ') || 'HP')
+        break
+      }
+      case 'resistance':   parts.push(`resist ${e.damageType}`); break
+      case 'immunity':     parts.push(`immune ${e.damageType}`); break
       case 'save':         parts.push(`${formatBonus(e.amount)} ${e.ability === 'all' ? 'all saves' : `${ABILITY_ABBR[e.ability]} save`}`); break
       case 'ability_set':  parts.push(`${ABILITY_ABBR[e.ability]} ${e.value}`); break
       case 'ability_bonus':parts.push(`${formatBonus(e.amount)} ${ABILITY_ABBR[e.ability]}`); break
@@ -521,6 +596,8 @@ export function summarizeItemEffects(effects: ItemEffect[] | undefined): string 
       case 'speed':        parts.push(`${formatBonus(e.amount)} ft speed`); break
       case 'initiative':   parts.push(`${formatBonus(e.amount)} initiative`); break
       case 'damage':       parts.push(`${formatBonus(e.amount)} damage`); break
+      case 'damage_dice':  parts.push(`+${e.dice} ${e.damageType}`); break
+      case 'language':     parts.push(e.name); break
       case 'unarmed':      parts.push(`unarmed ${[e.dice, e.damageType].filter(Boolean).join(' ') || 'override'}`); break
       case 'spell_attack': parts.push(`${formatBonus(e.amount)} spell atk`); break
       case 'spell_save_dc':parts.push(`${formatBonus(e.amount)} spell DC`); break
@@ -608,10 +685,10 @@ export function deriveCharacterStats(
     }
   }
 
-  // ── Attuned magic-item effects ─────────────────────────────────────────────
+  // ── Active magic-item effects ──────────────────────────────────────────────
   // Applied on top of base + racial + feat. Item ability changes are uncapped
   // (RAW: items can raise a score above 20). Skill bonuses reuse the feat channel.
-  const itemEffects = computeAttunedItemEffects(character, catalog)
+  const itemEffects = computeActiveItemEffects(character, catalog)
   for (const [ab, amount] of Object.entries(itemEffects.abilityBonuses) as [AbilityName, number][]) {
     effectiveAbilities[ab] = effectiveAbilities[ab] + amount
   }
@@ -674,8 +751,8 @@ export function deriveCharacterStats(
     const spellAbilMod = abilityModifier(effectiveAbilities[spellAbilKey])
     const manualBonus = character.spellBonusModifier ?? 0
 
-    // Spell-focus bonuses come from attuned items' `spell_attack`/`spell_save_dc`
-    // effects (computeAttunedItemEffects). The manual spellBonusModifier remains a
+    // Spell-focus bonuses come from active items' `spell_attack`/`spell_save_dc`
+    // effects (computeActiveItemEffects). The manual spellBonusModifier remains a
     // homebrew override for un-cataloged focuses.
     spellAttackBonus = spellAbilMod + pb + itemEffects.spellAttack + manualBonus
     spellSaveDC = 8 + spellAbilMod + pb + itemEffects.spellSaveDC + manualBonus
@@ -684,10 +761,15 @@ export function deriveCharacterStats(
   // ── Effective AC + stealth disadvantage ──────────────────────────────────
   let effectiveAC: number | null = null
   let hasStealthDisadvantage = false
+  let hasBodyArmor = false
 
   if (catalog?.armor) {
     const armorByName = new Map(catalog.armor.map(a => [a.name.toLowerCase(), a]))
-    const equippedArmor = character.equipment.filter(e => armorByName.has(e.name.toLowerCase()))
+    // Armor contributes AC only while *worn* — equipped (non-attune) or attuned
+    // (attune-required). Unworn armor is just inventory (no AC, no numeric bonus).
+    const equippedArmor = character.equipment.filter(
+      e => armorByName.has(e.name.toLowerCase()) && (e.equipped || e.attuned),
+    )
 
     if (equippedArmor.length > 0) {
       const bodyPieces = equippedArmor.filter(
@@ -696,14 +778,16 @@ export function deriveCharacterStats(
       const shields = equippedArmor.filter(
         e => armorByName.get(e.name.toLowerCase())!.armor_type === 'Shield',
       )
+      hasBodyArmor = bodyPieces.length > 0
 
       let baseAC = 10 + dexMod
       let canComputeAC = true
 
-      if (bodyPieces.length > 0) {
-        const bodyArmor = armorByName.get(bodyPieces[0].name.toLowerCase())!
+      if (hasBodyArmor) {
+        // Resolve a variable-base armor to its chosen mundane base before parsing
+        const bodyArmor = resolveArmor(bodyPieces[0], armorByName.get(bodyPieces[0].name.toLowerCase())!, armorByName)
         if (bodyArmor.stealth_disadvantage) hasStealthDisadvantage = true
-        // "Varies" / "Varies + N" can't be computed — fall back to manual AC entry
+        // Still "Varies" (variable-base with no base chosen) → fall back to manual AC
         if (bodyArmor.ac_formula.trim().toLowerCase().startsWith('varies')) {
           canComputeAC = false
         } else {
@@ -714,7 +798,7 @@ export function deriveCharacterStats(
       if (canComputeAC) {
         let shieldBonus = 0
         if (shields.length > 0) {
-          const shieldRec = armorByName.get(shields[0].name.toLowerCase())!
+          const shieldRec = resolveArmor(shields[0], armorByName.get(shields[0].name.toLowerCase())!, armorByName)
           // Magic shields carry their flat bonus in `bonus` (e.g. "+2 Shield"),
           // same as body armor above
           shieldBonus = parseArmorAC(shieldRec.ac_formula, dexMod) + (shieldRec.bonus ?? 0)
@@ -724,7 +808,20 @@ export function deriveCharacterStats(
     }
   }
 
-  // Flat AC from attuned items (Ring/Cloak of Protection) stacks on worn armor;
+  // Unarmored item AC (Robe of the Archmagi base, Bracers of Defense bonus) applies
+  // only when no body armor is worn — an app-knowable condition. A set-base replaces
+  // the unarmored base entirely (preserving any equipped shield); a conditional bonus
+  // stacks on the existing unarmored AC (manual armorClass fallback when uncomputed).
+  if (!hasBodyArmor) {
+    if (itemEffects.unarmoredAcBase != null) {
+      const shieldOnly = effectiveAC != null ? effectiveAC - (10 + dexMod) : 0
+      effectiveAC = itemEffects.unarmoredAcBase + dexMod + itemEffects.unarmoredAcBonus + shieldOnly
+    } else if (itemEffects.unarmoredAcBonus !== 0) {
+      effectiveAC = (effectiveAC ?? character.armorClass) + itemEffects.unarmoredAcBonus
+    }
+  }
+
+  // Flat AC from active items (Ring/Cloak of Protection) stacks on worn armor;
   // with no computed armor it applies over the manual armorClass the sheet already
   // uses as the unarmored fallback (preserves e.g. a caster's Mage Armor value).
   if (itemEffects.acBonus !== 0) {
@@ -753,7 +850,7 @@ export function deriveCharacterStats(
 
   return {
     effectiveAC,
-    adjustedMaxHp: character.maxHp + hpBonus + subraceHpBonus,
+    adjustedMaxHp: character.maxHp + hpBonus + subraceHpBonus + itemEffects.maxHp,
     effectiveAbilities,
     effectiveSpeed,
     effectiveInitiative,
@@ -775,5 +872,8 @@ export function deriveCharacterStats(
     weaponProficiencies,
     itemDamageBonus: itemEffects.damage,
     unarmedStrike: itemEffects.unarmed,
+    itemGrantedLanguages: itemEffects.languages,
+    resistances: itemEffects.resistances,
+    immunities: itemEffects.immunities,
   }
 }

@@ -13,21 +13,76 @@ any new invariant the fix established. Grep patterns are ripgrep syntax.
 
 Stored fields are base values. Racial ASIs, feat effects (`FeatStatDelta`,
 `FEAT_EFFECTS`, `SUBRACE_HP_BONUS`), worn-armor AC (`ac_formula` + `bonus`), and
-attuned magic-item effects apply only inside `deriveCharacterStats`. Write sites
+active magic-item effects apply only inside `deriveCharacterStats`. Write sites
 record choices (`feats`, `featChoices`, `raceAsiChoices`, `equipment`, and the
-`EquipmentItem.attuned` flag) — never resulting stat changes. Both failure
-directions are real: write-time bake ⇒ double-count; no application ⇒ data
+`EquipmentItem.attuned`/`equipped` flags) — never resulting stat changes. Both
+failure directions are real: write-time bake ⇒ double-count; no application ⇒ data
 silently ignored (see `feature-effect-system` skill for the second direction).
-**Attuned-item effects (2026-06-14):** magic items carry a structured
-`effects: ItemEffect[]` array (ac/save/ability_set/ability_bonus/skill/speed/
-initiative/damage [global flat, weapon+unarmed]/unarmed [unarmed-only die/type +
-atk/dmg override]/spell_attack/spell_save_dc). `computeAttunedItemEffects` is the single
-application helper — it reads effects ONLY for items with `attuned === true` and
-folds them into the matching derived fields. Item ability changes are **uncapped**
-(distinct from the feat-ASI `Math.min(20, …)` path). This **replaced** the old
+**Item effects (2026-06-14):** magic items carry a structured
+`effects: ItemEffect[]` array (ac [optional `condition:'unarmored'`]/unarmored_ac
+[set base, unarmored only]/save/ability_set/ability_bonus/skill/speed/initiative/
+damage [global flat, weapon+unarmed]/damage_dice [weapon-only rider, another type]/
+max_hp [flat + perLevel]/resistance/immunity/
+unarmed [unarmed-only die/type + atk/dmg override]/language [grants a known
+language, locked-derived]/spell_attack/spell_save_dc). `computeActiveItemEffects`
+(renamed from `computeAttunedItemEffects`) is the single application helper. **The
+gate is attune-vs-equip:** an item's effects apply when *active* — attune-required
+items (`catalog.attunement === true`) when `EquipmentItem.attuned`, all others when
+`EquipmentItem.equipped`. Item ability changes are **uncapped** (distinct from the
+feat-ASI `Math.min(20, …)` path). **Armor AC + its numeric `bonus`/`ac_formula` now
+also gate on worn** (`equipped || attuned`) — unworn armor is inert inventory and AC
+falls back to the manual `armorClass` stepper (2026-06-14; was previously applied for
+any armor merely present in inventory). Body-armor/shield equip is **exclusive**
+(EquipmentBlock `toggleActive` unwears the same slot) so the AC source is
+unambiguous. Weapons treat `equipped` as a **loadout label only** — it surfaces them
+in the Loadout block + activates any magic `effects[]`, but never blocks rolling
+(base to-hit/damage from `computeWeaponBonus` is always available). The **Loadout**
+block renders the SAME full `renderRow` rows as the type sections (each item shows,
+with full controls + description, in both places; in-row `ActiveTag` marks it). The
+**`damage_dice`** effect (rider damage of another type, e.g. Flame Tongue → +2d6
+fire) is **weapon-specific**: it is read from the weapon's OWN `effects` in
+`WeaponRow` (gated on the weapon being active) and threaded through the attack as
+`RollKind.extraDamage` → `DiceRollModal` rolls each rider on its own die group (crit
+doubles), NOT through the global `computeActiveItemEffects` accumulator.
+**Variable-base magic weapons** ("any sword / any weapon", detected by
+`isVariableBaseWeapon`): the player picks the mundane base via a per-item
+`EquipmentItem.baseWeapon` (stored on the equipment blob, no migration). `renderRow`
+merges the chosen base's `damage_dice`/`damage_type`/`properties`/`weapon_type` into
+the magic entry (keeping its `bonus` + `effects`) before `computeWeaponBonus`, so
+to-hit ability (finesse/ranged) and proficiency follow the real base. Unset →
+the catalog's baked default damage is the fallback. **Variable-base magic armor**
+("any armor / Varies", `isVariableBaseArmor` exported from characterStats) is the
+analog: `EquipmentItem.baseArmor` stores the chosen mundane armor and `resolveArmor`
+in the AC block swaps its `ac_formula`/`armor_type`/`stealth_disadvantage`/
+`strength_requirement` into the magic entry (keeping `bonus` + `effects`) before the
+SAME `parseArmorAC` path — no data mutation, no forked AC route. Unset → `ac_formula`
+stays "Varies", `canComputeAC = false`, AC falls back to the manual stepper. The unarmored AC effects (`ac` with
+`condition:'unarmored'`, and `unarmored_ac` set-base) apply only when no body armor
+is worn — an app-knowable condition. This **replaced** the old
 `wondrous_items.spell_focus` mechanism: spell-focus items are now authored as
-`spell_attack`/`spell_save_dc` effects and require attunement (previously merely
-equipped). The manual `spellBonusModifier` remains an override-only field.
+`spell_attack`/`spell_save_dc` effects. The manual `spellBonusModifier` remains an
+override-only field. **Charges** (`catalog.charges` + `EquipmentItem.chargesUsed`)
+are a separate **usage tracker**, NOT a stat effect — they never enter
+`deriveCharacterStats`; the pip UI lives in EquipmentBlock.
+
+**Affectability principle (the rule for authoring item effects):** for each clause of
+a magic item — (1) if the sheet has a representation for the attribute, apply it via a
+structured `ItemEffect` at render time (never a write-time bake); (2) if the clause
+needs knowledge the app cannot represent (narrative curses, creature-scoped
+(dis)advantage, **DM-chosen variable damage types** e.g. Ring/Armor of Resistance),
+ignore it; (3) when unsure whether a clause is affectable, ask. Adding a NEW
+affectable attribute = one `ItemEffect` variant + one accumulator in
+`computeActiveItemEffects` + one consumer + build validation (data→type→
+application; never per-item code). Affectability roadmap (data-only once the effect
+type exists): done = ac/unarmored_ac/save/ability/skill/speed/init/damage/
+**damage_dice**/unarmed/spell atk-DC/**language**/**max_hp**/**resistance**/
+**immunity**; future =
+proficiency grants (reuse the feat-grant lock UI); ignore = creature-scoped
+(dis)advantage, narrative curses, conditional triggers, DM-chosen variable types.
+Item-granted languages mirror feat skill grants: exposed as
+`derived.itemGrantedLanguages`, rendered locked, never written to `character.languages`.
+Resistances/immunities surface read-only in CombatBlock ("Defenses") from
+`derived.resistances`/`immunities`.
 
 - Members (fixed): BUG-01, 02, 05, 13, 36; spell focus BUG-09/21 (render-time,
   session 3; folded into attuned-item `effects` 2026-06-14)
@@ -96,15 +151,17 @@ the remove path must tear down or re-prompt.
   exist as add/remove-symmetry problems — the spell-focus bonus moved to
   **render-time derivation** (INV-1). As of 2026-06-14 the `spell_focus` field is
   gone entirely: spell-focus items are authored as `spell_attack`/`spell_save_dc`
-  entries in their `effects` array and apply via `computeAttunedItemEffects` while
-  attuned (per-class scoping dropped in v1). No add/remove prompt, no
+  entries in their `effects` array and apply via `computeActiveItemEffects` while
+  active (per-class scoping dropped in v1). No add/remove prompt, no
   `SPELL_BONUS_ITEM_NAMES` set. `character.spellBonusModifier` survives only as a
   manual homebrew override (SpellBlock pencil affordance) — default 0.
 - Recipe: for each `addX`, read the paired `removeX` and diff their side effects.
-  Attunement toggles are pure flag flips (`updateItem(id, { attuned })`) — effects
-  derive at render time, so there is nothing to tear down. Verify no write site
-  bakes item effects or mutates `spellBonusModifier` on attune/unattune:
-  `rg -n "spellBonusModifier|spell_focus|attuned" src/`
+  Activation toggles are pure flag flips (`updateItem(id, { attuned })` for
+  attune-required items, `{ equipped }` otherwise) — effects derive at render time,
+  so there is nothing to tear down. Charges flip `chargesUsed` only (usage state, no
+  stat effect). Verify no write site bakes item effects or mutates
+  `spellBonusModifier`/HP/AC on activate/deactivate:
+  `rg -n "spellBonusModifier|spell_focus|attuned|equipped|chargesUsed" src/`
 
 ## INV-7 — Threshold-crossing state resets per RAW — ENFORCED
 

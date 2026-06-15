@@ -880,7 +880,7 @@ export default function CharacterPage() {
               onSave={save}
             />
           )}
-          <DescriptionBlock character={character} onSave={save} />
+          <DescriptionBlock character={character} derived={derived} onSave={save} />
 
         </div>
       </main>

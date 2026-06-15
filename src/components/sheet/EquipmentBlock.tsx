@@ -4,12 +4,12 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { StepperField } from './StepperField'
 import { generateId } from '@/lib/uuid'
-import { computeWeaponBonus, summarizeItemEffects } from '@/lib/characterStats'
+import { computeWeaponBonus, summarizeItemEffects, isVariableBaseArmor } from '@/lib/characterStats'
 import { abilityModifier } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
-import type { WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData } from '@/types/data'
+import type { WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData, ItemCharges } from '@/types/data'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
 import type { DerivedStats } from '@/lib/characterStats'
 
@@ -73,17 +73,153 @@ function parseCustomDamage(s: string): { damageDice: string; damageBonus: number
   }
 }
 
-function AttuneToggle({ attuned, onToggle }: { attuned?: boolean; onToggle?: () => void }) {
+// A magic weapon built on "any sword / any weapon / …" has no fixed base — the
+// player chooses the mundane weapon it's forged from (EquipmentItem.baseWeapon).
+function isVariableBaseWeapon(w: WeaponItem): boolean {
+  if (!w.magical) return false
+  if (w.weapon_type === 'Varies') return true
+  return /\bany\b/i.test(w.base_weapon_type ?? '')
+}
+
+// Mundane weapons the player may pick as the base, narrowed from the item's
+// `base_weapon_type` hint (category words like simple/martial/melee/ranged and a
+// weapon-class keyword like "sword"). Falls back to all mundane weapons.
+const WEAPON_CLASS_KEYWORDS = [
+  'sword', 'axe', 'bow', 'hammer', 'mace', 'dagger', 'spear', 'flail', 'glaive',
+  'halberd', 'club', 'whip', 'sickle', 'trident', 'lance', 'pike', 'maul',
+  'crossbow', 'sling', 'dart', 'javelin', 'morningstar', 'quarterstaff', 'scimitar',
+  'rapier', 'pick',
+]
+const SWORD_NAMES = ['sword', 'scimitar', 'rapier']
+
+// Mundane armors the player may pick as the base for an "any armor / Varies" magic
+// armor, narrowed from the `base_armor_type` hint (light/medium/heavy/plate, and a
+// "(not hide)" exclusion). Falls back to all mundane body armor.
+function baseArmorCandidates(baseType: string | null | undefined, armorList: ArmorItem[]): ArmorItem[] {
+  const t = (baseType ?? '').toLowerCase()
+  let pool = armorList.filter(
+    a => !a.magical && a.armor_type !== 'Shield' && !a.ac_formula.trim().toLowerCase().startsWith('varies'),
+  )
+  const wantsLight = t.includes('light')
+  const wantsMedium = t.includes('medium')
+  const wantsHeavy = t.includes('heavy')
+  if (wantsLight || wantsMedium || wantsHeavy) {
+    pool = pool.filter(a =>
+      (wantsLight && a.armor_type === 'Light') ||
+      (wantsMedium && a.armor_type === 'Medium') ||
+      (wantsHeavy && a.armor_type === 'Heavy'),
+    )
+  } else if (t.includes('plate')) {
+    // "any plate armor" / "breastplate, half plate, or plate"
+    const narrowed = pool.filter(a => /plate/.test(a.name.toLowerCase()))
+    if (narrowed.length > 0) pool = narrowed
+  }
+  if (t.includes('not hide')) pool = pool.filter(a => !/hide/.test(a.name.toLowerCase()))
+  return pool
+}
+
+function baseWeaponCandidates(baseType: string | null | undefined, weapons: WeaponItem[]): WeaponItem[] {
+  const t = (baseType ?? '').toLowerCase()
+  let pool = weapons.filter(w => !w.magical && w.damage_dice)
+  if (t.includes('simple')) pool = pool.filter(w => w.weapon_type.toLowerCase().includes('simple'))
+  if (t.includes('martial')) pool = pool.filter(w => w.weapon_type.toLowerCase().includes('martial'))
+  if (t.includes('melee')) pool = pool.filter(w => w.weapon_type.toLowerCase().includes('melee'))
+  if (t.includes('ranged')) pool = pool.filter(w => w.weapon_type.toLowerCase().includes('ranged'))
+  const kw = WEAPON_CLASS_KEYWORDS.find(k => t.includes(k))
+  if (kw) {
+    const names = kw === 'sword' ? SWORD_NAMES : [kw]
+    const narrowed = pool.filter(w => names.some(n => w.name.toLowerCase().includes(n)))
+    if (narrowed.length > 0) pool = narrowed
+  }
+  return pool
+}
+
+// One toggle for both gates: attune-required items show Attune/Unattune, non-attune
+// items show Equip/Unequip. Active (attuned or equipped) items render in gold.
+function ActivateToggle({
+  requiresAttunement,
+  active,
+  onToggle,
+}: {
+  requiresAttunement: boolean
+  active: boolean
+  onToggle?: () => void
+}) {
   if (!onToggle) return null
+  const label = requiresAttunement
+    ? (active ? 'Unattune' : 'Attune')
+    : (active ? 'Unequip' : 'Equip')
   return (
     <button
       onClick={onToggle}
       className="flex items-center gap-1 hover:opacity-75 transition-opacity"
-      style={attuned ? { color: 'var(--color-accent-gold)' } : undefined}
+      style={active ? { color: 'var(--color-accent-gold)' } : undefined}
     >
       <Sparkles className="h-3.5 w-3.5" />
-      <span>{attuned ? 'Unattune' : 'Attune'}</span>
+      <span>{label}</span>
     </button>
+  )
+}
+
+// Small inline pill marking a row as worn/active in its type section (the same item
+// also appears, compactly, in the Loadout block).
+function ActiveTag({ requiresAttunement, active }: { requiresAttunement: boolean; active: boolean }) {
+  if (!active) return null
+  return (
+    <span
+      className="px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide flex-none border"
+      style={{ color: 'var(--color-accent-gold)', borderColor: 'var(--color-accent-gold)' }}
+    >
+      {requiresAttunement ? 'Attuned' : 'Equipped'}
+    </span>
+  )
+}
+
+// Limited-use charge pips. Filled = remaining (max − used), drained left-to-right.
+// Clicking a pip spends/restores to that point (death-saves toggle semantics); the
+// app has no automatic rest, so a manual Reset refills. Usage tracker only.
+function ChargesTracker({
+  charges,
+  used,
+  onSetCharges,
+}: {
+  charges: ItemCharges
+  used: number
+  onSetCharges: (used: number) => void
+}) {
+  const max = charges.max
+  const remaining = Math.max(0, max - Math.max(0, used))
+  const rechargeLabel = charges.recharge ? charges.recharge.replace('_', ' ') : null
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="font-semibold text-foreground">Charges:</span>
+      <div className="flex gap-1 flex-wrap">
+        {Array.from({ length: max }).map((_, i) => {
+          const filled = i < remaining
+          return (
+            <button
+              key={i}
+              onClick={() => onSetCharges(max - (filled ? i : i + 1))}
+              className="w-3.5 h-3.5 rounded-full border-2 transition-all"
+              style={{
+                borderColor: 'var(--color-accent-gold)',
+                background: filled ? 'var(--color-accent-gold)' : 'transparent',
+              }}
+              title={`${remaining}/${max} remaining`}
+            />
+          )
+        })}
+      </div>
+      <span className="text-muted-foreground">{remaining}/{max}</span>
+      <button onClick={() => onSetCharges(0)} className="hover:text-foreground transition-colors underline">
+        Reset
+      </button>
+      {(rechargeLabel || charges.regain) && (
+        <span className="text-[10px] text-muted-foreground">
+          regains {charges.regain ? `${charges.regain} ` : ''}{rechargeLabel ? `at ${rechargeLabel}` : ''}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -135,7 +271,12 @@ function WeaponRow({
   derived,
   onUpdate,
   onRemove,
-  onToggleAttune,
+  requiresAttunement,
+  active,
+  onToggleActive,
+  charges,
+  variableBase = false,
+  baseOptions = [],
 }: {
   item: EquipmentItem
   weapon: WeaponItem
@@ -143,12 +284,23 @@ function WeaponRow({
   derived: DerivedStats
   onUpdate: (changes: Partial<EquipmentItem>) => void
   onRemove: () => void
-  onToggleAttune?: () => void
+  requiresAttunement: boolean
+  active: boolean
+  onToggleActive?: () => void
+  charges?: ItemCharges
+  variableBase?: boolean
+  baseOptions?: SelectionEntry[]
 }) {
   const { dispatch } = useRollDispatch(derived)
   const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus)
+  // Rider damage of another type (Flame Tongue → +2d6 fire) applies only while the
+  // weapon is active (equipped/attuned per its requirement); crit doubles it.
+  const riderDamage = active
+    ? (weapon.effects ?? []).flatMap(e => e.type === 'damage_dice' ? [{ dice: e.dice, damageType: e.damageType }] : [])
+    : []
+  const riderSuffix = riderDamage.map(r => `+${r.dice} ${r.damageType}`).join(' ')
   const displayToHit = item.customToHit ?? calc.toHit
-  const displayDamage = item.customDamage ?? calc.damage
+  const displayDamage = (item.customDamage ?? calc.damage) + (riderSuffix ? ` ${riderSuffix}` : '')
   const rollModifier = item.customToHit !== undefined
     ? (parseInt(item.customToHit.replace(/^\+/, ''), 10) || 0)
     : calc.toHitModifier
@@ -159,6 +311,7 @@ function WeaponRow({
   const rollDamageType = customDmg?.damageType || calc.damageType
   const [expanded, setExpanded] = useState(false)
   const [editingStats, setEditingStats] = useState(false)
+  const [basePickerOpen, setBasePickerOpen] = useState(false)
   const [toHitDraft, setToHitDraft] = useState(displayToHit)
   const [damageDraft, setDamageDraft] = useState(displayDamage)
 
@@ -182,6 +335,7 @@ function WeaponRow({
             <span className="text-xs text-muted-foreground ml-1.5">×{item.quantity}</span>
           )}
         </button>
+        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
         <div className="flex items-center gap-2 text-xs flex-none">
           <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
             {displayToHit}
@@ -189,12 +343,29 @@ function WeaponRow({
           <span className="text-muted-foreground">{displayDamage}</span>
         </div>
         <RollButton
-          onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType })}
+          onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage })}
         />
       </div>
 
       {expanded && (
         <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
+          {weapon.description && <p>{weapon.description}</p>}
+          {variableBase && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-foreground">Base weapon:</span>
+              {item.baseWeapon
+                ? <span style={{ color: 'var(--color-accent-gold)' }}>{item.baseWeapon}</span>
+                : <span className="italic">not set — using default</span>}
+              <button onClick={() => setBasePickerOpen(true)} className="underline hover:text-foreground transition-colors">
+                {item.baseWeapon ? 'Change' : 'Choose'}
+              </button>
+              {item.baseWeapon && (
+                <button onClick={() => onUpdate({ baseWeapon: undefined })} className="underline hover:text-foreground transition-colors">
+                  Reset
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex gap-x-4 gap-y-1 flex-wrap">
             <span><span className="font-semibold text-foreground">Type:</span> {weapon.weapon_type}</span>
             {weapon.properties.length > 0 && (
@@ -210,6 +381,10 @@ function WeaponRow({
               <span className="text-[10px]">(custom stats)</span>
             )}
           </div>
+
+          {charges && (
+            <ChargesTracker charges={charges} used={item.chargesUsed ?? 0} onSetCharges={u => onUpdate({ chargesUsed: u })} />
+          )}
 
           {editingStats ? (
             <div className="flex items-center gap-2 flex-wrap">
@@ -243,7 +418,7 @@ function WeaponRow({
                 <span>Edit stats</span>
               </button>
               <div className="ml-auto flex items-center gap-3">
-                <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
+                <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
                 <button
                   onClick={onRemove}
                   className="flex items-center gap-1 hover:text-destructive transition-colors"
@@ -256,6 +431,16 @@ function WeaponRow({
           )}
         </div>
       )}
+      {variableBase && (
+        <SelectionList
+          entries={baseOptions}
+          value={item.baseWeapon ?? ''}
+          title="Choose Base Weapon"
+          open={basePickerOpen}
+          onClose={() => setBasePickerOpen(false)}
+          onSelect={name => { onUpdate({ baseWeapon: name }); setBasePickerOpen(false) }}
+        />
+      )}
     </div>
   )
 }
@@ -264,12 +449,16 @@ function ArmorRow({
   item,
   armor,
   onRemove,
-  onToggleAttune,
+  requiresAttunement,
+  active,
+  onToggleActive,
 }: {
   item: EquipmentItem
   armor: ArmorItem
   onRemove: () => void
-  onToggleAttune?: () => void
+  requiresAttunement: boolean
+  active: boolean
+  onToggleActive?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -282,6 +471,7 @@ function ArmorRow({
         >
           {item.name}
         </button>
+        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
         <div className="flex items-center gap-3 text-xs flex-none">
           <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
             AC {armor.ac_formula}
@@ -295,6 +485,7 @@ function ArmorRow({
 
       {expanded && (
         <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
+          {armor.description && <p>{armor.description}</p>}
           <div className="flex gap-x-4 gap-y-1 flex-wrap">
             <span><span className="font-semibold text-foreground">Type:</span> {armor.armor_type}</span>
             <span><span className="font-semibold text-foreground">AC:</span> {armor.ac_formula}</span>
@@ -312,7 +503,7 @@ function ArmorRow({
             )}
           </div>
           <div className="flex justify-end items-center gap-3">
-            <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
+            <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
               onClick={onRemove}
               className="flex items-center gap-1 hover:text-destructive transition-colors"
@@ -331,12 +522,16 @@ function ItemRow({
   item,
   onUpdate,
   onRemove,
-  onToggleAttune,
+  requiresAttunement,
+  active,
+  onToggleActive,
 }: {
   item: EquipmentItem
   onUpdate: (changes: Partial<EquipmentItem>) => void
   onRemove: () => void
-  onToggleAttune?: () => void
+  requiresAttunement: boolean
+  active: boolean
+  onToggleActive?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [editingName, setEditingName] = useState(false)
@@ -360,6 +555,7 @@ function ItemRow({
             <span className="text-xs text-muted-foreground ml-1.5">×{item.quantity}</span>
           )}
         </button>
+        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
       </div>
 
       {expanded && (
@@ -390,7 +586,7 @@ function ItemRow({
               <Pencil className="h-3 w-3" />
             </button>
             <div className="ml-auto flex items-center gap-3 text-xs">
-              <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
+              <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
               <button
                 onClick={onRemove}
                 className="flex items-center gap-1 text-muted-foreground hover:text-destructive transition-colors"
@@ -418,13 +614,19 @@ const RARITY_COLORS: Record<string, string> = {
 function MagicItemRow({
   item,
   wondrousItem,
+  onUpdate,
   onRemove,
-  onToggleAttune,
+  requiresAttunement,
+  active,
+  onToggleActive,
 }: {
   item: EquipmentItem
   wondrousItem: WondrousItem
+  onUpdate: (changes: Partial<EquipmentItem>) => void
   onRemove: () => void
-  onToggleAttune?: () => void
+  requiresAttunement: boolean
+  active: boolean
+  onToggleActive?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const rarityColor = RARITY_COLORS[wondrousItem.rarity] ?? 'var(--color-text-muted)'
@@ -438,6 +640,7 @@ function MagicItemRow({
         >
           {item.name}
         </button>
+        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
         <div className="flex items-center gap-2 text-xs flex-none">
           <span className="font-semibold" style={{ color: rarityColor }}>
             {wondrousItem.rarity}
@@ -453,8 +656,11 @@ function MagicItemRow({
           {wondrousItem.description && (
             <p>{wondrousItem.description}</p>
           )}
+          {wondrousItem.charges && (
+            <ChargesTracker charges={wondrousItem.charges} used={item.chargesUsed ?? 0} onSetCharges={u => onUpdate({ chargesUsed: u })} />
+          )}
           <div className="flex justify-end items-center gap-3">
-            <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
+            <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
               onClick={onRemove}
               className="flex items-center gap-1 hover:text-destructive transition-colors"
@@ -472,16 +678,30 @@ function MagicItemRow({
 function MagicArmorRow({
   item,
   armor,
+  onUpdate,
   onRemove,
-  onToggleAttune,
+  requiresAttunement,
+  active,
+  onToggleActive,
+  variableBase = false,
+  baseOptions = [],
 }: {
   item: EquipmentItem
   armor: ArmorItem
+  onUpdate: (changes: Partial<EquipmentItem>) => void
   onRemove: () => void
-  onToggleAttune?: () => void
+  requiresAttunement: boolean
+  active: boolean
+  onToggleActive?: () => void
+  variableBase?: boolean
+  baseOptions?: SelectionEntry[]
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [basePickerOpen, setBasePickerOpen] = useState(false)
   const rarityColor = RARITY_COLORS[armor.rarity ?? ''] ?? 'var(--color-text-muted)'
+  // armor is already resolved to the chosen base (renderRow), so ac_formula is real
+  // unless the base hasn't been picked yet (still "Varies").
+  const acUnresolved = armor.ac_formula.trim().toLowerCase().startsWith('varies')
 
   return (
     <div className="border-b border-border last:border-0">
@@ -492,7 +712,13 @@ function MagicArmorRow({
         >
           {item.name}
         </button>
+        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
         <div className="flex items-center gap-2 text-xs flex-none">
+          {!acUnresolved && (
+            <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+              AC {armor.ac_formula}
+            </span>
+          )}
           <span className="font-semibold" style={{ color: rarityColor }}>
             {armor.rarity}
           </span>
@@ -507,8 +733,27 @@ function MagicArmorRow({
       {expanded && (
         <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
           {armor.description && <p>{armor.description}</p>}
+          {variableBase && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-foreground">Base armor:</span>
+              {item.baseArmor
+                ? <span style={{ color: 'var(--color-accent-gold)' }}>{item.baseArmor}</span>
+                : <span className="italic">not set — AC uses manual entry</span>}
+              <button onClick={() => setBasePickerOpen(true)} className="underline hover:text-foreground transition-colors">
+                {item.baseArmor ? 'Change' : 'Choose'}
+              </button>
+              {item.baseArmor && (
+                <button onClick={() => onUpdate({ baseArmor: undefined })} className="underline hover:text-foreground transition-colors">
+                  Reset
+                </button>
+              )}
+            </div>
+          )}
+          {armor.charges && (
+            <ChargesTracker charges={armor.charges} used={item.chargesUsed ?? 0} onSetCharges={u => onUpdate({ chargesUsed: u })} />
+          )}
           <div className="flex justify-end items-center gap-3">
-            <AttuneToggle attuned={item.attuned} onToggle={onToggleAttune} />
+            <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
               onClick={onRemove}
               className="flex items-center gap-1 hover:text-destructive transition-colors"
@@ -518,6 +763,16 @@ function MagicArmorRow({
             </button>
           </div>
         </div>
+      )}
+      {variableBase && (
+        <SelectionList
+          entries={baseOptions}
+          value={item.baseArmor ?? ''}
+          title="Choose Base Armor"
+          open={basePickerOpen}
+          onClose={() => setBasePickerOpen(false)}
+          onSelect={name => { onUpdate({ baseArmor: name }); setBasePickerOpen(false) }}
+        />
       )}
     </div>
   )
@@ -674,24 +929,45 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
     return [{ label: 'Gear', entries: gearEntries }, ...typeTabs]
   }, [gearEntries, wondrousEntries])
 
-  // Attuned items are pulled out of their normal category lists into the Attuned section
-  const attunedItems = character.equipment.filter(e => e.attuned)
-  const attunedCount = attunedItems.length
+  // Does this item's catalog entry require attunement? (attune-required items gate
+  // their effects on `attuned`; everything else on `equipped`.)
+  function requiresAttunementFor(name: string): boolean {
+    const n = name.toLowerCase()
+    const w = wondrousItemByName.get(n)
+    if (w) return w.attunement
+    const a = armorByName.get(n)
+    if (a) return a.attunement ?? false
+    const wp = weaponByName.get(n)
+    if (wp) return wp.attunement ?? false
+    return false
+  }
+  // An item is "active" (its effects apply, and it shows in Active Items) when the
+  // gate matching its type is set.
+  function isActive(item: EquipmentItem): boolean {
+    return requiresAttunementFor(item.name) ? !!item.attuned : !!item.equipped
+  }
+
+  // Active items (worn armor / equipped weapons / attuned or equipped magic items)
+  // also surface in the Loadout block — but they STILL appear in their type section
+  // below, tagged. So the type-section filters no longer exclude active items.
+  const activeItems = character.equipment.filter(isActive)
+  // The 3-item cap applies only to attune-required items; equipping costs nothing.
+  const attunedCount = activeItems.filter(e => requiresAttunementFor(e.name)).length
 
   const weaponItems = character.equipment.filter(
-    e => !e.attuned && (weaponByName.has(e.name.toLowerCase()) ||
-      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'weapon')),
+    e => weaponByName.has(e.name.toLowerCase()) ||
+      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'weapon'),
   )
   const armorItems = character.equipment.filter(
-    e => !e.attuned && (armorByName.has(e.name.toLowerCase()) ||
-      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'armor')),
+    e => armorByName.has(e.name.toLowerCase()) ||
+      (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'armor'),
   )
   const wondrousInItems = character.equipment.filter(
-    e => !e.attuned && wondrousItemByName.has(e.name.toLowerCase()) &&
+    e => wondrousItemByName.has(e.name.toLowerCase()) &&
       (e.displayCategory === 'item' || e.displayCategory === undefined),
   )
   const gearItems = character.equipment.filter(
-    e => !e.attuned && !weaponByName.has(e.name.toLowerCase()) &&
+    e => !weaponByName.has(e.name.toLowerCase()) &&
       !armorByName.has(e.name.toLowerCase()) &&
       !wondrousItemByName.has(e.name.toLowerCase()),
   )
@@ -713,40 +989,126 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
   function setCurrency(key: keyof Currency, value: number) {
     onSave({ currency: { ...character.currency, [key]: value } })
   }
-  function toggleAttune(item: EquipmentItem) {
-    updateItem(item.id, { attuned: !item.attuned })
+  // Flip the gate matching the item's type: attune-required → `attuned`, else
+  // `equipped`. Wearing a body armor (or a shield) is exclusive: activating one
+  // unwears any other body armor (resp. shield) so the AC source is unambiguous.
+  function toggleActive(item: EquipmentItem) {
+    const reqAtt = requiresAttunementFor(item.name)
+    const field: 'attuned' | 'equipped' = reqAtt ? 'attuned' : 'equipped'
+    const turningOn = !item[field]
+
+    const thisArmor = armorByName.get(item.name.toLowerCase())
+    const thisSlot = thisArmor
+      ? (thisArmor.armor_type === 'Shield' ? 'shield' : 'body')
+      : null
+
+    const next = character.equipment.map(e => {
+      if (e.id === item.id) return { ...e, [field]: turningOn }
+      // Exclusivity: only when turning a body/shield piece ON, unwear the same slot
+      if (turningOn && thisSlot) {
+        const a = armorByName.get(e.name.toLowerCase())
+        if (a && (a.armor_type === 'Shield' ? 'shield' : 'body') === thisSlot && (e.equipped || e.attuned)) {
+          return { ...e, equipped: false, attuned: false }
+        }
+      }
+      return e
+    })
+    onSave({ equipment: next })
   }
 
-  // Look up a catalog item's effects (for the Attuned-section summary line)
+  // Look up a catalog item's effects (for the Loadout summary line)
   function itemEffectsFor(name: string) {
     const n = name.toLowerCase()
     return weaponByName.get(n)?.effects ?? armorByName.get(n)?.effects ?? wondrousItemByName.get(n)?.effects
   }
 
+
   // Dispatch an equipment item to the right row component by catalog type.
-  // Shared across every section, including Attuned.
+  // Shared by the type sections (Weapons/Armor/Items) AND the Loadout block — the
+  // same item renders, with full controls, in both places (each instance keeps its
+  // own expand state). The in-row ActiveTag marks worn/attuned items in both.
   function renderRow(item: EquipmentItem) {
     const n = item.name.toLowerCase()
+    const reqAtt = requiresAttunementFor(item.name)
+    const active = isActive(item)
+    const onToggleActive = () => toggleActive(item)
     const weapon = weaponByName.get(n)
     if (weapon) {
+      // "Any sword / any weapon" magic weapons: the chosen mundane base drives
+      // damage/type/properties; the magic entry's bonus + effects (rider) stay.
+      const variableBase = isVariableBaseWeapon(weapon)
+      let effWeapon = weapon
+      if (variableBase && item.baseWeapon) {
+        const base = weaponByName.get(item.baseWeapon.toLowerCase())
+        if (base) {
+          effWeapon = {
+            ...weapon,
+            damage_dice: base.damage_dice,
+            damage_type: base.damage_type,
+            properties: base.properties,
+            weapon_type: base.weapon_type,
+          }
+        }
+      }
+      const baseOptions = variableBase
+        ? buildWeaponEntries(baseWeaponCandidates(weapon.base_weapon_type, catalog?.weapons ?? []))
+        : []
       return (
         <WeaponRow
           key={item.id}
           item={item}
-          weapon={weapon}
+          weapon={effWeapon}
           character={character}
           derived={derived}
           onUpdate={changes => updateItem(item.id, changes)}
           onRemove={() => removeItem(item.id)}
-          onToggleAttune={() => toggleAttune(item)}
+          requiresAttunement={reqAtt}
+          active={active}
+          onToggleActive={onToggleActive}
+          charges={weapon.charges}
+          variableBase={variableBase}
+          baseOptions={baseOptions}
         />
       )
     }
     const armor = armorByName.get(n)
     if (armor) {
-      return armor.magical
-        ? <MagicArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} onToggleAttune={() => toggleAttune(item)} />
-        : <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} onToggleAttune={() => toggleAttune(item)} />
+      if (!armor.magical) {
+        return <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} requiresAttunement={reqAtt} active={active} onToggleActive={onToggleActive} />
+      }
+      // "Any armor / Varies" magic armor: resolve the chosen mundane base so the row
+      // shows a real AC formula; the AC derivation does the same resolution.
+      const variableBase = isVariableBaseArmor(armor)
+      let effArmor = armor
+      if (variableBase && item.baseArmor) {
+        const base = armorByName.get(item.baseArmor.toLowerCase())
+        if (base) {
+          effArmor = {
+            ...armor,
+            ac_formula: base.ac_formula,
+            armor_type: base.armor_type,
+            stealth_disadvantage: base.stealth_disadvantage,
+            strength_requirement: base.strength_requirement,
+          }
+        }
+      }
+      const baseOptions = variableBase
+        ? buildArmorEntries(baseArmorCandidates(armor.base_armor_type, catalog?.armor ?? []))
+        : []
+      return (
+        <MagicArmorRow
+          key={item.id}
+          item={item}
+          armor={effArmor}
+          onUpdate={changes => updateItem(item.id, changes)}
+          onRemove={() => removeItem(item.id)}
+          requiresAttunement={reqAtt}
+          active={active}
+          onToggleActive={onToggleActive}
+          variableBase={variableBase}
+          baseOptions={baseOptions}
+        />
+      )
     }
     const wondrousItem = wondrousItemByName.get(n)
     if (wondrousItem) {
@@ -755,8 +1117,11 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
           key={item.id}
           item={item}
           wondrousItem={wondrousItem}
+          onUpdate={changes => updateItem(item.id, changes)}
           onRemove={() => removeItem(item.id)}
-          onToggleAttune={() => toggleAttune(item)}
+          requiresAttunement={reqAtt}
+          active={active}
+          onToggleActive={onToggleActive}
         />
       )
     }
@@ -766,7 +1131,9 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
         item={item}
         onUpdate={changes => updateItem(item.id, changes)}
         onRemove={() => removeItem(item.id)}
-        onToggleAttune={() => toggleAttune(item)}
+        requiresAttunement={reqAtt}
+        active={active}
+        onToggleActive={onToggleActive}
       />
     )
   }
@@ -777,18 +1144,19 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
         Equipment
       </h2>
 
-      {/* Attuned — magic items whose effects are active; pulled out of the lists below */}
-      {attunedItems.length > 0 && (
+      {/* Loadout — compact, read-only summary of everything currently worn/wielded/
+          attuned. Each item also appears (with full controls) in its type section. */}
+      {activeItems.length > 0 && (
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Attuned
+              Loadout
             </p>
             <span
               className="text-xs font-semibold"
               style={{ color: attunedCount > 3 ? 'var(--color-accent-gold)' : 'var(--color-text-muted)' }}
             >
-              {attunedCount}/3
+              {attunedCount}/3 attuned
             </span>
           </div>
           {attunedCount > 3 && (
@@ -797,7 +1165,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
             </p>
           )}
           <div>
-            {attunedItems.map(item => {
+            {activeItems.map(item => {
               const summary = summarizeItemEffects(itemEffectsFor(item.name))
               return (
                 <div key={item.id}>

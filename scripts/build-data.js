@@ -38,8 +38,27 @@ function validateEffects(item, label) {
   item.effects.forEach((e, i) => {
     const at = `${label}: effects[${i}]`
     switch (e?.type) {
-      case 'ac': case 'speed': case 'initiative': case 'damage': case 'spell_attack': case 'spell_save_dc':
+      case 'speed': case 'initiative': case 'damage': case 'spell_attack': case 'spell_save_dc':
         if (!isNum(e.amount)) errors.push(`${at} (${e.type}): "amount" must be a number`)
+        break
+      case 'ac':
+        if (!isNum(e.amount)) errors.push(`${at} (ac): "amount" must be a number`)
+        if (e.condition !== undefined && e.condition !== 'unarmored') errors.push(`${at} (ac): invalid condition "${e.condition}"`)
+        break
+      case 'unarmored_ac':
+        if (!isNum(e.base)) errors.push(`${at} (unarmored_ac): "base" must be a number`)
+        break
+      case 'max_hp':
+        if (e.amount === undefined && e.perLevel === undefined) errors.push(`${at} (max_hp): needs "amount" or "perLevel"`)
+        if (e.amount !== undefined && !isNum(e.amount)) errors.push(`${at} (max_hp): "amount" must be a number`)
+        if (e.perLevel !== undefined && !isNum(e.perLevel)) errors.push(`${at} (max_hp): "perLevel" must be a number`)
+        break
+      case 'resistance': case 'immunity':
+        if (typeof e.damageType !== 'string' || e.damageType.trim() === '') errors.push(`${at} (${e.type}): "damageType" must be a non-empty string`)
+        break
+      case 'damage_dice':
+        if (typeof e.dice !== 'string' || !/^\d+d\d+$/.test(e.dice)) errors.push(`${at} (damage_dice): "dice" must match NdM (e.g. "2d6")`)
+        if (typeof e.damageType !== 'string' || e.damageType.trim() === '') errors.push(`${at} (damage_dice): "damageType" must be a non-empty string`)
         break
       case 'save':
         if (e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability))
@@ -58,6 +77,9 @@ function validateEffects(item, label) {
         if (!EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (skill): invalid skill "${e.skill}"`)
         if (!isNum(e.amount)) errors.push(`${at} (skill): "amount" must be a number`)
         break
+      case 'language':
+        if (typeof e.name !== 'string' || e.name.trim() === '') errors.push(`${at} (language): "name" must be a non-empty string`)
+        break
       case 'unarmed':
         if (e.dice !== undefined && typeof e.dice !== 'string') errors.push(`${at} (unarmed): "dice" must be a string`)
         if (e.damageType !== undefined && typeof e.damageType !== 'string') errors.push(`${at} (unarmed): "damageType" must be a string`)
@@ -68,6 +90,21 @@ function validateEffects(item, label) {
         errors.push(`${at}: unknown effect type "${e?.type}"`)
     }
   })
+}
+
+// ── Item charges validation (mirrors ItemCharges in src/types/data.ts) ──
+const CHARGE_RECHARGES = new Set(['dawn', 'dusk', 'long_rest', 'short_rest'])
+
+function validateCharges(item, label) {
+  if (item.charges === undefined) return
+  const c = item.charges
+  if (typeof c !== 'object' || c === null) {
+    errors.push(`${label}: "charges" must be an object`)
+    return
+  }
+  if (!Number.isInteger(c.max) || c.max <= 0) errors.push(`${label} (charges): "max" must be a positive integer`)
+  if (c.recharge !== undefined && !CHARGE_RECHARGES.has(c.recharge)) errors.push(`${label} (charges): invalid recharge "${c.recharge}"`)
+  if (c.regain !== undefined && typeof c.regain !== 'string') errors.push(`${label} (charges): "regain" must be a string`)
 }
 
 function readJson(path) {
@@ -184,7 +221,10 @@ const equipment = (() => {
         if (item[f] === undefined || item[f] === null)
           errors.push(`${label}: missing required field "${f}"`)
       }
-      if (type === 'weapons' || type === 'armor' || type === 'wondrous_items') validateEffects(item, label)
+      if (type === 'weapons' || type === 'armor' || type === 'wondrous_items') {
+        validateEffects(item, label)
+        validateCharges(item, label)
+      }
       if (item._review?.length) warnings.push(`${label}: has ${item._review.length} _review note(s)`)
     }
     out[type] = entries

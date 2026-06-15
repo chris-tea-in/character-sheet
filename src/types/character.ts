@@ -37,7 +37,11 @@ export interface EquipmentItem {
   customDamage?: string  // overrides catalog damage display
   customToHit?: string   // overrides calculated to-hit display
   displayCategory?: 'weapon' | 'armor' | 'item'  // for magic items: which section to show in
-  attuned?: boolean      // when true, the item's catalog `effects` apply at render time (deriveCharacterStats) and it renders in the Attuned section
+  attuned?: boolean      // attune-required items: when true the catalog `effects` apply at render time and the item shows in Active Items
+  equipped?: boolean     // non-attune items: when true the catalog `effects` apply at render time (the equip gate, parallel to `attuned`)
+  chargesUsed?: number   // limited-use items: charges spent (catalog `charges.max` − chargesUsed = remaining); usage tracker only, no stat effect
+  baseWeapon?: string    // for "any sword/any weapon" magic weapons: the chosen mundane base weapon name; its damage/type/properties drive the stats
+  baseArmor?: string     // for "any armor / Varies" magic armors: the chosen mundane base armor name; its ac_formula/type/stealth/STR drive the AC
 }
 
 export interface CharacterSpell {

@@ -35,15 +35,20 @@ RENDER   CharacterPage ─▶ deriveCharacterStats(character,        ▼
 | `maxHp` (rolled/average only) | `adjustedMaxHp` | Tough (`FEAT_EFFECTS`), `SUBRACE_HP_BONUS` (hill-dwarf) |
 | `skillProficiencies` | `effectiveSkillProficiencies`, `skillModifiers` | feat skill grants (Skilled, Prodigy) |
 | `savingThrowProficiencies` | `effectiveSaveProficiencies`, `saveModifiers` | feat save proficiencies (Resilient) |
-| `armorClass` (manual fallback) | `effectiveAC` | equipped armor `ac_formula` (parser handles magic shapes + `Varies` fallback) + `bonus`, shield + `bonus` |
+| `armorClass` (manual fallback); `equipment[].equipped`/`attuned`/`baseArmor` | `effectiveAC` | only *worn* armor (`equipped \|\| attuned`) contributes — unworn armor is inert inventory. `ac_formula` (parser handles magic shapes) + `bonus`, shield + `bonus`. Variable-base armor (`Varies`/"any armor") is resolved to its chosen mundane base via `resolveArmor` (`EquipmentItem.baseArmor`) before parsing; unset → `Varies` → manual-AC fallback. Body-armor/shield equip is exclusive (EquipmentBlock `toggleActive` unwears the same slot). |
 | `skillProficiencies` (also) | `effectiveSkillProficiencies`, `featSkillGrants` | feat skill/expertise grants; UI renders + locks from these, not the raw record |
 | `hitDiceUsed` (single-class) / `hitDiceUsedByClass` (multiclass) | — | per-class hit-dice pools; migration v10 added the keyed field |
 | — | `weaponProficiencies` | lowercased union across ALL class records |
-| `spellBonusModifier` (manual override, default 0); `equipment[].attuned` | `spellAttackBonus`, `spellSaveDC`, `effectiveAC`, `effectiveAbilities`, `saveModifiers`, `skillModifiers`, `effectiveSpeed`, `effectiveInitiativeBonus` | first class record with `spellcasting.ability` + attuned items' `effects` (`spell_attack`/`spell_save_dc`, via `computeAttunedItemEffects`) + manual override. Attuned magic-item `effects` (ac/save/ability/skill/speed/init/damage) fold into the matching derived field (damage → `itemDamageBonus`, applied to weapon + unarmed damage); item ability changes are uncapped (replaced `wondrous_items.spell_focus`, 2026-06-14) |
+| `languages` (user-toggled) | `itemGrantedLanguages` (DescriptionBlock renders locked) | active items' `language` effects (e.g. Demon Armor → Abyssal); never written to `languages` |
+| — | `unarmedStrike` (die/type/atk/dmg) | active items' `unarmed` effects (Demon Armor → 1d8 slashing +1/+1); base is 1 + STR bludgeoning |
+| — | `resistances`, `immunities` (CombatBlock "Defenses" readout) | active items' `resistance`/`immunity` effects (Brooch of Shielding → force; Periapt of Proof Against Poison → poison); deduped, lowercased, read-only |
+| `equipment[].chargesUsed` (usage tracker) | — | NOT a stat effect: catalog `charges.max − chargesUsed` = remaining pips (Pearl of Power, Wand of Magic Missiles, Rod of the Pact Keeper); rendered/edited in EquipmentBlock, never touches `deriveCharacterStats` |
+| `spellBonusModifier` (manual override, default 0); `equipment[].attuned`, `equipment[].equipped` | `spellAttackBonus`, `spellSaveDC`, `effectiveAC`, `effectiveAbilities`, `saveModifiers`, `skillModifiers`, `effectiveSpeed`, `effectiveInitiativeBonus`, `adjustedMaxHp`, `resistances`, `immunities` | first class record with `spellcasting.ability` + **active** items' `effects` (via `computeActiveItemEffects`) + manual override. An item is *active* when attune-required & `attuned`, OR non-attune & `equipped`. Magic-item `effects` (ac/save/ability/skill/speed/init/damage/max_hp/resistance/immunity/unarmored_ac) fold into the matching derived field (damage → `itemDamageBonus`; `max_hp` → `adjustedMaxHp`; `ac` with `condition:'unarmored'` and `unarmored_ac` apply only when no body armor); item ability changes are uncapped (replaced `wondrous_items.spell_focus`, 2026-06-14) |
 
-`DeriveContext`: `{ classes?: (ClassData|null)[], race?, catalog?: { armor?, wondrous_items? }, featData? }` —
+`DeriveContext`: `{ classes?: (ClassData|null)[], race?, catalog?: { weapons?, armor?, wondrous_items? }, featData? }` —
 `classes` ordered to match `character.classes`, `[0]` = primary. `catalog` is the
-full `EquipmentData`; `wondrous_items` is read for `spell_focus` derivation.
+full `EquipmentData`; `weapons`/`armor`/`wondrous_items` are read for item-effect
+derivation (`computeActiveItemEffects`).
 
 ## The three dualities (where bugs breed)
 

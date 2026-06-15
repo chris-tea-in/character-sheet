@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { generateId } from '../lib/uuid'
 import { rollDie, abilityModifier, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '../lib/dice'
 import type { DerivedStats } from '../lib/characterStats'
-import type { RollKind, RollEntry } from '../types/dice'
+import type { RollKind, RollEntry, ExtraDamage, ExtraDamageResult } from '../types/dice'
 
 const MAX_ROLLS = 50
 
@@ -31,10 +31,12 @@ export interface ModalState {
   damageDice?: string
   damageBonus?: number
   damageType?: string
+  extraDamage?: ExtraDamage[]   // rider damage of other types (Flame Tongue → +2d6 fire)
   isCrit: boolean
   // damage phase result — populated after the player rolls damage
   damageRolls?: number[]
   damageTotal?: number
+  extraDamageResults?: ExtraDamageResult[]
 }
 
 interface DiceState {
@@ -44,7 +46,7 @@ interface DiceState {
   modal: ModalState | null
   openModal: (state: ModalState) => void
   closeModal: () => void
-  setModalDamage: (rolls: number[], total: number) => void
+  setModalDamage: (rolls: number[], total: number, extraResults?: ExtraDamageResult[]) => void
 }
 
 export const useDiceStore = create<DiceState>()((set) => ({
@@ -88,6 +90,6 @@ export const useDiceStore = create<DiceState>()((set) => ({
 
   closeModal: () => set({ modal: null }),
 
-  setModalDamage: (rolls, total) =>
-    set(s => s.modal ? { modal: { ...s.modal, phase: 'damage', damageRolls: rolls, damageTotal: total } } : {}),
+  setModalDamage: (rolls, total, extraResults) =>
+    set(s => s.modal ? { modal: { ...s.modal, phase: 'damage', damageRolls: rolls, damageTotal: total, extraDamageResults: extraResults } } : {}),
 }))

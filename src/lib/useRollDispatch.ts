@@ -17,6 +17,7 @@ export function useRollDispatch(derived: DerivedStats) {
         damageDice: kind.damageDice,
         damageBonus: kind.damageBonus,
         damageType: kind.damageType,
+        extraDamage: kind.extraDamage,
         isCrit,
       })
     } else {
