@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { toSkillName, ALL_LANGUAGES } from '@/lib/characterSetup'
-import { SKILL_DISPLAY_MAP } from '@/lib/dice'
+import { toSkillName, ALL_LANGUAGES, getRacialBonuses, ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
+import { SKILL_DISPLAY_MAP, abilityModifier } from '@/lib/dice'
 import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
-import { getSpellcastingInfo } from '@/lib/spellcasting'
+import { getSpellcastingInfo, getPreparedSpellCount } from '@/lib/spellcasting'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import type { SetupDraft } from '@/lib/characterSetup'
@@ -82,6 +82,17 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const isCaster = !!spellInfo && spellInfo.profile.kind !== 'none'
   const isKnown = spellInfo?.casterKind === 'known' || spellInfo?.casterKind === 'pact'
   const isPrepared = spellInfo?.casterKind === 'prepared'
+
+  // Prepared casters can prepare (casting-ability mod + level) spells; compute the
+  // effective casting modifier the same way SetupScreen1 does (base + racial ASI).
+  const castingShort = cls?.spellcasting?.ability
+    ? ABILITY_FULL_TO_SHORT[cls.spellcasting.ability.toLowerCase()]
+    : undefined
+  const racialBonuses = getRacialBonuses(data.races[draft.raceSlug], draft.asiChoices, draft.subraceSlug)
+  const castingMod = castingShort
+    ? abilityModifier(draft.abilities[castingShort] + (racialBonuses[castingShort] ?? 0))
+    : 0
+  const preparedLimit = isPrepared && cls ? getPreparedSpellCount(cls.slug, draft.level, castingMod) : 0
 
   const maxSpellLevel = useMemo(() => {
     if (!spellInfo) return 1
@@ -421,7 +432,7 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
             You prepare spells from your class list after each long rest — these can all be changed later.
           </p>
           <p className="text-xs text-muted-foreground mb-1">
-            {draft.spellSlugs.length} prepared
+            {draft.spellSlugs.length}/{preparedLimit} prepared
             {maxSpellLevel > 0 && ` · up to level ${maxSpellLevel} spells`}
           </p>
           {Object.keys(slotsByLevel).length > 0 && (
@@ -452,25 +463,27 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
               />
             ))}
           </div>
-          {/* Always available — prepared count (WIS/INT mod + level) routinely
-              exceeds per-level slot counts, so the slot pips don't gate it (BUG-24) */}
-          <div className="mt-2 space-y-1">
-            <button
-              onClick={() => setPickerMode('spell')}
-              className="text-sm hover:opacity-75"
-              style={{ color: 'var(--color-accent-gold)' }}
-            >
-              + Choose spell
-            </button>
-            <div>
+          {/* Gated on the total prepared limit (casting mod + level), NOT per-level
+              slot counts — the per-level pips above stay informational (BUG-24). */}
+          {draft.spellSlugs.length < preparedLimit && (
+            <div className="mt-2 space-y-1">
               <button
-                onClick={() => setBrowseAll(b => !b)}
-                className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                onClick={() => setPickerMode('spell')}
+                className="text-sm hover:opacity-75"
+                style={{ color: 'var(--color-accent-gold)' }}
               >
-                {browseAll ? 'Show class spells only' : 'Browse all classes'}
+                + Choose spell ({preparedLimit - draft.spellSlugs.length} remaining)
               </button>
+              <div>
+                <button
+                  onClick={() => setBrowseAll(b => !b)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                >
+                  {browseAll ? 'Show class spells only' : 'Browse all classes'}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </Field>
       )}
 
@@ -498,10 +511,12 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
         open={pickerMode === 'spell'}
         onClose={() => setPickerMode(null)}
         onSelect={key => {
-          // No per-level cap (BUG-24) — only the total spellsKnown limit closes the picker
+          // No per-level cap (BUG-24) — only the total limit closes the picker:
+          // spellsKnown for known casters, the prep limit for prepared casters.
           const newSpells = [...draft.spellSlugs, key]
           onChange({ spellSlugs: newSpells })
-          if (spellInfo?.spellsKnown && newSpells.length >= spellInfo.spellsKnown) setPickerMode(null)
+          const cap = isPrepared ? preparedLimit : (spellInfo?.spellsKnown ?? 0)
+          if (cap && newSpells.length >= cap) setPickerMode(null)
         }}
         groupOrder={LEVEL_GROUP_ORDER}
         multiSelect
