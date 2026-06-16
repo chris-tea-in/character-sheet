@@ -20,10 +20,16 @@ export default defineConfig({
         runtimeCaching: [
           {
             urlPattern: /^\/data\/.*\.json$/,
-            handler: 'CacheFirst',
+            // Serve the cached copy instantly, then refresh from the network in
+            // the background. Crucially, only cache 200s — never a Cloudflare
+            // Access login redirect or an error — so a bad response can't poison
+            // the cache and wedge the app on "failed to fetch". Bump the cache
+            // name so existing clients drop the old CacheFirst entries on update.
+            handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'game-data',
+              cacheName: 'game-data-v2',
               expiration: { maxEntries: 20 },
+              cacheableResponse: { statuses: [200] },
             },
           },
         ],
