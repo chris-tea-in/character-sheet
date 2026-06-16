@@ -18,7 +18,12 @@ import { DataManagementDialog } from '@/components/DataManagementDialog'
 
 type SortOrder = 'recent' | 'alpha'
 
-export default function CharacterListPage() {
+interface CharacterListPageProps {
+  /** Show the non-persistent-storage warning (only surfaced on this page). */
+  notPersistent?: boolean
+}
+
+export default function CharacterListPage({ notPersistent }: CharacterListPageProps = {}) {
   const characters = useCharacterStore((s) => s.characters)
   const createCharacter = useCharacterStore((s) => s.create)
   const loadCharacters = useCharacterStore((s) => s.load)
@@ -43,11 +48,16 @@ export default function CharacterListPage() {
   }
 
   return (
-    <div className="min-h-dvh p-4 sm:p-6">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-dvh">
+      {notPersistent && (
+        <div style={{ background: '#c4a35a', color: '#1a1a2e', padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
+          Storage is not persistent — export regularly to avoid data loss.
+        </div>
+      )}
+      <div className="p-4 sm:p-6 max-w-2xl mx-auto">
         <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <h1 className="text-2xl font-bold">Characters</h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => setDataOpen(true)}>
               <HardDriveDownload className="h-4 w-4" />
               Data

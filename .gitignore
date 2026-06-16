@@ -31,3 +31,6 @@ Thumbs.db
 
 # Scraper
 scraper/
+
+# Mobile UX screenshot artifacts (scripts/mobile-shots.mjs)
+mobile-shots/
