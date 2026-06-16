@@ -1,17 +1,21 @@
 import { useState, useEffect, useMemo } from 'react'
 import { loadFeatsData } from '@/lib/data'
-import { computeFeatHpBonus, computeFeatStatDelta, applyFeatAsi, unapplyFeatAsi, featHasChoiceAsi, featChoiceAsiOptions, hasFeatStatEffect } from '@/lib/characterStats'
+import { computeFeatHpBonus, featHasChoiceAsi, featChoiceAsiOptions, hasFeatStatEffect } from '@/lib/characterStats'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { SKILL_ABILITY_MAP } from '@/lib/dice'
+import { ABILITY_FULL_TO_SHORT, ABILITY_LABELS } from '@/lib/characterSetup'
 import type { FeatData } from '@/types/data'
-import type { Character, NewCharacter, AbilityName } from '@/types/character'
+import type { Abilities, Character, NewCharacter, AbilityName, SkillName } from '@/types/character'
+import type { DerivedStats } from '@/lib/characterStats'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
 
 interface Props {
   character: Character
+  derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
@@ -38,15 +42,6 @@ const RACE_PREREQ_MAP: Record<string, string[]> = {
   'dwarf or a small race': ['dwarf', 'duergar', 'gnome', 'deep-gnome', 'halfling'],
 }
 
-const ABILITY_NAME_MAP: Record<string, AbilityName> = {
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-}
-
-const ABILITY_LABELS: Record<AbilityName, string> = {
-  str: 'Strength', dex: 'Dexterity', con: 'Constitution',
-  int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma',
-}
 
 const CLASS_PREREQ_MAP: Record<string, string> = {
   'fighter': 'fighter',
@@ -60,7 +55,20 @@ const SPELLCASTING_PREREQS = new Set([
   'the ability to cast at least one spell', 'pact magic feature',
 ])
 
-function meetsPrereq(prereq: string, character: Character, allFeats: Record<string, FeatData>): boolean {
+function skillDisplayName(skill: SkillName): string {
+  return skill
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, c => c.toUpperCase())
+}
+
+const ALL_SKILLS = Object.keys(SKILL_ABILITY_MAP) as SkillName[]
+
+function meetsPrereq(
+  prereq: string,
+  character: Character,
+  effectiveAbilities: Abilities,
+  allFeats: Record<string, FeatData>,
+): boolean {
   const p = prereq.trim()
   const pl = p.toLowerCase()
 
@@ -71,17 +79,21 @@ function meetsPrereq(prereq: string, character: Character, allFeats: Record<stri
 
   const abilityMatch = p.match(/^(strength|dexterity|constitution|intelligence|wisdom|charisma)\s+(?:of\s+)?(\d+)$/i)
   if (abilityMatch) {
-    const key = ABILITY_NAME_MAP[abilityMatch[1].toLowerCase()]
-    return key ? character.abilities[key] >= parseInt(abilityMatch[2]) : true
+    const key = ABILITY_FULL_TO_SHORT[abilityMatch[1].toLowerCase()]
+    return key ? effectiveAbilities[key] >= parseInt(abilityMatch[2]) : true
   }
 
   const raceSlugs = RACE_PREREQ_MAP[pl]
   if (raceSlugs) return raceSlugs.includes(character.race)
 
-  const classSlug = CLASS_PREREQ_MAP[pl]
-  if (classSlug) return character.class === classSlug
+  const classSlugs = character.classes?.length
+    ? character.classes.map(c => c.classSlug)
+    : [character.class]
 
-  if (SPELLCASTING_PREREQS.has(pl)) return CASTER_CLASSES.has(character.class)
+  const classSlug = CLASS_PREREQ_MAP[pl]
+  if (classSlug) return classSlugs.includes(classSlug)
+
+  if (SPELLCASTING_PREREQS.has(pl)) return classSlugs.some(slug => CASTER_CLASSES.has(slug))
 
   const featChainMatch = p.match(/^(.+?)\s+feat\.?$/i)
   if (featChainMatch) {
@@ -95,8 +107,13 @@ function meetsPrereq(prereq: string, character: Character, allFeats: Record<stri
   return true
 }
 
-function meetsAllPrerequisites(feat: FeatData, character: Character, allFeats: Record<string, FeatData>): boolean {
-  return feat.prerequisites.every(p => meetsPrereq(p, character, allFeats))
+function meetsAllPrerequisites(
+  feat: FeatData,
+  character: Character,
+  effectiveAbilities: Abilities,
+  allFeats: Record<string, FeatData>,
+): boolean {
+  return feat.prerequisites.every(p => meetsPrereq(p, character, effectiveAbilities, allFeats))
 }
 
 function featToDetailItem(_key: string, feat: FeatData): DetailItem {
@@ -108,11 +125,21 @@ function featToDetailItem(_key: string, feat: FeatData): DetailItem {
   }
 }
 
-export function FeatsBlock({ character, onSave }: Props) {
+type FeatPickPhase = 'asi' | 'skill' | 'expertise'
+
+interface PendingChoices {
+  asiAbility?: AbilityName
+  skillChoices?: SkillName[]
+  expertiseSkill?: SkillName
+}
+
+export function FeatsBlock({ character, derived, onSave }: Props) {
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
   const [pickerOpen, setPickerOpen] = useState(false)
   const [viewingKey, setViewingKey] = useState<string | null>(null)
   const [pendingFeatSlug, setPendingFeatSlug] = useState<string | null>(null)
+  const [pendingPhase, setPendingPhase] = useState<FeatPickPhase | null>(null)
+  const [pendingChoices, setPendingChoices] = useState<PendingChoices>({})
 
   useEffect(() => {
     loadFeatsData().then(setAllFeats).catch(() => {})
@@ -126,9 +153,9 @@ export function FeatsBlock({ character, onSave }: Props) {
       .map(([key, feat]) => ({
         slug: key,
         detail: featToDetailItem(key, feat),
-        warning: meetsAllPrerequisites(feat, character, allFeats) ? undefined : 'Req. not met',
+        warning: meetsAllPrerequisites(feat, character, derived.effectiveAbilities, allFeats) ? undefined : 'Req. not met',
       })),
-  [allFeats, selectedSet, character])
+  [allFeats, selectedSet, character, derived.effectiveAbilities])
 
   const viewingDetail: DetailItem | null = useMemo(() => {
     if (!viewingKey) return null
@@ -137,73 +164,136 @@ export function FeatsBlock({ character, onSave }: Props) {
   }, [viewingKey, allFeats])
 
   const pendingFeat = pendingFeatSlug ? allFeats[pendingFeatSlug] : null
-  const pendingChoiceOptions = pendingFeat ? featChoiceAsiOptions(pendingFeat) : []
+
+  function getNextPhase(feat: FeatData, choices: PendingChoices): FeatPickPhase | null {
+    const effects = feat.effects ?? []
+    if (featHasChoiceAsi(feat) && !choices.asiAbility) return 'asi'
+    if (effects.some(e => e.type === 'skill_proficiency') && !choices.skillChoices) return 'skill'
+    if (effects.some(e => e.type === 'expertise') && !choices.expertiseSkill) return 'expertise'
+    return null
+  }
 
   function handleFeatSelect(key: string) {
     const feat = allFeats[key]
     setPickerOpen(false)
-    if (feat && featHasChoiceAsi(feat)) {
+    if (!feat) return
+    const initialChoices: PendingChoices = {}
+    const phase = getNextPhase(feat, initialChoices)
+    if (phase) {
       setPendingFeatSlug(key)
+      setPendingPhase(phase)
+      setPendingChoices(initialChoices)
     } else {
-      confirmAddFeat(key, undefined)
+      finalizeFeat(key, initialChoices)
     }
   }
 
-  function confirmAddFeat(key: string, chosenAbility: AbilityName | undefined) {
+  function finalizeFeat(key: string, choices: PendingChoices) {
     const feat = allFeats[key]
     if (!feat) return
 
     const newFeatChoices = { ...character.featChoices }
-    if (chosenAbility) {
-      newFeatChoices[key] = { asiAbility: chosenAbility }
-    } else if (hasFeatStatEffect(feat)) {
-      newFeatChoices[key] = {}  // sentinel: effects were applied via new code
+    const entryHasEffect = hasFeatStatEffect(feat) || choices.asiAbility || choices.skillChoices || choices.expertiseSkill
+    if (entryHasEffect) {
+      newFeatChoices[key] = {
+        ...(choices.asiAbility ? { asiAbility: choices.asiAbility } : {}),
+        ...(choices.skillChoices ? { skillChoices: choices.skillChoices } : {}),
+        ...(choices.expertiseSkill ? { expertiseSkill: choices.expertiseSkill } : {}),
+      }
     }
 
-    const delta = computeFeatStatDelta(key, feat, newFeatChoices)
-    const changes: Partial<NewCharacter> = {
-      feats: [...character.feats, key],
-      featChoices: newFeatChoices,
-    }
-    if (Object.keys(delta.abilities).length > 0)
-      changes.abilities = applyFeatAsi(character.abilities, delta.abilities)
-    if (delta.speed !== 0)
-      changes.speed = character.speed + delta.speed
-    if (delta.initiativeBonus !== 0)
-      changes.initiativeBonus = (character.initiativeBonus ?? 0) + delta.initiativeBonus
-    if (delta.saveProficiency && !character.savingThrowProficiencies.includes(delta.saveProficiency))
-      changes.savingThrowProficiencies = [...character.savingThrowProficiencies, delta.saveProficiency]
-
-    onSave(changes)
+    onSave({ feats: [...character.feats, key], featChoices: newFeatChoices })
     setPendingFeatSlug(null)
+    setPendingPhase(null)
+    setPendingChoices({})
+  }
+
+  function onAsiChoice(ab: AbilityName) {
+    if (!pendingFeatSlug || !pendingFeat) return
+    const newChoices = { ...pendingChoices, asiAbility: ab }
+    const next = getNextPhase(pendingFeat, newChoices)
+    if (next) {
+      setPendingPhase(next)
+      setPendingChoices(newChoices)
+    } else {
+      finalizeFeat(pendingFeatSlug, newChoices)
+    }
+  }
+
+  function onSkillChoices(skills: SkillName[]) {
+    if (!pendingFeatSlug || !pendingFeat) return
+    const newChoices = { ...pendingChoices, skillChoices: skills }
+    const next = getNextPhase(pendingFeat, newChoices)
+    if (next) {
+      setPendingPhase(next)
+      setPendingChoices(newChoices)
+    } else {
+      finalizeFeat(pendingFeatSlug, newChoices)
+    }
+  }
+
+  function onExpertiseChoice(skill: SkillName) {
+    if (!pendingFeatSlug || !pendingFeat) return
+    const newChoices = { ...pendingChoices, expertiseSkill: skill }
+    const next = getNextPhase(pendingFeat, newChoices)
+    if (next) {
+      setPendingPhase(next)
+      setPendingChoices(newChoices)
+    } else {
+      finalizeFeat(pendingFeatSlug, newChoices)
+    }
+  }
+
+  function cancelPending() {
+    setPendingFeatSlug(null)
+    setPendingPhase(null)
+    setPendingChoices({})
   }
 
   function removeFeat(key: string) {
-    const feat = allFeats[key]
     const newFeatChoices = { ...character.featChoices }
     delete newFeatChoices[key]
 
-    const changes: Partial<NewCharacter> = {
-      feats: character.feats.filter(f => f !== key),
-      featChoices: newFeatChoices,
-    }
-    // Only unapply if featChoices has a record — meaning effects were applied via new code.
-    if (feat && character.featChoices[key] !== undefined) {
-      const delta = computeFeatStatDelta(key, feat, character.featChoices)
-      if (Object.keys(delta.abilities).length > 0)
-        changes.abilities = unapplyFeatAsi(character.abilities, delta.abilities)
-      if (delta.speed !== 0)
-        changes.speed = character.speed - delta.speed
-      if (delta.initiativeBonus !== 0)
-        changes.initiativeBonus = (character.initiativeBonus ?? 0) - delta.initiativeBonus
-      if (delta.saveProficiency)
-        changes.savingThrowProficiencies = character.savingThrowProficiencies.filter(a => a !== delta.saveProficiency)
-    }
-
-    const newFeats = changes.feats!
+    const newFeats = character.feats.filter(f => f !== key)
     const newAdjustedMax = character.maxHp + computeFeatHpBonus(newFeats, character.level)
-    changes.currentHp = Math.min(character.currentHp, newAdjustedMax)
-    onSave(changes)
+    onSave({
+      feats: newFeats,
+      featChoices: newFeatChoices,
+      currentHp: Math.min(character.currentHp, newAdjustedMax),
+    })
+  }
+
+  // Skill proficiency count from the feat's effect
+  const skillProfCount = pendingFeat
+    ? (pendingFeat.effects ?? []).find(e => e.type === 'skill_proficiency')?.count ?? 1
+    : 1
+
+  // Skills eligible for expertise: proficient-but-not-already-expertise (BUG-37),
+  // sourced from derived effective state so feat-granted proficiencies qualify
+  // (BUG-30), plus any skill just granted in this feat's skill phase.
+  const proficientSkills = useMemo((): SkillName[] => {
+    const eligible = new Set<SkillName>()
+    for (const sk of ALL_SKILLS) {
+      if (derived.effectiveSkillProficiencies[sk] === 'proficient') eligible.add(sk)
+    }
+    for (const sk of (pendingChoices.skillChoices ?? [])) eligible.add(sk)
+    return ALL_SKILLS.filter(sk => eligible.has(sk))
+  }, [derived.effectiveSkillProficiencies, pendingChoices.skillChoices])
+
+  const [skillPickerSelected, setSkillPickerSelected] = useState<SkillName[]>([])
+
+  // Reset skill picker selection when entering skill phase
+  const isSkillPhase = pendingPhase === 'skill'
+  const isExpertisePhase = pendingPhase === 'expertise'
+  const isAsiPhase = pendingPhase === 'asi'
+  const pendingAsiOptions = pendingFeat ? featChoiceAsiOptions(pendingFeat) : []
+
+  function toggleSkillPick(skill: SkillName) {
+    setSkillPickerSelected(prev => {
+      if (prev.includes(skill)) return prev.filter(s => s !== skill)
+      if (prev.length < skillProfCount) return [...prev, skill]
+      return prev
+    })
   }
 
   return (
@@ -264,8 +354,8 @@ export function FeatsBlock({ character, onSave }: Props) {
         onClose={() => setViewingKey(null)}
       />
 
-      {/* Choice ASI dialog */}
-      <Dialog open={pendingFeatSlug !== null} onOpenChange={o => !o && setPendingFeatSlug(null)}>
+      {/* ASI choice dialog */}
+      <Dialog open={isAsiPhase} onOpenChange={o => !o && cancelPending()}>
         <DialogContent className="max-w-xs">
           <DialogHeader>
             <DialogTitle style={{ color: 'var(--color-accent-gold)' }}>
@@ -276,23 +366,98 @@ export function FeatsBlock({ character, onSave }: Props) {
             Choose which ability score to increase by 1:
           </p>
           <div className="grid grid-cols-2 gap-2">
-            {pendingChoiceOptions.map(opt => {
-              const ab = ABILITY_NAME_MAP[opt.toLowerCase()]
+            {pendingAsiOptions.map(opt => {
+              const ab = ABILITY_FULL_TO_SHORT[opt.toLowerCase()]
               if (!ab) return null
-              const current = character.abilities[ab]
+              const current = derived.effectiveAbilities[ab]
               return (
                 <Button
                   key={opt}
                   variant="outline"
                   className="flex flex-col h-auto py-2"
                   disabled={current >= 20}
-                  onClick={() => pendingFeatSlug && confirmAddFeat(pendingFeatSlug, ab)}
+                  onClick={() => onAsiChoice(ab)}
                 >
                   <span className="text-sm font-semibold">{ABILITY_LABELS[ab]}</span>
                   <span className="text-xs text-muted-foreground">{current} → {Math.min(20, current + 1)}</span>
                 </Button>
               )
             })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Skill proficiency choice dialog */}
+      <Dialog open={isSkillPhase} onOpenChange={o => { if (!o) { cancelPending(); setSkillPickerSelected([]) } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--color-accent-gold)' }}>
+              {pendingFeat?.name ?? ''}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mb-3">
+            Choose {skillProfCount === 1 ? 'a skill' : `${skillProfCount} skills`} to gain proficiency in:
+          </p>
+          <div className="grid grid-cols-2 gap-1.5 max-h-64 overflow-y-auto">
+            {ALL_SKILLS.filter(sk => !derived.effectiveSkillProficiencies[sk]).map(sk => {
+              const selected = skillPickerSelected.includes(sk)
+              const disabled = !selected && skillPickerSelected.length >= skillProfCount
+              return (
+                <button
+                  key={sk}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => toggleSkillPick(sk)}
+                  className={`px-2 py-1.5 rounded text-xs border text-left transition-colors ${
+                    selected
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : disabled
+                        ? 'border-border text-muted-foreground/40 cursor-not-allowed'
+                        : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground'
+                  }`}
+                >
+                  {skillDisplayName(sk)}
+                </button>
+              )
+            })}
+          </div>
+          <Button
+            className="mt-3 w-full"
+            disabled={skillPickerSelected.length < skillProfCount}
+            onClick={() => { onSkillChoices(skillPickerSelected); setSkillPickerSelected([]) }}
+          >
+            Confirm
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Expertise choice dialog */}
+      <Dialog open={isExpertisePhase} onOpenChange={o => !o && cancelPending()}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--color-accent-gold)' }}>
+              {pendingFeat?.name ?? ''}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mb-3">
+            Choose a skill to gain expertise in (must be proficient):
+          </p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {proficientSkills.length === 0 && (
+              <p className="col-span-2 text-sm text-muted-foreground italic">
+                No proficient skills available. Add skill proficiency first.
+              </p>
+            )}
+            {proficientSkills.map(sk => (
+              <button
+                key={sk}
+                type="button"
+                onClick={() => onExpertiseChoice(sk)}
+                className="px-2 py-1.5 rounded text-xs border border-border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors text-left"
+              >
+                {skillDisplayName(sk)}
+              </button>
+            ))}
           </div>
         </DialogContent>
       </Dialog>

@@ -1,22 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(Get-ChildItem -Recurse \"c:\\\\Users\\\\buyp1\\\\Workspace\\\\dnd-character-sheet\\\\data\" -Filter \"*.json\")",
-      "Bash(Select-Object -ExpandProperty FullName)",
-      "Bash(Sort-Object)",
-      "Bash(node -e ' *)",
-      "Read(//c/Users/buyp1/.claude/projects//**)",
-      "Read(//c/Users/buyp1/.claude/projects/c--Users-buyp1-Workspace-dnd-character-sheet/memory//**)",
-      "Read(//c/Users/buyp1/.claude/**)",
-      "Bash(mkdir -p /c/Users/buyp1/.claude/skill-observations/archive)",
-      "Bash(npm run *)",
-      "WebFetch(domain:dnd5e.wikidot.com)",
-      "Bash(Get-ChildItem data\\\\subclasses -Name)",
-      "PowerShell(Get-ChildItem data\\\\spells -Name | Where-Object { $_ -match \"\\\\-ua\" } | Sort-Object)",
-      "PowerShell(Get-ChildItem data\\\\spells -Name | Where-Object { $_ -match \"antagonize|draconic-transformation|fizban|nathair|raulothim|spray-of-cards|summon-draconic\" } | Sort-Object)"
-    ],
-    "additionalDirectories": [
-      "C:\\Users\\buyp1\\.claude\\skill-observations"
+      "Edit(c:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\**)",
+      "Write(c:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\**)",
+      "Bash(git push*)",
+      "Read(//c/Users/buyp1/.claude/**)"
     ]
   }
 }

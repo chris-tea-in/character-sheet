@@ -61,7 +61,8 @@ function weaponToEntry(w: WeaponItem): SelectionEntry {
       name: w.name,
       subtitle: w.weapon_type,
       sections: [
-        { label: 'Damage', value: `${w.damage_dice} ${w.damage_type}` },
+        // damage_dice/damage_type are nullable on magic weapons (BUG-51) — guard
+        ...(w.damage_dice ? [{ label: 'Damage', value: `${w.damage_dice}${w.damage_type ? ` ${w.damage_type}` : ''}` }] : []),
         ...(w.properties.length ? [{ label: 'Properties', value: w.properties }] : []),
         ...(w.cost ? [{ label: 'Cost', value: w.cost }] : []),
       ],

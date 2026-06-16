@@ -39,20 +39,41 @@ export const useCharacterStore = create<CharacterState>()((set) => ({
   },
 
   create: async (data) => {
-    const character = insertCharacter(getDb(), data)
+    // SQL write can throw (ROLLBACK rethrows) — surface it and rethrow so the
+    // caller doesn't navigate to a character that was never inserted (BUG-40)
+    let character: Character
+    try {
+      character = insertCharacter(getDb(), data)
+    } catch (err) {
+      set({ storageError: 'Character could not be created — the change was not saved. Please try again.' })
+      throw err
+    }
     await tryFlush(set)
     set(s => ({ characters: [character, ...s.characters] }))
     return character
   },
 
   update: async (id, changes) => {
-    const updated = updateCharacter(getDb(), id, changes)
+    // Sheet edits are fire-and-forget; a thrown SQL write would otherwise be a
+    // silent unhandled rejection with no state change and no banner (BUG-40)
+    let updated: Character
+    try {
+      updated = updateCharacter(getDb(), id, changes)
+    } catch {
+      set({ storageError: 'Change could not be saved — your edit was not applied. Export your data if this keeps happening.' })
+      return
+    }
     await tryFlush(set)
     set(s => ({ characters: s.characters.map(c => c.id === id ? updated : c) }))
   },
 
   remove: async (id) => {
-    deleteCharacter(getDb(), id)
+    try {
+      deleteCharacter(getDb(), id)
+    } catch {
+      set({ storageError: 'Character could not be deleted — please try again.' })
+      return
+    }
     await tryFlush(set)
     set(s => ({
       characters: s.characters.filter(c => c.id !== id),

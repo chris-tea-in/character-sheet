@@ -2,19 +2,20 @@ import { useState } from 'react'
 import { ChevronUp, ChevronDown, Trash2 } from 'lucide-react'
 import { useDiceStore } from '@/store/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
-import type { Character } from '@/types/character'
+import { formatBonus } from '@/lib/dice'
 import type { DieType } from '@/types/dice'
+import type { DerivedStats } from '@/lib/characterStats'
 
 const DIE_TYPES: DieType[] = [4, 6, 8, 10, 12, 20, 100]
 
 interface Props {
-  character: Character
+  derived: DerivedStats
 }
 
-export function DiceTray({ character }: Props) {
+export function DiceTray({ derived }: Props) {
   const rolls = useDiceStore(s => s.rolls)
   const clear = useDiceStore(s => s.clear)
-  const { dispatch } = useRollDispatch(character)
+  const { dispatch } = useRollDispatch(derived)
   const [open, setOpen] = useState(false)
   const lastRoll = rolls[0]
 
@@ -23,7 +24,7 @@ export function DiceTray({ character }: Props) {
       {/* Roll history panel — slides up from the tray */}
       {open && (
         <div
-          className="fixed bottom-[52px] left-0 right-0 z-40 max-h-[40vh] overflow-y-auto border-t border-border"
+          className="fixed bottom-[52px] left-0 right-0 z-40 max-h-[40vh] overflow-y-auto border-t border-border print:hidden"
           style={{ background: 'var(--color-surface)' }}
         >
           <div className="max-w-2xl mx-auto px-3 py-2">
@@ -54,11 +55,11 @@ export function DiceTray({ character }: Props) {
                       <span className="text-muted-foreground text-xs tabular-nums">
                         ({entry.result.natural}
                         <span className="opacity-40 line-through ml-0.5">{entry.result.natural2}</span>
-                        {entry.result.modifier !== 0 && <>{entry.result.modifier >= 0 ? '+' : ''}{entry.result.modifier}</>})
+                        {entry.result.modifier !== 0 && <>{formatBonus(entry.result.modifier)}</>})
                       </span>
                     ) : entry.result.modifier !== 0 ? (
                       <span className="text-muted-foreground text-xs">
-                        ({entry.result.natural}{entry.result.modifier >= 0 ? '+' : ''}{entry.result.modifier})
+                        ({entry.result.natural}{formatBonus(entry.result.modifier)})
                       </span>
                     ) : null}
                     <span
@@ -84,7 +85,7 @@ export function DiceTray({ character }: Props) {
 
       {/* Fixed bottom strip */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 border-t border-border"
+        className="fixed bottom-0 left-0 right-0 z-50 border-t border-border print:hidden"
         style={{ background: 'var(--color-surface)', height: '52px' }}
       >
         <div className="max-w-2xl mx-auto h-full flex items-center gap-1 px-2">

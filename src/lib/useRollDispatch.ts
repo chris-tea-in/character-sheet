@@ -1,13 +1,13 @@
 import { useDiceStore } from '../store/dice'
-import type { Character } from '../types/character'
+import type { DerivedStats } from './characterStats'
 import type { RollKind } from '../types/dice'
 
-export function useRollDispatch(character: Character) {
+export function useRollDispatch(derived: DerivedStats) {
   const roll = useDiceStore(s => s.roll)
   const openModal = useDiceStore(s => s.openModal)
 
   function dispatch(kind: RollKind) {
-    const entry = roll(kind, character)
+    const entry = roll(kind, derived)
 
     if (kind.type === 'attack') {
       const isCrit = entry.result.natural === 20
@@ -17,6 +17,7 @@ export function useRollDispatch(character: Character) {
         damageDice: kind.damageDice,
         damageBonus: kind.damageBonus,
         damageType: kind.damageType,
+        extraDamage: kind.extraDamage,
         isCrit,
       })
     } else {

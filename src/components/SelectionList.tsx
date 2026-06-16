@@ -64,7 +64,7 @@ function EntryRow({
         {entry.warning && (
           <span
             className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-none"
-            style={{ background: 'rgba(196, 163, 90, 0.15)', color: 'var(--color-accent-2)' }}
+            style={{ background: 'rgba(196, 163, 90, 0.15)', color: 'var(--color-accent-gold)' }}
           >
             {entry.warning}
           </span>

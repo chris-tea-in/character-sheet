@@ -37,6 +37,11 @@ export interface EquipmentItem {
   customDamage?: string  // overrides catalog damage display
   customToHit?: string   // overrides calculated to-hit display
   displayCategory?: 'weapon' | 'armor' | 'item'  // for magic items: which section to show in
+  attuned?: boolean      // attune-required items: when true the catalog `effects` apply at render time and the item shows in Active Items
+  equipped?: boolean     // non-attune items: when true the catalog `effects` apply at render time (the equip gate, parallel to `attuned`)
+  chargesUsed?: number   // limited-use items: charges spent (catalog `charges.max` − chargesUsed = remaining); usage tracker only, no stat effect
+  baseWeapon?: string    // for "any sword/any weapon" magic weapons: the chosen mundane base weapon name; its damage/type/properties drive the stats
+  baseArmor?: string     // for "any armor / Varies" magic armors: the chosen mundane base armor name; its ac_formula/type/stealth/STR drive the AC
 }
 
 export interface CharacterSpell {
@@ -60,7 +65,11 @@ export interface Character {
   languages: string[]
   backstory: string
 
+  // BASE scores: point-buy/rolled values + permanent level-up ASI +1s.
+  // Racial ASIs and feat effects are derived at render time (deriveCharacterStats).
   abilities: Abilities
+  // Flexible racial ASI picks, ordered: race pool slots first, then subrace pools
+  raceAsiChoices: AbilityName[]
 
   maxHp: number
   currentHp: number
@@ -68,9 +77,13 @@ export interface Character {
   armorClass: number
   speed: number
   initiativeBonus: number
+  spellBonusModifier: number
 
   deathSaves: DeathSaves
   hitDiceUsed: number
+  // Multiclass hit-dice spending, keyed by class slug; single-class
+  // characters use the flat hitDiceUsed counter instead
+  hitDiceUsedByClass: Partial<Record<string, number>>
   inspiration: boolean
 
   skillProficiencies: Partial<Record<SkillName, SkillProficiency>>
@@ -89,7 +102,11 @@ export interface Character {
   currency: Currency
 
   feats: string[]  // feat slugs (keys from feats.json)
-  featChoices: Record<string, { asiAbility?: AbilityName }>  // per-feat player choices (e.g. choice ASI)
+  featChoices: Record<string, {
+    asiAbility?: AbilityName
+    skillChoices?: SkillName[]   // for Skilled (3 picks), Prodigy (1 pick)
+    expertiseSkill?: SkillName   // for Skill Expert, Prodigy
+  }>  // per-feat player choices
   toolProficiencies: string[]  // tool names (free-form, from equipment catalog)
 
   createdAt: number  // unix ms
@@ -108,10 +125,11 @@ export function defaultCharacter(name: string): NewCharacter {
     classes: [],
     languages: [], backstory: '',
     abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+    raceAsiChoices: [],
     maxHp: 0, currentHp: 0, tempHp: 0,
-    armorClass: 10, speed: 30, initiativeBonus: 0,
+    armorClass: 10, speed: 30, initiativeBonus: 0, spellBonusModifier: 0,
     deathSaves: { successes: 0, failures: 0 },
-    hitDiceUsed: 0, inspiration: false,
+    hitDiceUsed: 0, hitDiceUsedByClass: {}, inspiration: false,
     skillProficiencies: {},
     savingThrowProficiencies: [],
     spells: [], spellSlotsUsed: {},

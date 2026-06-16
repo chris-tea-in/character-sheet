@@ -37,10 +37,10 @@ data/                  # Source data — gitignored, local disk only (see Data C
   backgrounds/         # 48 .json files
   classes/             # 14 .json files (12 SRD + artificer + blood-hunter)
   feats/               # 105 .json files
-  races/               # 9 .json files
+  races/               # 46 .json files (one per race; subrace variants defined inside each file)
   spells/              # 567 .json files
   subclasses/          # 122 .json files (keyed classSlug:subclassSlug)
-  equipment/           # 11 category files — each a JSON array (see Equipment Categories below)
+  equipment/           # exactly the 11 pipeline category files (staging files removed 2026-06-13; build now warns on strays)
   rules.json           # Flat rules reference
 public/
   data/                # Compiled output of build-data.js — do not edit by hand
@@ -58,8 +58,10 @@ scripts/
   scrape-background.js # Scraper script (untracked)
 src/
   components/
+    DataManagementDialog.tsx  # Import/export modal — full DB (.sqlite) and single character (.json)
     DetailBody.tsx      # Shared detail content renderer (used by DetailPopup)
     DetailPopup.tsx     # Dialog wrapper — view mode + selection mode
+    InfoPopup.tsx       # Minimal title + description dialog with optional action row (e.g. spell-bonus item prompt)
     SelectionList.tsx   # Searchable/sortable list with popup; used across all screens
     setup/
       SetupScreen1.tsx  # Identity & stats (name, level, race, class, subclass, HP, ability scores, ASI)
@@ -67,6 +69,7 @@ src/
       SetupScreen3.tsx  # Proficiencies (languages, skills, tools, armor/weapon display)
       SetupScreen4.tsx  # Starting equipment
       SetupScreen5.tsx  # Progression system (XP vs Milestone)
+      Field.tsx         # Labeled form field wrapper (label + optional error message)
     sheet/
       AbilityBlock.tsx       # 6-ability grid — StepperField per score, click modifier to roll ability check
       CombatBlock.tsx        # AC, Speed, Initiative, ProfBonus, HP (current/max/temp), DeathSaves, HitDice, Inspiration
@@ -74,16 +77,22 @@ src/
       EquipmentBlock.tsx     # Weapons (attack roll, finesse/ranged/melee calc, custom override), Armor, Items, Currency
       SpellBlock.tsx         # Spell slot tracker (pip UI), spell list with prepared toggle, spell attack roll button
       DescriptionBlock.tsx   # Languages toggle grid + personality/ideals/bonds/flaws/backstory/notes textareas
-      LevelUpDialog.tsx      # Level-up flow — HP roll/manual, spell/cantrip picks, ASI; blocks confirm until done
-      DiceTray.tsx           # Fixed 52px bottom bar — d4/d6/d8/d10/d12/d20/d100 buttons + expandable roll history
+      FeatsBlock.tsx         # Feat management: add/remove feats, record per-feat choices (featChoices); effects derive at render time
+      LevelUpDialog.tsx      # Level-up flow — HP roll/manual, spell/cantrip picks, ASI/feat toggle; blocks confirm until done
+      DiceTray.tsx           # Fixed bottom bar — d4/d6/d8/d10/d12/d20/d100 buttons + expandable roll history
+      DiceRollModal.tsx      # Two-phase attack popup: hit roll → damage roll; nat 20 auto-advances; nat 1 shows Critical Miss
       EditableField.tsx      # Click-to-edit inline field (text/number) + EditableTextarea; commits on blur/Enter
       StepperField.tsx       # − value + stepper control, reused across all numeric fields
+      RollButton.tsx         # Small "Roll" / "Roll (Adv)" button used by weapon, spell, and proficiency rows
     ui/                 # shadcn/ui primitives (badge, button, dialog, …)
   lib/
-    characterSetup.ts   # Setup wizard state, HP calculation, point buy logic
+    characterSetup.ts   # Setup wizard draft state, draftToNewCharacter()/characterToDraft(), HP calculation, point buy logic
+    characterStats.ts   # deriveCharacterStats() — the single render-time application point for racial ASIs + feat effects; computeWeaponBonus(), computeFeatStatDelta(), FEAT_EFFECTS registry (see Character State — Render-Time Derivation)
     data.ts             # Typed data-loading helpers (classes, races, spells, etc.)
-    dice.ts             # rollDie(), abilityModifier(), proficiencyBonus(), SKILL_ABILITY_MAP
+    dice.ts             # rollDie(), abilityModifier(), proficiencyBonus(), SKILL_ABILITY_MAP, formatBonus()
     spellcasting.ts     # parseClassSlots(), getSpellcastingInfo(), getSpellsKnownIncrease() — warlock vs. standard format
+    importExport.ts     # exportDb(), importDb(), exportCharacter(), importCharacter() — download/upload helpers
+    useRollDispatch.ts  # useRollDispatch() — single dispatch point for all roll types; opens DiceRollModal for attacks
     utils.ts            # shadcn/ui cn() helper
     uuid.ts             # generateId() — UUID v4 using crypto.getRandomValues
   pages/
@@ -141,17 +150,19 @@ Append to the `migrations` array in [src/storage/migrations.ts](src/storage/migr
 
 | File | Category key | Required fields |
 |---|---|---|
-| `weapons.json` | `weapons` | name, weapon_type, damage_dice, damage_type |
+| `weapons.json` | `weapons` | name, weapon_type |
 | `armor.json` | `armor` | name, armor_type, ac_formula |
 | `adventuring_gear.json` | `adventuring_gear` | name, subcategory |
 | `trinkets.json` | `trinkets` | name, source |
-| `firearms.json` | `firearms` | name, era, weapon_type, damage_dice, damage_type |
+| `firearms.json` | `firearms` | name, era, weapon_type |
 | `explosives.json` | `explosives` | name, era |
 | `wondrous_items.json` | `wondrous_items` | name, rarity |
 | `currency.json` | `currency` | name, abbreviation, value_in_cp |
 | `poisons.json` | `poisons` | name, poison_type, cost |
 | `tools.json` | `tools` | name, tool_category |
 | `siege_equipment.json` | `siege_equipment` | name |
+- `damage_dice`/`damage_type` are **nullable** on weapons and firearms (Net, ammunition entries, generic magic weapons) — display code must null-guard.
+- The build reads **only** the 11 files above (`EQUIPMENT_CATEGORIES` allowlist in `build-data.js`). Any other `*.json` in `data/equipment/` is not compiled, but the build now emits a `not in EQUIPMENT_CATEGORIES` **warning** for it (stray-file guard) so staging files can't strand silently. All prior staging files were resolved 2026-06-13 (BUG-42/43/44 fixed): the 11 new graded variants merged into `wondrous_items.json`; the `_gap_*`, `gear.json`, and `_new_wondrous_*` files deleted.
 - `_review` arrays in any entry produce warnings but do not block the build.
 - Validation errors exit with code 1 — the build stops.
 - Subclass files use `key: "classSlug:subclassSlug"` — the build validates this matches the entry's own `classSlug` + `subclassSlug` fields.
@@ -168,7 +179,13 @@ All domain types live in [src/types/character.ts](src/types/character.ts).
 - `NewCharacter` — `Omit<Character, 'id' | 'createdAt' | 'updatedAt'>` — used for insert/update payloads
 - `defaultCharacter(name)` — returns a safe zero-state `NewCharacter`
 - Slugs (`race`, `class`, `background`) are strings that key into the compiled data files
-- `skillProficiencies` — `Partial<Record<SkillName, 'proficient' | 'expertise'>>`
+- `classes` — `ClassEntry[]` (`{ classSlug, subclassSlug, level }`); `classes[0]` is the primary class. **Source of truth**: `updateCharacter` re-derives the legacy `class`/`subclass`/`level` columns from it on every write, so any class-structure edit must write `classes[]`, not just the legacy fields
+- `abilities` — **base scores** (point-buy/rolled + permanent level-up ASI +1s). Racial ASIs and feat bonuses are NOT baked in — they derive at render time
+- `raceAsiChoices` — `AbilityName[]` — flexible racial ASI picks, ordered race pool slots first, then subrace pools
+- `feats` / `featChoices` — feat slugs + per-feat player choices (`asiAbility`, `skillChoices`, `expertiseSkill`)
+- `spellBonusModifier` — **manual override only** (default 0) for homebrew/un-cataloged spell focuses; added to spell attack and save DC. Catalog focus items (Rod of the Pact Keeper, Wand of the War Mage, …) carry a `spell_focus` annotation and derive their bonus at render time in `deriveCharacterStats` — leave this at 0 for them (BUG-09/21 render-time refactor, 2026-06-13)
+- `toolProficiencies` — free-form tool names from the equipment catalog
+- `skillProficiencies` — `Partial<Record<SkillName, 'proficient' | 'expertise'>>` (records *that*, not *why* — no source tracking yet; see bugs.md BUG-29 family)
 - `savingThrowProficiencies` — `AbilityName[]`
 - `spellSlotsUsed` — `Partial<Record<number, number>>` (slot level → count used)
 
@@ -186,22 +203,47 @@ All domain types live in [src/types/character.ts](src/types/character.ts).
 
 `storageError` is set when `flush()` fails. Show this to the user via the App banner and call `clearStorageError()` on dismiss.
 
+## Character State — Render-Time Derivation
+
+**Settled policy (2026-06-12, branch `render-time-character-stats-instead-of-write-time`):**
+stored character fields are **base values**. All racial ASIs and feat effects are applied
+**exactly once** — at render time, inside `deriveCharacterStats()`
+([src/lib/characterStats.ts](src/lib/characterStats.ts)). Write sites record *choices only*
+(`feats`, `featChoices`, `raceAsiChoices`), never the resulting stat changes.
+
+- `abilities` = base scores; `speed` = race base; `initiativeBonus` = 0 unless manually edited; `maxHp` = rolled/average HP only (Tough, Dwarven Toughness derive into `adjustedMaxHp`).
+- Sheet blocks read `derived.effective*` fields (`effectiveAbilities`, `effectiveSpeed`, `effectiveInitiativeBonus`, `adjustedMaxHp`, `effectiveSkillProficiencies`, `weaponProficiencies`, …) — never compute stats from stored fields directly.
+- `deriveCharacterStats(character, ctx)` takes a `DeriveContext` with **all** class records (ordered to match `character.classes`), race, armor catalog, and feat data. Weapon proficiency and spell attack/DC consider every class, not just the primary.
+- Both violation directions are known bug families: applying an effect at write time **double-counts** (bake + derive); applying it nowhere **silently ignores data**. When adding any new feat/race/item effect, invoke the `feature-effect-system` skill and apply the effect in `deriveCharacterStats` only.
+
+## Bug Log & Codebase Invariants
+
+- [bugs.md](bugs.md) is the live bug log (audit of 2026-06-11, 52 findings; fixed entries move to its ✅ section). Its "Systemic root-cause families" table is the distilled failure-pattern catalog for this codebase.
+- The **`codebase-invariants` project skill** (`.claude/skills/codebase-invariants/`) encodes those families as checkable invariants plus the system map and tracing protocol for bug hunting and single-pass implementation. Invoke it before editing anything touching character state, multiclass logic, effects, or the data pipeline — and append a new invariant whenever a fix session closes a bug family.
+
 ## CSS Variables
 
-Defined in [src/styles/globals.css](src/styles/globals.css):
+Defined in [src/styles/globals.css](src/styles/globals.css). The D&D palette is the single
+source of truth; the shadcn/ui semantic tokens (`--background`, `--primary`, `--border`, …)
+reference it — no independent hex values.
 
 ```
---color-bg          #1a1a2e   dark navy background
---color-surface     #16213e   card/panel background
---color-surface-2   #0f3460   elevated surface
---color-accent      #e94560   red — CTAs, danger
---color-accent-2    #c4a35a   gold — warnings, highlights
---color-text        #eaeaea   primary text
---color-text-muted  #9a9ab0   secondary text
---color-border      #2a2a4a   borders
---radius            6px
---font-body         system-ui, -apple-system, sans-serif
+--color-bg            #1c1c1c   page background
+--color-surface       #242424   card/panel background
+--color-surface-2     #2e2e2e   elevated surface
+--color-accent-red    #e94560   red — CTAs, danger (feeds --primary, --destructive, --ring)
+--color-accent-gold   #c4a35a   gold — warnings, highlights
+--color-text          #eaeaea   primary text
+--color-text-muted    #9a9a9a   secondary text
+--color-border-raw    #3a3a3a   borders (feeds --border, --input)
+--radius              6px
+--font-body           system-ui, -apple-system, sans-serif
 ```
+
+**The old names `--color-accent` and `--color-accent-2` no longer exist.** `var(--color-accent)`
+now resolves to a shadcn token mapped to `--color-surface-2` (gray), and `var(--color-accent-2)`
+resolves to nothing. Any reference to the old names is a bug — known stragglers are logged as
+BUG-25/BUG-32 in bugs.md. The `@media print` block redefines the palette for ink-friendly output.
 
 ## Implementation Status
 
@@ -218,9 +260,12 @@ Defined in [src/styles/globals.css](src/styles/globals.css):
 | 6b | Identity field UX — clicking a set value shows description popup with Back + Change buttons | Done |
 | 7 | ~~Manual character creation form~~ | Dropped |
 | 8 | Character sheet view — dice tray, ability/skill/save rolls, SpellBlock (slot pip tracker + spell list + prepared toggle), weapon cards (attack roll, STR/DEX/finesse + proficiency), spell attack rolls; class-specific weapon extras (e.g. Warlock Agonizing Blast) not implemented | Done |
-| 9 | Export / import (full DB + single-character JSON) | Pending |
-| 10 | @media print CSS layer | Pending |
+| 8a | Bug fixes & enhancements — feats system (FeatsBlock, FEAT_EFFECTS, featChoices DB field), armor AC derivation (deriveCharacterStats), two-phase dice roll modal (DiceRollModal + useRollDispatch), weapon bonus display (+1/+2/etc.), tool proficiency picker, skills always editable, LevelUpDialog ASI/feat toggle, multiclass level fix, HP gate, rollDie() for HP rolls | Done |
+| 8b | Render-time stats refactor + severity-first bug-fix session — racial ASIs and feat effects derived in `deriveCharacterStats` (BUG-01/02/05/13/36), `classes[]` split-brain (BUG-34/35), edit-wizard data corruption (BUG-12/13/14), primary-class spell pickers and spell stats (BUG-03/11/15), magic shield AC (BUG-17), warlock `spellcasting` data (BUG-41). 16 code bugs + 1 data bug fixed; remaining findings open in bugs.md | Done |
+| 9 | Export / import (full DB + single-character JSON) | Done |
+| 10 | @media print CSS layer — light palette, Radix portal hiding, tab-panel forcing, section break avoidance in `globals.css` | Done |
 | 11 | Deployment: Cloudflare Pages (Wrangler direct upload) + Cloudflare Zero Trust Access for friend-group access control — see Pre-conditions | Pending |
+| 12 | `codebase-invariants` project skill — system map + invariant catalog distilled from bugs.md root-cause families, for bug hunting and single-pass implementation | Done |
 
 ## Pre-conditions & Hazards
 
@@ -332,8 +377,8 @@ type SpellcastingProfile =
 ### Step 9 — Import/export
 Full-DB import must run the migration runner on the incoming blob **before** writing it to IndexedDB. Load blob into a temporary sql.js instance → run `runMigrations()` → write to IDB and reload. This hook must exist even if only schema v1 exists when Step 9 is built.
 
-### Step 10 — Print CSS
-Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` level. Add `@media print { display: none !important }` targeting dialog overlay, dialog content, and popover content elements — they will not hide automatically.
+### Step 10 — Print CSS (implemented)
+Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` level — they will not hide automatically. Implemented in the `@media print` block in `globals.css`: `[role="presentation"]`/`[role="dialog"]` hidden, inactive `[role="tabpanel"]`s forced visible (so all ProficienciesBlock tabs print), light palette override, `break-inside: avoid` on sections.
 
 ### Step 11 — Deployment
 
@@ -394,27 +439,29 @@ wrangler pages deploy dist/ --project-name dnd-character-sheet
 
 ## Data Content
 
-Current entry counts in `data/` (as of 2026-05-28):
+Current entry counts in `data/` (as of 2026-06-12):
 
 | Category | Count | Notes |
 |---|---|---|
 | backgrounds | 48 | |
 | classes | 14 | 12 SRD + `artificer` + `blood-hunter` |
 | feats | 105 | |
-| races | 9 | |
-| spells | 567 | |
+| races | 46 | One file per race; subrace variants inside each file |
+| spells | 567 | 81 carry annotated class refs the app can't match; 21 unselectable by any class (BUG-48) |
 | subclasses | 122 | Includes Artificer + Blood Hunter subclasses |
-| equipment/weapons | varies | Simple & Martial, melee & ranged |
-| equipment/armor | 14 | Light, Medium, Heavy, Shield |
-| equipment/adventuring_gear | ~100 | Packs, containers, clothing, focuses, usables |
+| equipment/weapons | 198 | Simple & Martial + magic weapons; 88 entries have null `damage_dice`/`damage_type` |
+| equipment/armor | 82 | 14 mundane + magic armors; 20 have `ac_formula` shapes `parseArmorAC` can't parse (BUG-49) |
+| equipment/adventuring_gear | 99 | Packs, containers, clothing, focuses, usables |
 | equipment/trinkets | 100 | PHB d100 table |
 | equipment/firearms | 13 | Renaissance, Modern, Futuristic |
 | equipment/explosives | 7 | Renaissance & Modern |
-| equipment/wondrous_items | ~60 | SRD items; expand as needed |
+| equipment/wondrous_items | 592 | DMG/XGE/TCE + adventure-sourced; 9 carry `spell_focus` for render-time spell attack/DC |
 | equipment/currency | 5 | cp, sp, ep, gp, pp |
 | equipment/poisons | 14 | DMG poison table |
 | equipment/tools | 37 | Artisan tools, gaming sets, instruments, other |
 | equipment/siege_equipment | 6 | Ballista, Cannon, Mangonel, Ram, Siege Tower, Trebuchet |
+
+All former staging files resolved 2026-06-13 (BUG-42/43/44 fixed): `_gap_*` were obsolete name-only checklists (all 217 already live → deleted), the 11 genuinely-new graded variants from `_new_wondrous_*` merged into `wondrous_items.json`, and `gear.json` deleted (only Fargab/Narycrash were unique; dropped). `data/equipment/` now holds exactly the 11 allowlist files.
 
 Class roster: `barbarian`, `bard`, `cleric`, `druid`, `fighter`, `monk`, `paladin`, `ranger`, `rogue`, `sorcerer`, `warlock`, `wizard`, `artificer`, `blood-hunter`
 

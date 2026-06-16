@@ -1,19 +1,25 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { abilityModifier, proficiencyBonus } from '@/lib/dice'
-import { deriveCharacterStats } from '@/lib/characterStats'
 import { useRollDispatch } from '@/lib/useRollDispatch'
+import { abilityModifier } from '@/lib/dice'
 import { StepperField } from './StepperField'
+import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, NewCharacter } from '@/types/character'
 import type { DieType } from '@/types/dice'
-import type { EquipmentData } from '@/types/data'
+import type { DerivedStats } from '@/lib/characterStats'
+
+interface ClassHitDice {
+  classSlug: string
+  className: string
+  hitDie: number
+  level: number
+}
 
 interface Props {
   character: Character
   onSave: (changes: Partial<NewCharacter>) => void
-  hitDie: number
-  catalog: EquipmentData | null
-  classHitDice?: Array<{ hitDie: number; level: number }>  // per-class hit dice for multiclass display
+  derived: DerivedStats
+  classHitDice?: ClassHitDice[]
 }
 
 function StatCard({
@@ -49,7 +55,12 @@ function HpSection({
   function changeHp(delta: number) {
     const newHp = Math.min(adjustedMaxHp, Math.max(-99, currentHp + delta))
     const changes: Partial<NewCharacter> = { currentHp: newHp }
-    if (newHp > 0 && currentHp <= 0 && character.deathSaves.failures >= 3) {
+    // RAW: regaining any hit points resets both death-save counters
+    if (
+      newHp > 0 &&
+      currentHp <= 0 &&
+      (character.deathSaves.successes > 0 || character.deathSaves.failures > 0)
+    ) {
       changes.deathSaves = { successes: 0, failures: 0 }
     }
     onSave(changes)
@@ -58,7 +69,7 @@ function HpSection({
   const hpColor =
     currentHp <= 0
       ? 'var(--color-accent-red)'
-      : currentHp <= Math.floor(maxHp / 2)
+      : currentHp <= Math.floor(adjustedMaxHp / 2)
       ? '#f59e0b'
       : undefined
 
@@ -114,7 +125,7 @@ function HpSection({
           />
           {adjustedMaxHp !== maxHp && (
             <span className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>
-              +{adjustedMaxHp - maxHp} (feat)
+              +{adjustedMaxHp - maxHp} (feat/race)
             </span>
           )}
         </div>
@@ -230,17 +241,29 @@ function DeathSaves({
   )
 }
 
-export function CombatBlock({ character, onSave, hitDie, catalog, classHitDice }: Props) {
-  const { dispatch } = useRollDispatch(character)
-  const initMod = abilityModifier(character.abilities.dex) + (character.initiativeBonus ?? 0)
-  const pb = proficiencyBonus(character.level)
+export function CombatBlock({ character, onSave, derived, classHitDice }: Props) {
+  const hitDie = derived.hitDiceType
+  const { dispatch } = useRollDispatch(derived)
   const totalHitDice = character.level
-  const { effectiveAC, adjustedMaxHp } = deriveCharacterStats(character, catalog ?? undefined)
+  const { effectiveAC, adjustedMaxHp } = derived
+  const conMod = abilityModifier(derived.effectiveAbilities.con)
+  const isMulticlass = !!classHitDice && classHitDice.length > 1
 
+  // RAW: spending a hit die heals roll + CON modifier
   function rollHitDie() {
     if (character.hitDiceUsed >= totalHitDice) return
-    dispatch({ type: 'raw', die: hitDie as DieType })
+    dispatch({ type: 'heal', label: `Hit Die (d${hitDie})`, die: hitDie as DieType, modifier: conMod })
     onSave({ hitDiceUsed: character.hitDiceUsed + 1 })
+  }
+
+  // Multiclass: each class has its own die pool, tracked per class slug
+  function rollClassHitDie(c: ClassHitDice) {
+    const used = character.hitDiceUsedByClass[c.classSlug] ?? 0
+    if (used >= c.level) return
+    dispatch({ type: 'heal', label: `${c.className} Hit Die (d${c.hitDie})`, die: c.hitDie as DieType, modifier: conMod })
+    onSave({
+      hitDiceUsedByClass: { ...character.hitDiceUsedByClass, [c.classSlug]: used + 1 },
+    })
   }
 
   return (
@@ -270,24 +293,69 @@ export function CombatBlock({ character, onSave, hitDie, catalog, classHitDice }
           )}
         </StatCard>
         <StatCard label="Speed">
-          <div className="flex items-center gap-0.5">
-            <StepperField
-              value={character.speed}
-              onSave={v => onSave({ speed: Math.max(0, v) })}
-              min={0}
-              max={120}
-              step={5}
-              size="sm"
-            />
-            <span className="text-xs text-muted-foreground ml-1">ft</span>
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="flex items-center gap-0.5">
+              <StepperField
+                value={derived.effectiveSpeed}
+                onSave={v => {
+                  const base = v - (derived.effectiveSpeed - character.speed)
+                  onSave({ speed: Math.max(0, base) })
+                }}
+                min={0}
+                max={120}
+                step={5}
+                size="sm"
+              />
+              <span className="text-xs text-muted-foreground ml-1">ft</span>
+            </div>
+            {derived.effectiveSpeed !== character.speed && (
+              <span className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>
+                +{derived.effectiveSpeed - character.speed} (feat)
+              </span>
+            )}
           </div>
         </StatCard>
         <StatCard
           label="Initiative"
-          value={initMod >= 0 ? `+${initMod}` : `${initMod}`}
+          value={derived.effectiveInitiative >= 0 ? `+${derived.effectiveInitiative}` : `${derived.effectiveInitiative}`}
         />
-        <StatCard label="Prof Bonus" value={`+${pb}`} />
+        <StatCard label="Prof Bonus" value={`+${derived.proficiencyBonus}`} />
       </div>
+
+      {/* Defenses — damage resistances / immunities from active items (read-only) */}
+      {(derived.resistances.length > 0 || derived.immunities.length > 0) && (
+        <div className="rounded-lg border border-border bg-card px-3 py-2 space-y-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Defenses
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {derived.resistances.map(d => (
+              <span
+                key={`res-${d}`}
+                className="px-2 py-0.5 rounded-full text-[11px] font-medium border border-border capitalize"
+                style={{ color: 'var(--color-accent-gold)' }}
+                title="Resistance"
+              >
+                {d}
+              </span>
+            ))}
+            {derived.immunities.map(d => (
+              <span
+                key={`imm-${d}`}
+                className="px-2 py-0.5 rounded-full text-[11px] font-semibold border capitalize"
+                style={{ color: 'var(--color-accent-red)', borderColor: 'var(--color-accent-red)' }}
+                title="Immunity"
+              >
+                {d}
+              </span>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            <span style={{ color: 'var(--color-accent-gold)' }}>Gold</span> = resistance ·{' '}
+            <span style={{ color: 'var(--color-accent-red)' }}>Red</span> = immunity
+          </p>
+        </div>
+      )}
 
       {/* HP */}
       <HpSection character={character} adjustedMaxHp={adjustedMaxHp} onSave={onSave} />
@@ -301,31 +369,52 @@ export function CombatBlock({ character, onSave, hitDie, catalog, classHitDice }
       />
 
       {/* Hit dice + inspiration */}
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2">
         <div className="flex-1 space-y-1">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Hit Dice{classHitDice && classHitDice.length > 1
-              ? ` (${classHitDice.map(c => `${c.level}d${c.hitDie}`).join(' + ')})`
-              : ` (d${hitDie})`}
+            Hit Dice
           </p>
-          <div className="flex items-center gap-2">
-            <StepperField
-              value={character.hitDiceUsed}
-              onSave={v => onSave({ hitDiceUsed: Math.min(totalHitDice, Math.max(0, v)) })}
-              min={0}
-              max={totalHitDice}
-              size="sm"
-            />
-            <span className="text-xs text-muted-foreground">used / {totalHitDice} total</span>
-            <button
-              onClick={rollHitDie}
-              disabled={character.hitDiceUsed >= totalHitDice}
-              className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: 'var(--color-accent)', color: '#fff' }}
-            >
-              Roll
-            </button>
-          </div>
+          {isMulticlass ? (
+            <div className="space-y-1.5">
+              {classHitDice!.map(c => {
+                const used = character.hitDiceUsedByClass[c.classSlug] ?? 0
+                return (
+                  <div key={c.classSlug} className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-10 flex-none">d{c.hitDie}</span>
+                    <StepperField
+                      value={used}
+                      onSave={v => onSave({
+                        hitDiceUsedByClass: {
+                          ...character.hitDiceUsedByClass,
+                          [c.classSlug]: Math.min(c.level, Math.max(0, v)),
+                        },
+                      })}
+                      min={0}
+                      max={c.level}
+                      size="sm"
+                    />
+                    <span className="text-xs text-muted-foreground">{used} / {c.level} {c.className}</span>
+                    <RollButton onClick={() => rollClassHitDie(c)} disabled={used >= c.level} />
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <StepperField
+                value={character.hitDiceUsed}
+                onSave={v => onSave({ hitDiceUsed: Math.min(totalHitDice, Math.max(0, v)) })}
+                min={0}
+                max={totalHitDice}
+                size="sm"
+              />
+              <span className="text-xs text-muted-foreground">d{hitDie} · used / {totalHitDice} total</span>
+              <RollButton
+                onClick={rollHitDie}
+                disabled={character.hitDiceUsed >= totalHitDice}
+              />
+            </div>
+          )}
         </div>
         <div className="flex flex-col items-center gap-1 flex-none">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

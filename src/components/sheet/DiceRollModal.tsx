@@ -13,6 +13,9 @@ function parseDamageDice(notation: string): { count: number; sides: number } {
 }
 
 function rollDamage(damageDice: string, damageBonus: number, isCrit: boolean) {
+  // Flat, no-die damage (e.g. Unarmed Strike = 1 + STR): nothing to roll, crit
+  // doubles dice only — so the total is just the bonus.
+  if (!damageDice) return { rolls: [] as number[], total: damageBonus }
   const { count, sides } = parseDamageDice(damageDice)
   const dieCount = isCrit ? count * 2 : count
   const rolls = Array.from({ length: dieCount }, () => rollDie(sides as DieType))
@@ -23,7 +26,8 @@ function rollDamage(damageDice: string, damageBonus: number, isCrit: boolean) {
 // ── Crit/fumble label ────────────────────────────────────────────────────────
 
 function CritLabel({ natural, kind }: { natural: number; kind: string }) {
-  if (kind === 'raw') return null
+  // Crit labels are only meaningful for d20-based rolls, not raw dice or hit-die heals
+  if (kind === 'raw' || kind === 'heal') return null
   if (natural === 20) {
     return (
       <p className="text-sm font-bold" style={{ color: 'var(--color-accent-gold)' }}>
@@ -48,7 +52,8 @@ function ResultBody() {
   const closeModal = useDiceStore(s => s.closeModal)
   const { entry } = modal
   const { natural, natural2, modifier, total } = entry.result
-  const isRaw = entry.kind.type === 'raw'
+  // Heal (hit-die) rolls show like a raw die — no crit highlighting
+  const isRaw = entry.kind.type === 'raw' || entry.kind.type === 'heal'
   const isRawD20 = entry.kind.type === 'raw' && entry.kind.die === 20
   const isNat20 = (!isRaw || isRawD20) && natural === 20
   const isNat1 = (!isRaw || isRawD20) && natural === 1
@@ -85,7 +90,7 @@ function ResultBody() {
             </div>
           </div>
         )}
-        {!isRaw && modifier !== 0 && (
+        {entry.kind.type !== 'raw' && modifier !== 0 && (
           <p className="text-xs text-muted-foreground">
             {natural}{modifier >= 0 ? ' + ' : ' − '}{Math.abs(modifier)}
           </p>
@@ -108,7 +113,7 @@ function HitBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const setModalDamage = useDiceStore(s => s.setModalDamage)
-  const { entry, damageDice, damageBonus = 0, isCrit } = modal
+  const { entry, damageDice, damageBonus = 0, damageType, extraDamage = [], isCrit } = modal
   const { natural, modifier, total } = entry.result
   const isNat20 = natural === 20
   const isNat1 = natural === 1
@@ -120,12 +125,18 @@ function HitBody() {
     : undefined
 
   function handleRollDamage(crit: boolean) {
-    if (!damageDice) return
-    const { rolls, total: dmgTotal } = rollDamage(damageDice, damageBonus, crit)
-    setModalDamage(rolls, dmgTotal)
+    const { rolls, total: dmgTotal } = rollDamage(damageDice ?? '', damageBonus, crit)
+    // Each rider (e.g. Flame Tongue +2d6 fire) rolls its own dice, crit doubles them
+    const extraResults = extraDamage.map(ed => {
+      const r = rollDamage(ed.dice, 0, crit)
+      return { damageType: ed.damageType, rolls: r.rolls, total: r.total }
+    })
+    setModalDamage(rolls, dmgTotal, extraResults)
   }
 
-  const hasDamage = !!damageDice
+  // Damage phase applies to any attack that has a die OR a flat typed amount
+  // (Unarmed Strike has no die but a fixed bludgeoning total) OR a rider.
+  const hasDamage = !!damageDice || !!damageType || extraDamage.length > 0
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">
@@ -174,7 +185,10 @@ function HitBody() {
 function DamageBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
-  const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, isCrit } = modal
+  const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, extraDamageResults = [], isCrit } = modal
+
+  const grandTotal = damageTotal + extraDamageResults.reduce((s, e) => s + e.total, 0)
+  const hasRiders = extraDamageResults.length > 0
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">
@@ -190,10 +204,22 @@ function DamageBody() {
           </p>
         )}
         <span className="text-6xl font-black tabular-nums" style={{ color: 'var(--color-accent-gold)' }}>
-          {damageTotal}
+          {grandTotal}
         </span>
-        {damageType && (
-          <p className="text-xs text-muted-foreground capitalize">{damageType}</p>
+        {/* Per-type breakdown when there are riders; otherwise just the main type */}
+        {hasRiders ? (
+          <div className="flex flex-col items-center gap-0.5 mt-1">
+            <p className="text-xs text-muted-foreground capitalize">
+              {damageTotal} {damageType || 'damage'}
+            </p>
+            {extraDamageResults.map((e, i) => (
+              <p key={i} className="text-xs capitalize" style={{ color: 'var(--color-accent-gold)' }}>
+                + {e.total} {e.damageType} <span className="text-muted-foreground">[{e.rolls.join(', ')}]</span>
+              </p>
+            ))}
+          </div>
+        ) : (
+          damageType && <p className="text-xs text-muted-foreground capitalize">{damageType}</p>
         )}
       </div>
 

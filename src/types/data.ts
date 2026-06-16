@@ -1,6 +1,52 @@
-import type { AbilityName } from './character'
+import type { AbilityName, SkillName } from './character'
 
 // ── Equipment catalog types ────────────────────────────────────────────────
+
+/**
+ * Structured mechanical effect carried by a magic item. Applied exactly once, at
+ * render time, in deriveCharacterStats — and only while the item is *active*: an
+ * attune-required item when `EquipmentItem.attuned`, a non-attune item when
+ * `EquipmentItem.equipped` (see computeActiveItemEffects). Magic-item ability
+ * changes are NOT capped at 20 (unlike feat ASIs): `ability_set` takes the max of
+ * current vs. value and may exceed 20; `ability_bonus` is additive and uncapped.
+ */
+export type ItemEffect =
+  // flat AC (Ring/Cloak of Protection). `condition: 'unarmored'` applies only when
+  // no body armor is worn (Bracers of Defense) — an app-knowable condition.
+  | { type: 'ac'; amount: number; condition?: 'unarmored' }
+  | { type: 'save'; ability: AbilityName | 'all'; amount: number }  // save bonus
+  | { type: 'ability_set'; ability: AbilityName; value: number }    // Amulet of Health (CON 19), Belt of Giant Str
+  | { type: 'ability_bonus'; ability: AbilityName; amount: number } // additive ability bump
+  | { type: 'skill'; skill: SkillName; amount: number }             // flat skill bonus
+  | { type: 'speed'; amount: number }
+  | { type: 'initiative'; amount: number }
+  | { type: 'damage'; amount: number }                              // flat bonus to weapon & unarmed damage
+  // Rider damage dice of another type on the weapon that carries it (Flame Tongue →
+  // +2d6 fire). Applies to that weapon's attacks while it is active; crit doubles
+  // the dice. Weapon-specific (read from the weapon's own effects), not global.
+  | { type: 'damage_dice'; dice: string; damageType: string }
+  | { type: 'max_hp'; amount?: number; perLevel?: number }          // flat (+X) and/or scaling (+X per level) max-HP bonus
+  | { type: 'resistance'; damageType: string }                      // damage resistance (free-form type, lowercased)
+  | { type: 'immunity'; damageType: string }                        // damage immunity
+  | { type: 'unarmored_ac'; base: number }                          // sets unarmored AC base (Robe of the Archmagi → 15 + DEX); applies only when no body armor
+  | { type: 'spell_attack'; amount: number }
+  | { type: 'spell_save_dc'; amount: number }
+  | { type: 'language'; name: string }                              // grants a known language while active (Demon Armor → Abyssal)
+  // Overrides the unarmed strike (Demon Armor: 1d8 slashing, +1 atk/dmg). Any
+  // field omitted keeps the unarmed default (1 + STR bludgeoning, no bonus).
+  | { type: 'unarmed'; dice?: string; damageType?: string; attackBonus?: number; damageBonus?: number }
+
+/**
+ * Limited-use charges on an item. Purely a usage tracker (EquipmentItem.chargesUsed)
+ * — it never feeds deriveCharacterStats. `recharge` is when they refill; `regain` is
+ * the descriptive dice formula (e.g. "1d6+1"). The app has no automatic rest, so the
+ * tracker is manual.
+ */
+export interface ItemCharges {
+  max: number
+  recharge?: 'dawn' | 'dusk' | 'long_rest' | 'short_rest'
+  regain?: string
+}
 
 export interface WeaponItem {
   name: string
@@ -20,6 +66,8 @@ export interface WeaponItem {
   base_weapon_type?: string | null
   bonus?: number | null
   special_properties?: string[]
+  effects?: ItemEffect[]  // applied at render time while active (attuned/equipped)
+  charges?: ItemCharges   // limited-use tracker (EquipmentItem.chargesUsed)
 }
 
 export interface ArmorItem {
@@ -39,6 +87,8 @@ export interface ArmorItem {
   description?: string
   base_armor_type?: string | null
   bonus?: number | null
+  effects?: ItemEffect[]  // applied at render time while active (attuned/equipped)
+  charges?: ItemCharges   // limited-use tracker (EquipmentItem.chargesUsed)
 }
 
 export interface AdventuringGearItem {
@@ -86,6 +136,8 @@ export interface WondrousItem {
   attunement_note?: string
   source?: string
   description?: string
+  effects?: ItemEffect[]  // applied at render time while active (spell-focus items use spell_attack/spell_save_dc here)
+  charges?: ItemCharges   // limited-use tracker (EquipmentItem.chargesUsed)
 }
 
 export interface CurrencyItem {
@@ -153,6 +205,19 @@ export interface AsiChoice {
   pool: 'any' | AbilityName[]
 }
 
+export interface Subrace {
+  name: string
+  ability_score_increases: Partial<Record<AbilityName, number>>
+  asi_choices: AsiChoice[]
+  speed: number | null         // null = inherit base race speed; number = override
+  size: string | null
+  languages: string[]
+  senses: Record<string, unknown>
+  proficiencies: string[]
+  traits: Record<string, string>
+  hp_bonus_per_level?: number
+}
+
 export interface Race {
   name: string
   slug: string
@@ -167,7 +232,7 @@ export interface Race {
     proficiencies: string[]
     traits: Record<string, string>
   }
-  subraces: unknown[]
+  subraces: Subrace[]
 }
 
 export interface ClassLevel {
@@ -248,6 +313,8 @@ export type FeatEffect =
   | { type: 'initiative'; amount: number }
   | { type: 'speed'; amount: number }
   | { type: 'save_proficiency'; ability: string }  // ability name or 'asi_choice'
+  | { type: 'skill_proficiency'; count: number }
+  | { type: 'expertise'; count: number }
 
 export interface FeatData {
   name: string

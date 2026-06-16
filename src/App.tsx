@@ -21,11 +21,6 @@ export default function App({ dbResult }: AppProps) {
 
   return (
     <>
-      {!dbResult.persistent && (
-        <div style={{ background: '#c4a35a', color: '#1a1a2e', padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
-          Storage is not persistent — export regularly to avoid data loss.
-        </div>
-      )}
       {storageError && (
         <div style={{ background: '#e94560', color: '#fff', padding: '0.5rem 1rem', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{storageError}</span>
@@ -33,7 +28,7 @@ export default function App({ dbResult }: AppProps) {
         </div>
       )}
       <Routes>
-        <Route path="/" element={<CharacterListPage />} />
+        <Route path="/" element={<CharacterListPage notPersistent={!dbResult.persistent} />} />
         <Route path="/create" element={<CreateCharacterPage />} />
         <Route path="/character/:id" element={<CharacterPage />} />
         <Route path="/character/:id/edit" element={<CreateCharacterPage />} />

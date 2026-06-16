@@ -17,17 +17,21 @@ import {
   getRacialBonuses,
   RACE_TIER_MAP,
   raceToDetailItem,
+  subraceToDetailItem,
   rollHp,
   slugToTitle,
   subclassToDetailItem,
-  getClassAsiLevels,
+  getAllAsiSlots,
+  toggleAsiSelection,
+  toSubraceSlug,
+  ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
 import { loadFeatsData } from '@/lib/data'
 import { featHasChoiceAsi, featChoiceAsiOptions, meetsFeatPrerequisites, type FeatPrereqContext } from '@/lib/characterStats'
 import { DetailPopup } from '@/components/DetailPopup'
 import { abilityModifier } from '@/lib/dice'
 import type { AbilityName } from '@/types/character'
-import type { SetupDraft, LevelAsiChoice, ExtraClassDraft } from '@/lib/characterSetup'
+import type { SetupDraft, LevelAsiChoice } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { FeatData } from '@/types/data'
 import { cn } from '@/lib/utils'
@@ -71,6 +75,7 @@ const ABILITY_METHODS = [
 
 export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const [raceListOpen, setRaceListOpen] = useState(false)
+  const [subraceListOpen, setSubraceListOpen] = useState(false)
   const [classListOpen, setClassListOpen] = useState(false)
   const [subclassListOpen, setSubclassListOpen] = useState(false)
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
@@ -83,7 +88,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   const selectedRace = data.races[draft.raceSlug]
   const selectedClass = data.classes[draft.classSlug]
   const dieSides = selectedClass ? parseHitDie(selectedClass.hit_die) : 8
-  const racialBonuses = getRacialBonuses(selectedRace, draft.asiChoices)
+  const racialBonuses = getRacialBonuses(selectedRace, draft.asiChoices, draft.subraceSlug)
   const effectiveCon = draft.abilities.con + (racialBonuses.con ?? 0)
   const conMod = abilityModifier(effectiveCon)
 
@@ -94,8 +99,11 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
     level: ec.level,
   }))
 
-  // ASI levels for current class + level
-  const asiLevels = selectedClass ? getClassAsiLevels(selectedClass, draft.level) : []
+  // ASI slots across all classes (primary + extras). Hidden in edit mode — ASI
+  // +1s are already in the stored base abilities and feats are managed on the sheet.
+  const asiSlots = selectedClass && !draft.editMode
+    ? getAllAsiSlots(draft, data)
+    : []
 
   // Classes already chosen (to exclude from extra class pickers)
   const chosenClassSlugs = new Set([
@@ -104,8 +112,8 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   ])
 
   useEffect(() => {
-    if (asiLevels.length > 0) loadFeatsData().then(setAllFeats).catch(() => {})
-  }, [asiLevels.length])
+    if (asiSlots.length > 0) loadFeatsData().then(setAllFeats).catch(() => {})
+  }, [asiSlots.length])
 
   function updateAsiChoice(slotIdx: number, patch: Partial<LevelAsiChoice>) {
     const current: LevelAsiChoice = draft.levelAsiChoices[slotIdx] ?? { mode: 'asi', asiAbilities: [], featSlug: '' }
@@ -116,13 +124,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
 
   function toggleAsiAbility(slotIdx: number, ab: AbilityName) {
     const choice = draft.levelAsiChoices[slotIdx] ?? { mode: 'asi', asiAbilities: [], featSlug: '' }
-    const current = choice.asiAbilities
-    if (current.includes(ab)) {
-      const idx = current.lastIndexOf(ab)
-      updateAsiChoice(slotIdx, { asiAbilities: current.filter((_, i) => i !== idx) })
-    } else if (current.length < 2) {
-      updateAsiChoice(slotIdx, { asiAbilities: [...current, ab] })
-    }
+    updateAsiChoice(slotIdx, { asiAbilities: toggleAsiSelection(choice.asiAbilities, ab) })
   }
 
   const featPrereqCtx = useMemo((): FeatPrereqContext => {
@@ -172,6 +174,14 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
     group: RACE_TIER_MAP[r.slug] ?? 'Common',
   }))
 
+  const subraceEntries: SelectionEntry[] = useMemo(() =>
+    selectedRace?.subraces.map(s => ({
+      slug: toSubraceSlug(s.name),
+      detail: subraceToDetailItem(s, selectedRace.name),
+    })) ?? [],
+    [selectedRace],
+  )
+
   const classEntries: SelectionEntry[] = Object.values(data.classes).map((c) => ({
     slug: c.slug,
     detail: classToDetailItem(c),
@@ -206,7 +216,13 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
   }
 
   function handleRollHp() {
+    // Roll the primary class dice plus each extra class's dice (BUG-18) so the
+    // full multiclass hit-dice total feeds computeMulticlassHp's 'roll' branch
     const rolled = rollHp(dieSides, draft.level)
+      + draft.extraClasses.reduce(
+          (s, ec) => s + rollHp(parseHitDie(data.classes[ec.classSlug]?.hit_die ?? 'd8'), ec.level),
+          0,
+        )
     onChange({ hpRolled: rolled })
   }
 
@@ -260,7 +276,11 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
         <SelectionList
           entries={raceEntries}
           value={draft.raceSlug}
-          onSelect={(slug) => onChange({ raceSlug: slug, asiChoices: [] })}
+          onSelect={(slug) => {
+            const newRace = data.races[slug]
+            const autoSubrace = newRace?.subraces.length === 1 ? toSubraceSlug(newRace.subraces[0].name) : ''
+            onChange({ raceSlug: slug, subraceSlug: autoSubrace, asiChoices: [] })
+          }}
           open={raceListOpen}
           onClose={() => setRaceListOpen(false)}
           title="Choose Race"
@@ -268,6 +288,29 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
           groupOrder={['Common', 'Exotic', 'Monstrous']}
         />
       </Field>
+
+      {/* Subrace picker — shown only when selected race has subraces */}
+      {selectedRace && selectedRace.subraces.length > 0 && (
+        <Field label="Subrace">
+          <SelectionButton
+            label={
+              draft.subraceSlug
+                ? (selectedRace.subraces.find(s => toSubraceSlug(s.name) === draft.subraceSlug)?.name ?? draft.subraceSlug)
+                : 'Choose Subrace'
+            }
+            selected={!!draft.subraceSlug}
+            onClick={() => setSubraceListOpen(true)}
+          />
+          <SelectionList
+            entries={subraceEntries}
+            value={draft.subraceSlug}
+            title="Choose Subrace"
+            open={subraceListOpen}
+            onClose={() => setSubraceListOpen(false)}
+            onSelect={slug => { onChange({ subraceSlug: slug }); setSubraceListOpen(false) }}
+          />
+        </Field>
+      )}
 
       {/* Flexible ASI pools (e.g., half-elf: +1 to 2 abilities of your choice) */}
       {asiChoicePools.map((pool, poolIdx) => {
@@ -497,7 +540,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
             {' '}
             <span className="text-xs">
               ({selectedClass?.hit_die}
-              {draft.extraClasses.map((ec, i) => {
+              {draft.extraClasses.map(ec => {
                 const ecHitDie = data.classes[ec.classSlug]?.hit_die
                 return ecHitDie ? ` + ${ecHitDie}` : ''
               }).join('')}
@@ -507,24 +550,31 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
         )}
       </Field>
 
+      {draft.editMode && (
+        <p className="text-xs text-muted-foreground">
+          Ability score improvements and feats are managed on the character sheet.
+        </p>
+      )}
+
       {/* Class-level ASI / Feat choices */}
-      {asiLevels.length > 0 && (
+      {asiSlots.length > 0 && (
         <Field
           id="field-asi"
-          label={`Ability Score Improvements (${asiLevels.length})`}
+          label={`Ability Score Improvements (${asiSlots.length})`}
           error={hasError('improvement') ? 'Complete all ability score improvement or feat choices' : undefined}
         >
           <div className="space-y-4">
-            {asiLevels.map((lvl, slotIdx) => {
+            {asiSlots.map((slot, slotIdx) => {
               const choice = draft.levelAsiChoices[slotIdx] ?? { mode: 'asi', asiAbilities: [], featSlug: '' }
+              const isMulticlass = draft.extraClasses.length > 0
               return (
-                <div key={lvl} className="rounded-lg border border-border bg-card overflow-hidden">
+                <div key={slotIdx} className="rounded-lg border border-border bg-card overflow-hidden">
                   <div className="px-3 py-2 border-b border-border flex items-center justify-between">
                     <span
                       className="text-xs font-semibold uppercase tracking-wide"
                       style={{ color: 'var(--color-accent-gold)' }}
                     >
-                      Level {lvl}
+                      {isMulticlass ? `${slugToTitle(slot.classSlug)} ` : ''}Level {slot.classLevel}
                     </span>
                     <div className="flex gap-1">
                       {(['asi', 'feat'] as const).map(m => (
@@ -607,7 +657,7 @@ export function SetupScreen1({ draft, data, errors, onChange }: Props) {
                                 <p className="text-xs text-muted-foreground">Choose ability to increase by 1:</p>
                                 <div className="flex gap-1 flex-wrap">
                                   {featChoiceAsiOptions(allFeats[choice.featSlug]).map(opt => {
-                                    const ab = ({ strength:'str', dexterity:'dex', constitution:'con', intelligence:'int', wisdom:'wis', charisma:'cha' } as Record<string, AbilityName>)[opt.toLowerCase()]
+                                    const ab = ABILITY_FULL_TO_SHORT[opt.toLowerCase()] as AbilityName | undefined
                                     if (!ab) return null
                                     const selected = choice.featAsiAbility === ab
                                     return (

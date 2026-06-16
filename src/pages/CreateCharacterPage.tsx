@@ -14,11 +14,12 @@ import {
   INITIAL_DRAFT,
   characterToDraft,
   draftToNewCharacter,
+  equipStartingArmor,
   isEquipmentComplete,
   isLevelAsiComplete,
 } from '@/lib/characterSetup'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
-import { loadSetupData, loadFeatsData, loadSpellsData } from '@/lib/data'
+import { loadSetupData, loadFeatsData, loadSpellsData, loadEquipmentData } from '@/lib/data'
 import { useCharacterStore } from '@/store/characters'
 import type { SetupDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
@@ -55,7 +56,8 @@ function validateScreen(
     if (draft.hpMethod === 'roll' && draft.hpRolled === null) {
       errors.push('HP roll is required — click the Roll button')
     }
-    if (data && !isLevelAsiComplete(draft, data, allFeats)) {
+    // Edit mode: ASI/feat slots are hidden — choices live in the stored record
+    if (data && !isEditMode && !isLevelAsiComplete(draft, data, allFeats)) {
       errors.push('Complete all ability score improvement or feat choices')
     }
     return errors
@@ -161,6 +163,15 @@ export default function CreateCharacterPage() {
   }
 
   async function handleFinish(skipValidation = false) {
+    // Name is non-negotiable even on the skip-validation "Done" path — an
+    // empty name breaks the character list (BUG-12)
+    if (!draft.name.trim()) {
+      setErrors(['Name is required'])
+      setScreen(1)
+      setDoneConfirmOpen(false)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
     if (!skipValidation) {
       const errs = validateScreen(screen, draft, data, allFeats, isEditMode)
       if (errs.length) {
@@ -178,8 +189,24 @@ export default function CreateCharacterPage() {
         const existing = characters.find(c => c.id === editId)
         if (!existing) throw new Error('Character not found')
 
-        // Merge: use new data for identity/stats, preserve combat state and equipment
+        // Merge: use new data for identity/stats, preserve combat state,
+        // equipment, and everything managed on the sheet (feats, AC, saves, notes)
         const mergedSpells = mergeSpells(existing.spells, newCharData.spells)
+
+        // Wizard skills come back as 'proficient' — restore expertise where it existed
+        const skillProficiencies = { ...newCharData.skillProficiencies }
+        for (const [skill, prof] of Object.entries(existing.skillProficiencies)) {
+          if (prof === 'expertise' && skillProficiencies[skill as keyof typeof skillProficiencies]) {
+            skillProficiencies[skill as keyof typeof skillProficiencies] = 'expertise'
+          }
+        }
+
+        // The wizard only edits the "Appearance: …" prefix of notes — keep the
+        // stored notes unless the appearance field actually changed
+        const originalAppearance = existing.notes?.startsWith('Appearance: ')
+          ? existing.notes.slice('Appearance: '.length)
+          : ''
+        const notes = draft.appearance !== originalAppearance ? newCharData.notes : existing.notes
 
         const changes: Partial<NewCharacter> = {
           name: newCharData.name,
@@ -196,36 +223,45 @@ export default function CreateCharacterPage() {
           languages: newCharData.languages,
           backstory: newCharData.backstory,
           abilities: newCharData.abilities,
+          raceAsiChoices: newCharData.raceAsiChoices,
           maxHp: newCharData.maxHp,
           // Preserve current HP (clamped to new max)
           currentHp: Math.min(existing.currentHp, newCharData.maxHp),
           tempHp: existing.tempHp,
-          armorClass: newCharData.armorClass,
+          // Preserve sheet-managed stats — the wizard cannot represent them
+          armorClass: existing.armorClass,
+          initiativeBonus: existing.initiativeBonus,
           speed: newCharData.speed,
-          initiativeBonus: newCharData.initiativeBonus,
           // Preserve combat state
           deathSaves: existing.deathSaves,
           hitDiceUsed: existing.hitDiceUsed,
           inspiration: existing.inspiration,
-          skillProficiencies: newCharData.skillProficiencies,
-          savingThrowProficiencies: newCharData.savingThrowProficiencies,
+          skillProficiencies,
+          savingThrowProficiencies: existing.savingThrowProficiencies,
           spells: mergedSpells,
           spellSlotsUsed: existing.spellSlotsUsed,
           personalityTraits: newCharData.personalityTraits,
           ideals: newCharData.ideals,
           bonds: newCharData.bonds,
           flaws: newCharData.flaws,
-          notes: newCharData.notes,
+          notes,
           // Preserve equipment and currency (managed on sheet)
           equipment: existing.equipment,
           currency: existing.currency,
-          feats: newCharData.feats,
-          featChoices: newCharData.featChoices,
+          // Preserve feats — added via FeatsBlock/level-up, not the wizard
+          feats: existing.feats,
+          featChoices: existing.featChoices,
           toolProficiencies: newCharData.toolProficiencies,
         }
         updateCharacter(editId, changes)
         navigate(`/character/${editId}`)
       } else {
+        // Auto-equip the starting body armor + shield so AC is correct out of the
+        // box (the AC derivation only counts worn armor). The catalog load is cached.
+        const catalog = await loadEquipmentData().catch(() => null)
+        if (catalog?.armor) {
+          newCharData.equipment = equipStartingArmor(newCharData.equipment, catalog.armor)
+        }
         const created = await createCharacter(newCharData)
         navigate(`/character/${created.id}`)
       }
@@ -390,7 +426,7 @@ export default function CreateCharacterPage() {
             {screen === 1 ? 'Cancel' : 'Back'}
           </Button>
           {isLastScreen ? (
-            <Button onClick={handleFinish} disabled={submitting}>
+            <Button onClick={() => handleFinish()} disabled={submitting}>
               {submitting
                 ? (isEditMode ? 'Saving…' : 'Creating…')
                 : (isEditMode ? 'Save Changes' : 'Create Character')}

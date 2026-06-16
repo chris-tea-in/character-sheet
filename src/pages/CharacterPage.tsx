@@ -19,31 +19,27 @@ import { StepperField } from '@/components/sheet/StepperField'
 import { LevelUpDialog } from '@/components/sheet/LevelUpDialog'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { useCharacterStore } from '@/store/characters'
-import { loadSetupData, loadEquipmentData } from '@/lib/data'
+import { loadSetupData, loadEquipmentData, loadFeatsData } from '@/lib/data'
+import { deriveCharacterStats } from '@/lib/characterStats'
 import {
   parseHitDie, RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
-  subclassToDetailItem, backgroundToDetailItem, getRacialBonuses,
-  slugToTitle, ABILITY_ORDER, ABILITY_LABELS,
+  subclassToDetailItem, backgroundToDetailItem, subraceToDetailItem,
+  slugToTitle, ABILITY_ORDER, ABILITY_LABELS, toSubraceSlug, ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
 import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
 import type { CasterKind } from '@/lib/spellcasting'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { ALL_LANGUAGES, toSkillName } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
-import type { ClassData, Race, Background, EquipmentData } from '@/types/data'
-import type { AbilityName, Abilities, NewCharacter, SkillName } from '@/types/character'
+import type { ClassData, Race, Subrace, Background, EquipmentData, FeatData } from '@/types/data'
+import type { AbilityName, NewCharacter, SkillName } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
 
-type IdentityList = 'class' | 'subclass' | 'race' | 'background' | 'alignment' | null
+type IdentityList = 'class' | 'subclass' | 'race' | 'subrace' | 'background' | 'alignment' | null
 
-// Converts class saving throw display names ("Constitution") → AbilityName ("con")
-const SAVE_NAME_TO_ABILITY: Record<string, AbilityName> = {
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-}
 function classSavesToAbilities(saves: string[]): AbilityName[] {
-  return saves.map(s => SAVE_NAME_TO_ABILITY[s.toLowerCase()]).filter(Boolean) as AbilityName[]
+  return saves.map(s => ABILITY_FULL_TO_SHORT[s.toLowerCase()]).filter(Boolean) as AbilityName[]
 }
 
 // ── Race change prompt ────────────────────────────────────────────────────────
@@ -55,13 +51,11 @@ interface RacePrompt {
 
 function RacePromptDialog({
   prompt,
-  currentAbilities,
   onApply,
   onSkip,
 }: {
   prompt: RacePrompt
-  currentAbilities: Abilities
-  onApply: (abilityChanges: Partial<Abilities>, speed: number, asiChoices: AbilityName[]) => void
+  onApply: (asiChoices: AbilityName[]) => void
   onSkip: () => void
 }) {
   const { race } = prompt
@@ -80,13 +74,7 @@ function RacePromptDialog({
   }
 
   function handleApply() {
-    const bonuses = getRacialBonuses(race, asiChoices)
-    const changes: Partial<Abilities> = {}
-    for (const [k, v] of Object.entries(bonuses)) {
-      const ab = k as AbilityName
-      changes[ab] = Math.min(30, (currentAbilities[ab] ?? 10) + (v ?? 0))
-    }
-    onApply(changes, race.base.speed, asiChoices)
+    onApply(asiChoices)
   }
 
   const hasBonuses = Object.keys(fixedBonuses).length > 0 || choicePools.length > 0
@@ -107,7 +95,7 @@ function RacePromptDialog({
                 </p>
                 <ul className="space-y-0.5">
                   {Object.entries(fixedBonuses).map(([ab, val]) => {
-                    const label = ABILITY_LABELS[SAVE_NAME_TO_ABILITY[ab] ?? ab as AbilityName] ?? ab
+                    const label = ABILITY_LABELS[ABILITY_FULL_TO_SHORT[ab] ?? ab as AbilityName] ?? ab
                     return (
                       <li key={ab} className="text-sm">
                         <span style={{ color: 'var(--color-accent-gold)' }}>+{val}</span> {label}
@@ -153,11 +141,123 @@ function RacePromptDialog({
             </p>
 
             <p className="text-xs text-muted-foreground">
-              Apply will add these bonuses to your current scores.
+              Bonuses apply to your scores automatically — choose your flexible increases.
             </p>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">No ability score bonuses from this race.</p>
+        )}
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost" onClick={onSkip}>Skip</Button>
+          </DialogClose>
+          <Button
+            onClick={handleApply}
+            disabled={choicePools.length > 0 && asiChoices.length < totalChoicesNeeded}
+          >
+            Apply Bonuses
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Subrace change prompt ─────────────────────────────────────────────────────
+
+function SubracePromptDialog({
+  subrace,
+  onApply,
+  onSkip,
+}: {
+  subrace: Subrace
+  onApply: (asiChoices: AbilityName[]) => void
+  onSkip: () => void
+}) {
+  const fixedBonuses = subrace.ability_score_increases
+  const choicePools = subrace.asi_choices
+  const [asiChoices, setAsiChoices] = useState<AbilityName[]>([])
+
+  const totalChoicesNeeded = choicePools.reduce((s, p) => s + p.count, 0)
+
+  function toggleChoice(ability: AbilityName) {
+    if (asiChoices.includes(ability)) {
+      setAsiChoices(c => c.filter(a => a !== ability))
+    } else if (asiChoices.length < totalChoicesNeeded) {
+      setAsiChoices(c => [...c, ability])
+    }
+  }
+
+  function handleApply() {
+    onApply(asiChoices)
+  }
+
+  const hasBonuses = Object.keys(fixedBonuses).length > 0 || choicePools.length > 0
+
+  return (
+    <Dialog open onOpenChange={o => !o && onSkip()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{subrace.name}</DialogTitle>
+        </DialogHeader>
+
+        {hasBonuses ? (
+          <div className="space-y-3 text-sm">
+            {Object.keys(fixedBonuses).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Ability Score Increases
+                </p>
+                <ul className="space-y-0.5">
+                  {Object.entries(fixedBonuses).map(([ab, val]) => {
+                    const label = ABILITY_LABELS[ABILITY_FULL_TO_SHORT[ab] ?? ab as AbilityName] ?? ab
+                    return (
+                      <li key={ab} className="text-sm">
+                        <span style={{ color: 'var(--color-accent-gold)' }}>+{val}</span> {label}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {choicePools.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Flexible ASI — choose {totalChoicesNeeded} ({asiChoices.length}/{totalChoicesNeeded})
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  {ABILITY_ORDER.map(ab => {
+                    const chosen = asiChoices.includes(ab)
+                    const disabled = !chosen && asiChoices.length >= totalChoicesNeeded
+                    return (
+                      <button
+                        key={ab}
+                        onClick={() => toggleChoice(ab)}
+                        disabled={disabled}
+                        className="px-2 py-1 rounded text-xs border transition-colors"
+                        style={{
+                          background: chosen ? 'var(--color-accent-gold)' : undefined,
+                          color: chosen ? '#000' : undefined,
+                          borderColor: 'var(--color-border-raw)',
+                          opacity: disabled ? 0.4 : 1,
+                        }}
+                      >
+                        {ABILITY_LABELS[ab]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Bonuses apply to your scores automatically — choose your flexible increases.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No ability score bonuses from this subrace.</p>
         )}
 
         <DialogFooter>
@@ -411,8 +511,10 @@ export default function CharacterPage() {
   const [setupData, setSetupData] = useState<SetupData | null>(null)
   const [classRecord, setClassRecord] = useState<ClassData | null>(null)
   const [equipmentCatalog, setEquipmentCatalog] = useState<EquipmentData | null>(null)
+  const [featData, setFeatData] = useState<Record<string, FeatData> | null>(null)
   const [activeList, setActiveList] = useState<IdentityList>(null)
   const [racePrompt, setRacePrompt] = useState<RacePrompt | null>(null)
+  const [subracePrompt, setSubracePrompt] = useState<Subrace | null>(null)
   const [classPrompt, setClassPrompt] = useState<ClassData | null>(null)
   const [backgroundPrompt, setBackgroundPrompt] = useState<Background | null>(null)
   const [levelUpTarget, setLevelUpTarget] = useState<{
@@ -422,6 +524,7 @@ export default function CharacterPage() {
     newClassSlug?: string  // set when adding a brand-new class (multiclassing)
   } | null>(null)
   const [levelPickerPending, setLevelPickerPending] = useState<number | null>(null)
+  const [levelDownOpen, setLevelDownOpen] = useState(false)
   const [addClassOpen, setAddClassOpen] = useState(false)
   const [addClassTotalLevel, setAddClassTotalLevel] = useState<number | null>(null)
 
@@ -433,6 +536,7 @@ export default function CharacterPage() {
       })
       .catch(() => {})
     loadEquipmentData().then(setEquipmentCatalog).catch(() => {})
+    loadFeatsData().then(setFeatData).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -458,7 +562,28 @@ export default function CharacterPage() {
     update(id!, changes)
   }
 
-  const hitDie = classRecord ? parseHitDie(classRecord.hit_die) : 8
+  const currentRaceData = character.race ? (setupData?.races[character.race] ?? null) : null
+
+  // Background-granted skills — excluded from the class skill-pick cap (BUG-29)
+  const backgroundSkills = useMemo((): SkillName[] => (
+    (setupData?.backgrounds[character.background]?.skill_proficiencies ?? [])
+      .map(toSkillName)
+      .filter((s): s is SkillName => s !== null)
+  ), [setupData, character.background])
+
+  // All class records ordered to match character.classes ([0] = primary)
+  const classRecords = useMemo(() => (
+    character.classes?.length
+      ? character.classes.map(c => setupData?.classes[c.classSlug] ?? null)
+      : [classRecord]
+  ), [character.classes, setupData, classRecord])
+
+  const derived = useMemo(
+    () => deriveCharacterStats(character, {
+      classes: classRecords, race: currentRaceData, catalog: equipmentCatalog, featData,
+    }),
+    [character, classRecords, currentRaceData, equipmentCatalog, featData],
+  )
 
   // Primary class level (classes[0].level, or character.level for single-class legacy)
   const primaryClassLevel = character.classes?.length
@@ -466,8 +591,8 @@ export default function CharacterPage() {
     : character.level
 
   // Multiclass slot override — null when single-class (SpellBlock uses per-class slots)
-  const multiclassSlotProfile = character.classes?.length > 1
-    ? computeMulticlassSlots(character.classes)
+  const multiclassSlotProfile = character.classes?.length > 1 && setupData
+    ? computeMulticlassSlots(character.classes, setupData.classes)
     : null
 
   // When multiclassed, derive casterKind from the actual spellcasting classes (not just primary)
@@ -495,6 +620,20 @@ export default function CharacterPage() {
   const displayRace = character.race
     ? (setupData?.races[character.race]?.name ?? slugToTitle(character.race))
     : null
+
+  const displaySubrace = useMemo(() => {
+    if (!character.subrace || !currentRaceData) return null
+    const sub = currentRaceData.subraces.find(s => toSubraceSlug(s.name) === character.subrace)
+    return sub?.name ?? slugToTitle(character.subrace)
+  }, [character.subrace, currentRaceData])
+
+  const subraceEntries: SelectionEntry[] = useMemo(() => {
+    if (!currentRaceData) return []
+    return currentRaceData.subraces.map(s => ({
+      slug: toSubraceSlug(s.name),
+      detail: subraceToDetailItem(s, currentRaceData.name),
+    }))
+  }, [currentRaceData])
 
   const subclassEntries: SelectionEntry[] = useMemo(() => {
     if (!setupData || !character.class) return []
@@ -531,8 +670,37 @@ export default function CharacterPage() {
   ].map(a => ({ slug: a, detail: { name: a, sections: [] } }))
 
   function handleClassSelect(slug: string) {
+    if (!character) return
     const cls = setupData?.classes[slug]
-    const changes: Partial<NewCharacter> = { class: slug, subclass: null, skillProficiencies: {} }
+
+    // Drop only skills attributable to the old class's pick list; keep
+    // background-granted skills and anything else (feats, manual dots).
+    const oldClassSkills = new Set(
+      (classRecord?.skill_choices.options ?? [])
+        .map(toSkillName)
+        .filter((s): s is SkillName => s !== null),
+    )
+    const bgSkills = new Set(
+      (setupData?.backgrounds[character.background]?.skill_proficiencies ?? [])
+        .map(toSkillName)
+        .filter((s): s is SkillName => s !== null),
+    )
+    const keptSkills = Object.fromEntries(
+      Object.entries(character.skillProficiencies).filter(
+        ([skill]) => !oldClassSkills.has(skill as SkillName) || bgSkills.has(skill as SkillName),
+      ),
+    )
+
+    // classes[] is the source of truth in the repo — keep it in sync with the
+    // legacy class/subclass columns or the change reverts on reload (BUG-34)
+    const updatedClasses = character.classes?.length
+      ? character.classes.map((c, i) =>
+          i === 0 ? { classSlug: slug, subclassSlug: null, level: c.level } : c)
+      : [{ classSlug: slug, subclassSlug: null, level: character.level }]
+
+    const changes: Partial<NewCharacter> = {
+      class: slug, subclass: null, classes: updatedClasses, skillProficiencies: keptSkills,
+    }
     if (cls) {
       changes.savingThrowProficiencies = classSavesToAbilities(cls.saving_throw_proficiencies)
       const grantedTools = cls.tool_proficiencies ?? []
@@ -547,10 +715,32 @@ export default function CharacterPage() {
   }
 
   function handleRaceSelect(slug: string) {
-    save({ race: slug })
-    setActiveList(null)
+    if (!character) return
     const race = setupData?.races[slug]
+    // Racial bonuses are derived from base scores at render time — switching
+    // race only swaps the slug, resets recorded picks, and sets the base speed
+    save({
+      race: slug,
+      subrace: null,
+      raceAsiChoices: [],
+      speed: race?.base.speed ?? character.speed,
+    })
+    setActiveList(null)
     if (race) setRacePrompt({ race, slug })
+  }
+
+  function handleSubraceSelect(slug: string) {
+    if (!character) return
+    const sub = currentRaceData?.subraces.find(s => toSubraceSlug(s.name) === slug)
+    // Keep race-pool picks, drop any previous subrace picks (re-chosen in the prompt)
+    const racePoolCount = currentRaceData?.base.asi_choices.reduce((s, p) => s + p.count, 0) ?? 0
+    save({
+      subrace: slug,
+      raceAsiChoices: character.raceAsiChoices.slice(0, racePoolCount),
+      speed: sub?.speed ?? currentRaceData?.base.speed ?? character.speed,
+    })
+    setActiveList(null)
+    if (sub) setSubracePrompt(sub)
   }
 
   function handleBackgroundSelect(slug: string) {
@@ -565,9 +755,9 @@ export default function CharacterPage() {
     if (bg) setBackgroundPrompt(bg)
   }
 
-  function handleRacePromptApply(abilityChanges: Partial<Abilities>, speed: number) {
+  function handleRacePromptApply(asiChoices: AbilityName[]) {
     if (!character) return
-    save({ abilities: { ...character.abilities, ...abilityChanges }, speed })
+    save({ raceAsiChoices: asiChoices })
     setRacePrompt(null)
   }
 
@@ -576,9 +766,29 @@ export default function CharacterPage() {
     if (v > character.level) {
       // Always show the class picker so the user can level an existing class or multiclass
       setLevelPickerPending(v)
-    } else {
-      save({ level: v })
+    } else if (v < character.level) {
+      // classes[] is the repo's source of truth — a bare `level` write reverts on reload
+      if ((character.classes?.length ?? 0) > 1) {
+        setLevelDownOpen(true)
+      } else {
+        const updatedClasses = character.classes?.length
+          ? [{ ...character.classes[0], level: v }]
+          : []
+        save({ level: v, classes: updatedClasses })
+      }
     }
+  }
+
+  function handleClassLevelDrop(classIdx: number) {
+    if (!character) return
+    const updatedClasses = character.classes.map((c, i) =>
+      i === classIdx ? { ...c, level: c.level - 1 } : c,
+    )
+    save({
+      level: updatedClasses.reduce((s, c) => s + c.level, 0),
+      classes: updatedClasses,
+    })
+    setLevelDownOpen(false)
   }
 
   function handleClassLevelPick(classIdx: number) {
@@ -596,13 +806,13 @@ export default function CharacterPage() {
   }
 
   return (
-    <div className="min-h-dvh flex flex-col pb-[52px]">
+    <div className="min-h-dvh flex flex-col pb-[52px] print:pb-0">
       {/* Sticky header */}
       <header className="sticky top-0 z-30 border-b border-border bg-background">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-start gap-3">
           <button
             onClick={() => navigate('/')}
-            className="mt-0.5 text-muted-foreground hover:text-foreground transition-colors flex-none"
+            className="mt-0.5 text-muted-foreground hover:text-foreground transition-colors flex-none print:hidden"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -616,7 +826,7 @@ export default function CharacterPage() {
           </div>
           <button
             onClick={() => navigate(`/character/${id}/edit`)}
-            className="flex-none text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border border-border"
+            className="flex-none text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border border-border print:hidden"
           >
             Edit
           </button>
@@ -631,41 +841,46 @@ export default function CharacterPage() {
             setupData={setupData}
             displayClass={displayClass}
             displayRace={displayRace}
+            displaySubrace={displaySubrace}
+            subraceEntries={subraceEntries}
+            currentRaceData={currentRaceData}
             subclassEntries={subclassEntries}
             onOpenList={setActiveList}
             onSave={save}
             onLevelChange={handleLevelChange}
           />
 
-          <AbilityBlock character={character} onSave={save} />
+          <AbilityBlock character={character} derived={derived} onSave={save} />
           <CombatBlock
             character={character}
+            derived={derived}
             onSave={save}
-            hitDie={hitDie}
-            catalog={equipmentCatalog}
             classHitDice={character.classes?.length > 1
               ? character.classes.map(c => ({
+                  classSlug: c.classSlug,
+                  className: slugToTitle(c.classSlug),
                   hitDie: setupData?.classes[c.classSlug]
                     ? parseHitDie(setupData.classes[c.classSlug].hit_die)
-                    : hitDie,
+                    : derived.hitDiceType,
                   level: c.level,
                 }))
               : undefined}
           />
-          <ProficienciesBlock character={character} classRecord={classRecord} catalog={equipmentCatalog} onSave={save} />
-          <FeatsBlock character={character} onSave={save} />
-          <EquipmentBlock character={character} classRecord={classRecord} onSave={save} catalog={equipmentCatalog} />
+          <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} catalog={equipmentCatalog} derived={derived} onSave={save} />
+          <FeatsBlock character={character} derived={derived} onSave={save} />
+          <EquipmentBlock character={character} derived={derived} onSave={save} catalog={equipmentCatalog} />
           {classRecord && (
             <SpellBlock
               character={character}
               classRecord={classRecord}
               classLevel={primaryClassLevel}
+              derived={derived}
               overrideSlotProfile={multiclassSlotProfile ?? undefined}
               overrideCasterKind={multiclassCasterKind}
               onSave={save}
             />
           )}
-          <DescriptionBlock character={character} onSave={save} />
+          <DescriptionBlock character={character} derived={derived} onSave={save} />
 
         </div>
       </main>
@@ -685,7 +900,13 @@ export default function CharacterPage() {
         title="Choose Subclass"
         open={activeList === 'subclass'}
         onClose={() => setActiveList(null)}
-        onSelect={slug => { save({ subclass: slug }); setActiveList(null) }}
+        onSelect={slug => {
+          const updatedClasses = character.classes?.length
+            ? character.classes.map((c, i) => (i === 0 ? { ...c, subclassSlug: slug } : c))
+            : [{ classSlug: character.class, subclassSlug: slug, level: character.level }]
+          save({ subclass: slug, classes: updatedClasses })
+          setActiveList(null)
+        }}
       />
       <SelectionList
         entries={raceEntries}
@@ -695,6 +916,14 @@ export default function CharacterPage() {
         onClose={() => setActiveList(null)}
         onSelect={handleRaceSelect}
         groupOrder={['Common', 'Exotic', 'Monstrous']}
+      />
+      <SelectionList
+        entries={subraceEntries}
+        value={character.subrace ?? ''}
+        title="Choose Subrace"
+        open={activeList === 'subrace'}
+        onClose={() => setActiveList(null)}
+        onSelect={handleSubraceSelect}
       />
       <SelectionList
         entries={backgroundEntries}
@@ -738,9 +967,20 @@ export default function CharacterPage() {
       {racePrompt && (
         <RacePromptDialog
           prompt={racePrompt}
-          currentAbilities={character.abilities}
-          onApply={(changes, speed) => handleRacePromptApply(changes, speed)}
+          onApply={choices => handleRacePromptApply(choices)}
           onSkip={() => setRacePrompt(null)}
+        />
+      )}
+
+      {subracePrompt && (
+        <SubracePromptDialog
+          subrace={subracePrompt}
+          onApply={choices => {
+            // raceAsiChoices was trimmed to the race-pool picks on subrace select
+            save({ raceAsiChoices: [...character.raceAsiChoices, ...choices] })
+            setSubracePrompt(null)
+          }}
+          onSkip={() => setSubracePrompt(null)}
         />
       )}
 
@@ -748,7 +988,7 @@ export default function CharacterPage() {
         <ClassPromptDialog
           classData={classPrompt}
           onApply={profs => {
-            save({ skillProficiencies: profs })
+            save({ skillProficiencies: { ...character.skillProficiencies, ...profs } })
             setClassPrompt(null)
           }}
           onSkip={() => setClassPrompt(null)}
@@ -777,6 +1017,7 @@ export default function CharacterPage() {
         return (
           <LevelUpDialog
             character={character}
+            effectiveAbilities={derived.effectiveAbilities}
             classRecord={targetRecord}
             newLevel={levelUpTarget.newClassLevel}
             newTotalLevel={levelUpTarget.newTotalLevel}
@@ -848,7 +1089,37 @@ export default function CharacterPage() {
         </Dialog>
       )}
 
-      <DiceTray character={character} />
+      {/* Level-down class picker: choose which class loses the level (multiclass only) */}
+      {levelDownOpen && (
+        <Dialog open onOpenChange={o => !o && setLevelDownOpen(false)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Level Down — Choose Class</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <p className="text-sm text-muted-foreground mb-3">Which class loses a level?</p>
+              {character.classes.map((c, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleClassLevelDrop(idx)}
+                  disabled={c.level <= 1}
+                  className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-secondary transition-colors disabled:opacity-40"
+                >
+                  <span className="font-medium">{slugToTitle(c.classSlug)}</span>
+                  <span className="text-sm text-muted-foreground ml-2">
+                    Level {c.level} → {c.level - 1}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setLevelDownOpen(false)}>Cancel</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <DiceTray derived={derived} />
       <DiceRollModal />
     </div>
   )
@@ -859,7 +1130,7 @@ export default function CharacterPage() {
 type IdentityField = Exclude<IdentityList, null>
 
 const IDENTITY_LABELS: Record<IdentityField, string> = {
-  class: 'Class', subclass: 'Subclass', race: 'Race',
+  class: 'Class', subclass: 'Subclass', race: 'Race', subrace: 'Subrace',
   background: 'Background', alignment: 'Alignment',
 }
 
@@ -868,6 +1139,9 @@ function IdentitySection({
   setupData,
   displayClass,
   displayRace,
+  displaySubrace,
+  subraceEntries,
+  currentRaceData,
   subclassEntries,
   onOpenList,
   onSave,
@@ -877,6 +1151,9 @@ function IdentitySection({
   setupData: SetupData | null
   displayClass: string | null
   displayRace: string | null
+  displaySubrace: string | null
+  subraceEntries: SelectionEntry[]
+  currentRaceData: Race | null
   subclassEntries: SelectionEntry[]
   onOpenList: (list: IdentityList) => void
   onSave: (changes: Partial<NewCharacter>) => void
@@ -911,6 +1188,10 @@ function IdentitySection({
     if (field === 'subclass' && character.class && character.subclass) {
       const sub = setupData.subclasses[`${character.class}:${character.subclass}`]
       return sub ? subclassToDetailItem(sub) : null
+    }
+    if (field === 'subrace' && character.subrace && currentRaceData) {
+      const sub = currentRaceData.subraces.find(s => toSubraceSlug(s.name) === character.subrace)
+      return sub ? subraceToDetailItem(sub, currentRaceData.name) : null
     }
     return null
   }
@@ -985,6 +1266,16 @@ function IdentitySection({
             onClick={() => handleIdentityClick('race')}
           />
         </IdentityRow>
+
+        {subraceEntries.length > 0 && (
+          <IdentityRow label="Subrace">
+            <IdentityButton
+              value={displaySubrace}
+              placeholder="Choose subrace…"
+              onClick={() => handleIdentityClick('subrace')}
+            />
+          </IdentityRow>
+        )}
 
         <IdentityRow label="Background">
           <IdentityButton

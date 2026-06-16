@@ -1,19 +1,27 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { abilityModifier, proficiencyBonus, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '@/lib/dice'
-import { ABILITY_LABELS, ABILITY_ORDER, toSkillName } from '@/lib/characterSetup'
+import { SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP, formatBonus } from '@/lib/dice'
+import { ABILITY_LABELS, ABILITY_ORDER, ABILITY_FULL_TO_SHORT, toSkillName } from '@/lib/characterSetup'
 import { useRollDispatch } from '@/lib/useRollDispatch'
-import { getCharacterAdvantages } from '@/lib/characterStats'
+import { RollButton } from '@/components/sheet/RollButton'
 import { SelectionList } from '@/components/SelectionList'
 import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
 import type { ClassData, EquipmentData } from '@/types/data'
 import type { SelectionEntry } from '@/components/SelectionList'
+import type { DerivedStats } from '@/lib/characterStats'
 
 interface Props {
   character: Character
   classRecord: ClassData | null
+  // All class records ordered to match character.classes ([0] = primary).
+  // Used for per-class expertise/skill caps in multiclass characters.
+  classRecords?: (ClassData | null)[]
+  // Skills granted by the character's background — excluded from the class
+  // skill-pick cap so they don't consume class picks (BUG-29)
+  backgroundSkills?: SkillName[]
   catalog?: EquipmentData | null
+  derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
@@ -26,42 +34,41 @@ const SKILL_ORDER: SkillName[] = [
 
 type Tab = 'skills' | 'saves' | 'tools'
 
-// Feats that grant 1 expertise slot each.
-const EXPERTISE_FEATS = new Set(['skill-expert', 'prodigy'])
-
-// Count expertise slots from class levels (each "Expertise" feature = 2) plus feats (each = 1).
-function getExpertiseCap(classRecord: ClassData | null, level: number, feats: string[]): number {
+// User-assignable expertise slots: each class contributes its "Expertise"
+// features (2 each), counted only up to THAT class's level. Feat-granted
+// expertise (Skill Expert, Prodigy) is applied separately and shown locked
+// (derived.featSkillGrants), so it does NOT add to this assignable cap.
+function getExpertiseCap(classLevels: Array<{ rec: ClassData; level: number }>): number {
   let cap = 0
-  if (classRecord) {
+  for (const { rec, level } of classLevels) {
     for (let lvl = 1; lvl <= level; lvl++) {
-      if (classRecord.levels[String(lvl)]?.features.includes('Expertise')) cap += 2
+      if (rec.levels[String(lvl)]?.features.includes('Expertise')) cap += 2
     }
-  }
-  for (const slug of feats) {
-    if (EXPERTISE_FEATS.has(slug)) cap += 1
   }
   return cap
 }
 
 // Two independent dots: [P = proficiency] [E = expertise]
-// E dot stays locked until proficient, and when the class expertise cap is reached.
+// Locks are computed by the caller (class-option, feat-sourced, cap, etc.).
 function TwoDots({
   isProficient,
   isExpertise,
-  locked,
+  profLocked,
+  expLocked,
   expertiseCapped,
+  featSourced,
   onToggleProf,
   onToggleExp,
 }: {
   isProficient: boolean
   isExpertise: boolean
-  locked: boolean
+  profLocked: boolean
+  expLocked: boolean
   expertiseCapped: boolean
+  featSourced: boolean
   onToggleProf: () => void
   onToggleExp: () => void
 }) {
-  const expLocked = locked || !isProficient || expertiseCapped
-
   function dot(filled: boolean, label: string, onClick: () => void, title: string, isLocked: boolean) {
     return (
       <button
@@ -89,14 +96,14 @@ function TwoDots({
         isProficient && !isExpertise,
         'P',
         onToggleProf,
-        isProficient ? 'Remove proficiency' : 'Add proficiency (+PB)',
-        locked,
+        featSourced ? 'Granted by feat' : isProficient ? 'Remove proficiency' : 'Add proficiency (+PB)',
+        profLocked,
       )}
       {dot(
         isExpertise,
         'E',
         onToggleExp,
-        isExpertise ? 'Remove expertise' : expertiseCapped ? 'Expertise limit reached' : 'Add expertise (+2×PB)',
+        featSourced ? 'Granted by feat' : isExpertise ? 'Remove expertise' : expertiseCapped ? 'Expertise limit reached' : 'Add expertise (+2×PB)',
         expLocked,
       )}
     </div>
@@ -129,23 +136,29 @@ function SaveDot({
   )
 }
 
-export function ProficienciesBlock({ character, classRecord, catalog, onSave }: Props) {
+export function ProficienciesBlock({ character, classRecord, classRecords, backgroundSkills, catalog, derived, onSave }: Props) {
   const [tab, setTab] = useState<Tab>('skills')
-  const { dispatch } = useRollDispatch(character)
-  const pb = proficiencyBonus(character.level)
-  const advantages = useMemo(() => getCharacterAdvantages(character), [character])
+  const { dispatch } = useRollDispatch(derived)
   const hasClass = !!classRecord
+
+  // Skills whose proficiency/expertise comes from a feat — filled but locked in
+  // the dots so a click can't write a duplicate stored copy (BUG-30)
+  const featProficientSkills = new Set(derived.featSkillGrants.proficient)
+  const featExpertiseSkills = new Set(derived.featSkillGrants.expertise)
+  const bgSkillSet = new Set(backgroundSkills ?? [])
+
+  // Per-class (record, level) pairs for expertise/skill caps — falls back to the
+  // single primary class for legacy characters with an empty classes[] array
+  const classLevels: Array<{ rec: ClassData; level: number }> = character.classes?.length
+    ? character.classes
+        .map((c, i) => ({ rec: classRecords?.[i] ?? null, level: c.level }))
+        .filter((p): p is { rec: ClassData; level: number } => p.rec !== null)
+    : (classRecord ? [{ rec: classRecord, level: character.level }] : [])
 
   // Class-granted saves — only these are interactive when class is set
   const classSaveSet = new Set<AbilityName>(
     classRecord?.saving_throw_proficiencies
-      .map(s => {
-        const map: Record<string, AbilityName> = {
-          strength: 'str', dexterity: 'dex', constitution: 'con',
-          intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-        }
-        return map[s.toLowerCase()]
-      })
+      .map(s => ABILITY_FULL_TO_SHORT[s.toLowerCase()])
       .filter(Boolean) as AbilityName[] ?? []
   )
 
@@ -159,14 +172,19 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
   )
   const classSkillMax = classRecord?.skill_choices.count ?? Infinity
 
-  // Count of class-option skills the character currently has
+  // Count only class-sourced picks against the class cap: a class-option skill
+  // that is proficient and NOT granted by the background or a feat (BUG-29)
   const currentClassSkillCount = SKILL_ORDER.filter(
-    s => classSkillOptions.has(s) && character.skillProficiencies[s] !== undefined,
+    s => classSkillOptions.has(s) &&
+      character.skillProficiencies[s] !== undefined &&
+      !bgSkillSet.has(s) &&
+      !featProficientSkills.has(s),
   ).length
   const atClassSkillCap = classSkillMax !== Infinity && currentClassSkillCount >= classSkillMax
 
-  // Expertise cap: class features (2 each) + expertise-granting feats (1 each)
-  const expertiseCap = getExpertiseCap(classRecord, character.level, character.feats)
+  // Expertise cap counts class features only; user-assigned (stored) expertise
+  // counts against it. Feat-granted expertise is locked and tracked separately.
+  const expertiseCap = getExpertiseCap(classLevels)
   const currentExpertiseCount = Object.values(character.skillProficiencies).filter(v => v === 'expertise').length
   const atExpertiseCap = currentExpertiseCount >= expertiseCap
 
@@ -180,6 +198,8 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
   }
 
   function toggleSkillProf(skill: SkillName) {
+    // Feat-granted proficiency is managed by the feat, not togglable here (BUG-30)
+    if (featProficientSkills.has(skill)) return
     const isClassOption = classSkillOptions.has(skill)
     if (hasClass && !isClassOption) return
     const current = character.skillProficiencies[skill]
@@ -195,25 +215,15 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
   }
 
   function toggleSkillExp(skill: SkillName) {
+    // Feat-granted expertise is managed by the feat, not togglable here (BUG-30)
+    if (featExpertiseSkills.has(skill)) return
     const current = character.skillProficiencies[skill]
     if (current === 'expertise') {
       onSave({ skillProficiencies: { ...character.skillProficiencies, [skill]: 'proficient' } })
     } else if (current === 'proficient') {
+      if (atExpertiseCap) return
       onSave({ skillProficiencies: { ...character.skillProficiencies, [skill]: 'expertise' } })
     }
-  }
-
-  function saveBonus(ability: AbilityName): number {
-    const base = abilityModifier(character.abilities[ability])
-    return character.savingThrowProficiencies.includes(ability) ? base + pb : base
-  }
-
-  function skillBonus(skill: SkillName): number {
-    const ability = SKILL_ABILITY_MAP[skill]
-    const base = abilityModifier(character.abilities[ability])
-    const prof = character.skillProficiencies[skill]
-    if (!prof) return base
-    return base + pb * (prof === 'expertise' ? 2 : 1)
   }
 
   return (
@@ -274,9 +284,14 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
         <>
           <div className="rounded-lg border border-border bg-card divide-y divide-border">
             {ABILITY_ORDER.map(ability => {
-              const isProficient = character.savingThrowProficiencies.includes(ability)
+              const isStored = character.savingThrowProficiencies.includes(ability)
+              // Feat-granted saves (e.g. Resilient) are derived, not stored —
+              // shown filled but locked so the dot can't write a stale copy
+              const isFeatDerived = !isStored && derived.effectiveSaveProficiencies.includes(ability)
+              const isProficient = isStored || isFeatDerived
               const isClassSave = classSaveSet.has(ability)
-              const bonus = saveBonus(ability)
+              const bonus = derived.saveModifiers[ability]
+              const hasAdv = derived.advantages.saves.has(ability)
 
               return (
                 <div
@@ -285,8 +300,8 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
                 >
                   <SaveDot
                     filled={isProficient}
-                    locked={false}
-                    onClick={() => toggleSave(ability)}
+                    locked={isFeatDerived}
+                    onClick={() => !isFeatDerived && toggleSave(ability)}
                   />
                   <span className="flex-1 text-sm">{ABILITY_LABELS[ability]}</span>
                   {isClassSave && (
@@ -294,20 +309,21 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
                       class
                     </span>
                   )}
+                  {isFeatDerived && (
+                    <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-accent-gold)' }}>
+                      feat
+                    </span>
+                  )}
                   <span
                     className="text-sm font-bold tabular-nums w-8 text-right"
                     style={{ color: isProficient ? 'var(--color-accent-gold)' : undefined }}
                   >
-                    {bonus >= 0 ? `+${bonus}` : `${bonus}`}
+                    {formatBonus(bonus)}
                   </span>
-                  <button
-                    onClick={() => dispatch({ type: 'save', ability, advantage: advantages.saves.has(ability) })}
-                    className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
-                    style={{ background: 'var(--color-accent)', color: '#fff' }}
-                    title={advantages.saves.has(ability) ? 'Rolling with advantage' : undefined}
-                  >
-                    {advantages.saves.has(ability) ? 'Roll (Adv)' : 'Roll'}
-                  </button>
+                  <RollButton
+                    onClick={() => dispatch({ type: 'save', ability, advantage: hasAdv })}
+                    advantage={hasAdv}
+                  />
                 </div>
               )
             })}
@@ -322,16 +338,24 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
         <>
           <div className="rounded-lg border border-border bg-card divide-y divide-border">
             {SKILL_ORDER.map(skill => {
-              const prof = character.skillProficiencies[skill]
+              // Render from DERIVED effective state so feat-granted skills show
+              // filled even though they aren't in the stored record (BUG-30)
+              const prof = derived.effectiveSkillProficiencies[skill]
               const isProficient = prof === 'proficient' || prof === 'expertise'
               const isExpertise = prof === 'expertise'
+              const isFeatProficient = featProficientSkills.has(skill)
+              const isFeatExpertise = featExpertiseSkills.has(skill)
               const ability = SKILL_ABILITY_MAP[skill]
-              const bonus = skillBonus(skill)
+              const bonus = derived.skillModifiers[skill]
+              const hasAdv = derived.advantages.skills.has(skill)
               const isClassOption = classSkillOptions.has(skill)
               const addBlocked = isClassOption && !isProficient && atClassSkillCap
               const notClassOption = hasClass && !isClassOption
-              // Expertise cap blocks adding to non-expertise skills once all slots are used
               const expertiseCapped = atExpertiseCap && !isExpertise
+              // P dot locks: non-class option, feat-granted, or add-blocked by cap
+              const profLocked = notClassOption || isFeatProficient || (addBlocked && !isProficient)
+              // E dot locks: prof prerequisite, feat-granted expertise, or cap reached
+              const expLocked = profLocked || !isProficient || isFeatExpertise || (expertiseCapped && !isExpertise)
 
               return (
                 <div
@@ -341,8 +365,10 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
                   <TwoDots
                     isProficient={isProficient}
                     isExpertise={isExpertise}
-                    locked={notClassOption || (addBlocked && !isProficient)}
+                    profLocked={profLocked}
+                    expLocked={expLocked}
                     expertiseCapped={expertiseCapped}
+                    featSourced={isFeatProficient || isFeatExpertise}
                     onToggleProf={() => toggleSkillProf(skill)}
                     onToggleExp={() => toggleSkillExp(skill)}
                   />
@@ -354,16 +380,12 @@ export function ProficienciesBlock({ character, classRecord, catalog, onSave }: 
                     className={cn('text-sm font-bold tabular-nums w-8 text-right flex-none', notClassOption && 'opacity-50')}
                     style={{ color: isProficient ? 'var(--color-accent-gold)' : undefined }}
                   >
-                    {bonus >= 0 ? `+${bonus}` : `${bonus}`}
+                    {formatBonus(bonus)}
                   </span>
-                  <button
-                    onClick={() => dispatch({ type: 'skill', skill, advantage: advantages.skills.has(skill) })}
-                    className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
-                    style={{ background: 'var(--color-accent)', color: '#fff' }}
-                    title={advantages.skills.has(skill) ? 'Rolling with advantage' : undefined}
-                  >
-                    {advantages.skills.has(skill) ? 'Roll (Adv)' : 'Roll'}
-                  </button>
+                  <RollButton
+                    onClick={() => dispatch({ type: 'skill', skill, advantage: hasAdv })}
+                    advantage={hasAdv}
+                  />
                 </div>
               )
             })}

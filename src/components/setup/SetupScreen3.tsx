@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { toSkillName, ALL_LANGUAGES } from '@/lib/characterSetup'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
+import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
 import { getSpellcastingInfo } from '@/lib/spellcasting'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
@@ -21,23 +22,8 @@ interface Props {
   onChange: (updates: Partial<SetupDraft>) => void
 }
 
-const ORDINALS = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
-const LEVEL_GROUP_ORDER = ['Cantrip', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
-
-function spellGroup(level: number) {
-  return level === 0 ? 'Cantrip' : (ORDINALS[level] ?? `${level}th`)
-}
-
 function classMatches(spellClasses: string[], classSlug: string): boolean {
   return spellClasses.some(c => c === classSlug || c.startsWith(classSlug + ' '))
-}
-
-function componentStr(c: SpellData['components']): string {
-  return [
-    c.verbal && 'V',
-    c.somatic && 'S',
-    c.material && (c.material_text ? `M (${c.material_text})` : 'M'),
-  ].filter(Boolean).join(', ')
 }
 
 function spellToDetailItem(_key: string, s: SpellData): DetailItem {
@@ -67,17 +53,20 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
 
-  // Skill choices from class — "any" means all 18 skills are valid (e.g. Bard)
-  const rawSkillOpts = cls?.skill_choices.options ?? []
-  const skillOptions: SkillName[] = rawSkillOpts.some(o => o.trim().toLowerCase() === 'any')
-    ? (Object.keys(SKILL_DISPLAY_MAP) as SkillName[])
-    : rawSkillOpts.map((o) => toSkillName(o)).filter(Boolean) as SkillName[]
-  const skillCount = cls?.skill_choices.count ?? 0
-
   // Skills already granted by background (read-only)
   const bgSkills: SkillName[] = (bg?.skill_proficiencies ?? [])
     .map((s) => toSkillName(s))
     .filter(Boolean) as SkillName[]
+
+  // Skill choices from class — "any" means all 18 skills are valid (e.g. Bard).
+  // Background-granted skills are excluded: picking one would collapse to a
+  // single proficiency on save and waste a class pick (BUG-27).
+  const rawSkillOpts = cls?.skill_choices.options ?? []
+  const skillOptions: SkillName[] = (rawSkillOpts.some(o => o.trim().toLowerCase() === 'any')
+    ? (Object.keys(SKILL_DISPLAY_MAP) as SkillName[])
+    : rawSkillOpts.map((o) => toSkillName(o)).filter(Boolean) as SkillName[]
+  ).filter(s => !bgSkills.includes(s))
+  const skillCount = cls?.skill_choices.count ?? 0
 
   // Language choices from background
   const langChoiceCount = bg?.language_choices ?? 0
@@ -149,15 +138,15 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const spellEntries: SelectionEntry[] = useMemo(() =>
     Object.entries(allSpells)
       .filter(([key, s]) => {
+        // Spells known/prepared are NOT capped per level by slot counts (BUG-24);
+        // only the spell's level must be castable (a slot of that level exists)
         if (s.level === 0 || s.level > maxSpellLevel) return false
         if (selectedSet.has(key)) return false
         if (!browseAll && !classMatches(s.classes, draft.classSlug)) return false
-        const cap = slotsByLevel[s.level]
-        if (cap !== undefined && (selectedSpellLevelCounts[s.level] ?? 0) >= cap) return false
         return true
       })
       .map(([key, s]) => toSpellEntry(key, s)),
-  [allSpells, selectedSet, browseAll, draft.classSlug, maxSpellLevel, slotsByLevel, selectedSpellLevelCounts])
+  [allSpells, selectedSet, browseAll, draft.classSlug, maxSpellLevel])
 
   function toggleSkill(skill: SkillName) {
     const current = draft.skillProficiencies
@@ -463,25 +452,25 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
               />
             ))}
           </div>
-          {Object.entries(slotsByLevel).some(([lvl, cap]) => (selectedSpellLevelCounts[Number(lvl)] ?? 0) < cap) && (
-            <div className="mt-2 space-y-1">
+          {/* Always available — prepared count (WIS/INT mod + level) routinely
+              exceeds per-level slot counts, so the slot pips don't gate it (BUG-24) */}
+          <div className="mt-2 space-y-1">
+            <button
+              onClick={() => setPickerMode('spell')}
+              className="text-sm hover:opacity-75"
+              style={{ color: 'var(--color-accent-gold)' }}
+            >
+              + Choose spell
+            </button>
+            <div>
               <button
-                onClick={() => setPickerMode('spell')}
-                className="text-sm hover:opacity-75"
-                style={{ color: 'var(--color-accent-gold)' }}
+                onClick={() => setBrowseAll(b => !b)}
+                className="text-[11px] text-muted-foreground hover:text-foreground underline"
               >
-                + Choose spell
+                {browseAll ? 'Show class spells only' : 'Browse all classes'}
               </button>
-              <div>
-                <button
-                  onClick={() => setBrowseAll(b => !b)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground underline"
-                >
-                  {browseAll ? 'Show class spells only' : 'Browse all classes'}
-                </button>
-              </div>
             </div>
-          )}
+          </div>
         </Field>
       )}
 
@@ -509,11 +498,7 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
         open={pickerMode === 'spell'}
         onClose={() => setPickerMode(null)}
         onSelect={key => {
-          const spellLevel = allSpells[key]?.level
-          if (spellLevel !== undefined) {
-            const cap = slotsByLevel[spellLevel]
-            if (cap !== undefined && (selectedSpellLevelCounts[spellLevel] ?? 0) >= cap) return
-          }
+          // No per-level cap (BUG-24) — only the total spellsKnown limit closes the picker
           const newSpells = [...draft.spellSlugs, key]
           onChange({ spellSlugs: newSpells })
           if (spellInfo?.spellsKnown && newSpells.length >= spellInfo.spellsKnown) setPickerMode(null)

@@ -114,4 +114,29 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 8,
+    up: (db) => {
+      db.run(`ALTER TABLE characters ADD COLUMN spell_bonus_modifier INTEGER NOT NULL DEFAULT 0`)
+    },
+  },
+  {
+    version: 9,
+    up: (db) => {
+      // Render-time stats migration: abilities become BASE scores; racial ASIs
+      // (recorded in race_asi_choices) and feat effects are derived on render.
+      // stats_normalized=0 marks rows whose stored values still have racial/feat
+      // bonuses baked in; the app-level backfill (normalizeStats.ts) converts
+      // them once reference data is available and sets the flag to 1.
+      db.run(`ALTER TABLE characters ADD COLUMN race_asi_choices TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`ALTER TABLE characters ADD COLUMN stats_normalized INTEGER NOT NULL DEFAULT 0`)
+    },
+  },
+  {
+    version: 10,
+    up: (db) => {
+      // Per-class hit-dice spending for multiclass characters (keyed by class slug)
+      db.run(`ALTER TABLE characters ADD COLUMN hit_dice_used_by_class TEXT NOT NULL DEFAULT '{}'`)
+    },
+  },
 ]

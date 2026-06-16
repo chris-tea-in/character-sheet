@@ -1,46 +1,32 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, X, BookOpen } from 'lucide-react'
+import { Plus, X, BookOpen, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
-import { getSpellcastingInfo } from '@/lib/spellcasting'
-import type { SpellcastingProfile, CasterKind } from '@/lib/spellcasting'
-import { abilityModifier, proficiencyBonus } from '@/lib/dice'
+import { InfoPopup } from '@/components/InfoPopup'
+import { StepperField } from './StepperField'
+import { getSpellcastingInfo, PACT_SLOT_KEY } from '@/lib/spellcasting'
+import type { SpellcastingProfile, CasterKind, SpellLevel } from '@/lib/spellcasting'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { loadSpellsData } from '@/lib/data'
-import type { SpellLevel } from '@/lib/spellcasting'
+import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
+import { RollButton } from '@/components/sheet/RollButton'
 import type { ClassData, SpellData } from '@/types/data'
-import type { Character, CharacterSpell, NewCharacter, AbilityName } from '@/types/character'
+import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
+import type { DerivedStats } from '@/lib/characterStats'
 
 interface Props {
   character: Character
   classRecord: ClassData
-  classLevel: number                           // primary class level (may differ from character.level when multiclassed)
-  overrideSlotProfile?: SpellcastingProfile    // multiclass combined slots; overrides per-class profile when provided
-  overrideCasterKind?: CasterKind              // multiclass: casterKind from the actual spellcasting class, not the primary class
+  classLevel: number
+  derived: DerivedStats
+  overrideSlotProfile?: SpellcastingProfile
+  overrideCasterKind?: CasterKind
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
-const ORDINALS: Record<SpellLevel, string> = {
-  1: '1st', 2: '2nd', 3: '3rd', 4: '4th', 5: '5th',
-  6: '6th', 7: '7th', 8: '8th', 9: '9th',
-}
-
-const LEVEL_GROUP_ORDER = ['Cantrip', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th']
-
 // The raw SpellData.slug field carries a "spell:" prefix; the JSON is keyed without it.
 const normalizeSlug = (slug: string) => slug.replace(/^spell:/, '')
-
-function spellGroup(level: number): string {
-  if (level === 0) return 'Cantrip'
-  return ORDINALS[level as SpellLevel] ?? `${level}th`
-}
-
-function componentString(c: SpellData['components']): string {
-  return [c.verbal && 'V', c.somatic && 'S',
-    c.material && (c.material_text ? `M (${c.material_text})` : 'M'),
-  ].filter(Boolean).join(', ')
-}
 
 function SlotPips({
   total, used, onToggle,
@@ -118,13 +104,7 @@ function SpellRow({
           </div>
         )}
 
-        <button
-          onClick={onRoll}
-          className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-80 transition-opacity flex-none"
-          style={{ background: 'var(--color-accent)', color: '#fff' }}
-        >
-          Roll
-        </button>
+        <RollButton onClick={onRoll} />
 
         {spell && (
           <button
@@ -152,7 +132,7 @@ function SpellRow({
             {spell.concentration && <span className="text-amber-400">Concentration</span>}
             {spell.ritual && <span className="text-purple-400">Ritual</span>}
           </div>
-          <span><span className="font-semibold text-foreground">Components:</span> {componentString(spell.components)}</span>
+          <span><span className="font-semibold text-foreground">Components:</span> {componentStr(spell.components)}</span>
           <p className="text-foreground/80 leading-relaxed">{spell.description}</p>
           {spell.at_higher_levels && (
             <p className="italic">{spell.at_higher_levels}</p>
@@ -172,15 +152,12 @@ function SpellRow({
   )
 }
 
-const ABILITY_KEY_MAP: Record<string, AbilityName> = {
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-}
 
-export function SpellBlock({ character, classRecord, classLevel, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
+export function SpellBlock({ character, classRecord, classLevel, derived, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
-  const { dispatch } = useRollDispatch(character)
+  const [bonusEditorOpen, setBonusEditorOpen] = useState(false)
+  const { dispatch } = useRollDispatch(derived)
 
   useEffect(() => {
     loadSpellsData().then(setAllSpells).catch(() => {})
@@ -192,8 +169,7 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
 
   const casterKind = overrideCasterKind ?? rawCasterKind
   const isPreparedCaster = casterKind === 'prepared'
-  const spellAbilKey = ABILITY_KEY_MAP[classRecord.spellcasting?.ability?.toLowerCase() ?? ''] ?? 'int'
-  const spellAttackMod = abilityModifier(character.abilities[spellAbilKey]) + proficiencyBonus(character.level)
+  const spellAttackMod = derived.spellAttackBonus
 
   // Normalized set of slugs the character already knows (strips legacy "spell:" prefix)
   const alreadyKnown = useMemo(
@@ -211,7 +187,7 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
         { label: 'Casting Time', value: s.casting_time },
         { label: 'Range', value: s.range },
         { label: 'Duration', value: s.duration },
-        { label: 'Components', value: componentString(s.components) },
+        { label: 'Components', value: componentStr(s.components) },
         ...(s.at_higher_levels ? [{ label: 'At Higher Levels', value: s.at_higher_levels }] : []),
       ],
     },
@@ -221,9 +197,9 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
   const classSpellEntries: SelectionEntry[] = useMemo(() =>
     Object.entries(allSpells)
       .filter(([key]) => !alreadyKnown.has(key))
-      .filter(([, s]) => s.classes.includes(character.class))
+      .filter(([, s]) => s.classes.includes(classRecord.slug))
       .map(toEntry),
-  [allSpells, alreadyKnown, character.class])
+  [allSpells, alreadyKnown, classRecord.slug])
 
   const allSpellEntries: SelectionEntry[] = useMemo(() =>
     Object.entries(allSpells)
@@ -283,21 +259,51 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
       {/* Spell slot tracker */}
       <div className="rounded-lg border border-border bg-card p-3 space-y-3">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Spell Slots
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Spell Slots
+            </p>
+            <button
+              onClick={() => setBonusEditorOpen(true)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Manual spell-focus override"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          </div>
           <div className="flex gap-4 text-center">
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Attack</p>
               <p className="text-sm font-bold">{spellAttackMod >= 0 ? `+${spellAttackMod}` : `${spellAttackMod}`}</p>
+              {!!character.spellBonusModifier && (
+                <button
+                  onClick={() => setBonusEditorOpen(true)}
+                  className="text-[9px] hover:opacity-75 transition-opacity"
+                  style={{ color: 'var(--color-accent-gold)' }}
+                  title="Edit manual spell-focus override"
+                >
+                  +{character.spellBonusModifier} (manual)
+                </button>
+              )}
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Save DC</p>
-              <p className="text-sm font-bold">{8 + spellAttackMod}</p>
+              <p className="text-sm font-bold">{derived.spellSaveDC}</p>
+              {!!character.spellBonusModifier && (
+                <button
+                  onClick={() => setBonusEditorOpen(true)}
+                  className="text-[9px] hover:opacity-75 transition-opacity"
+                  style={{ color: 'var(--color-accent-gold)' }}
+                  title="Edit manual spell-focus override"
+                >
+                  +{character.spellBonusModifier} (manual)
+                </button>
+              )}
             </div>
           </div>
         </div>
 
+        {/* Pure pact pool (single-class warlock) — keyed by its slot level */}
         {profile.kind === 'pact' && (
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground w-8">{ORDINALS[profile.slotLevel]}</span>
@@ -309,7 +315,8 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
           </div>
         )}
 
-        {profile.kind === 'slots' &&
+        {/* Standard slot rows (single-class casters and multiclass slots/slots+pact) */}
+        {(profile.kind === 'slots' || profile.kind === 'slots+pact') &&
           Object.entries(profile.slotsByLevel).map(([k, total]) => {
             const level = parseInt(k, 10) as SpellLevel
             const used = character.spellSlotsUsed[level] ?? 0
@@ -322,7 +329,24 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
             )
           })}
 
-        {profile.cantripsKnown > 0 && (
+        {/* Pact pool alongside standard slots — separate counter (BUG-16) */}
+        {profile.kind === 'slots+pact' && (
+          <div className="flex items-center gap-3 pt-1 border-t border-border">
+            <span className="text-[11px] text-muted-foreground w-8 flex-none" title="Pact slots refresh on a short rest">
+              Pact
+            </span>
+            <SlotPips
+              total={profile.pactSlotCount}
+              used={character.spellSlotsUsed[PACT_SLOT_KEY] ?? 0}
+              onToggle={n => setSlotUsed(PACT_SLOT_KEY as SpellLevel, n)}
+            />
+            <span className="text-xs text-muted-foreground ml-auto">
+              {ORDINALS[profile.pactSlotLevel]}-level · short rest
+            </span>
+          </div>
+        )}
+
+        {profile.kind !== 'none' && profile.cantripsKnown > 0 && (
           <p className="text-xs text-muted-foreground">
             Cantrips known: <span className="text-foreground font-semibold">{profile.cantripsKnown}</span>
           </p>
@@ -360,7 +384,7 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
                     className="text-[10px] font-semibold uppercase tracking-wide py-1 mt-2 first:mt-0"
                     style={{ color: 'var(--color-accent-gold)' }}
                   >
-                    {level === 0 ? 'Cantrips' : `${ORDINALS[level as SpellLevel]} Level`}
+                    {level === 0 ? 'Cantrips' : `${ORDINALS[level]} Level`}
                   </p>
                   {spells.map(cs => (
                     <SpellRow
@@ -391,6 +415,25 @@ export function SpellBlock({ character, classRecord, classLevel, overrideSlotPro
         onSelect={addSpell}
         tabs={spellTabs}
       />
+
+      {/* Manual spell-focus override — homebrew/un-cataloged focuses only.
+          Catalog focus items (Rod of the Pact Keeper, Wand of the War Mage, …)
+          apply automatically at render time when equipped; leave this at 0 for them. */}
+      <InfoPopup
+        open={bonusEditorOpen}
+        onClose={() => setBonusEditorOpen(false)}
+        title="Manual Spell-Focus Override"
+        description="Flat bonus to your spell attack rolls and spell save DC for a homebrew or un-cataloged focus. Catalog focus items apply automatically when equipped — leave this at 0 for them to avoid double-counting."
+      >
+        <StepperField
+          value={character.spellBonusModifier ?? 0}
+          onSave={v => onSave({ spellBonusModifier: Math.max(0, v) })}
+          min={0}
+          max={5}
+          size="sm"
+        />
+        <Button onClick={() => setBonusEditorOpen(false)}>Done</Button>
+      </InfoPopup>
     </section>
   )
 }

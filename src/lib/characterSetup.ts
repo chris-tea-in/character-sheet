@@ -1,9 +1,13 @@
 import { abilityModifier, rollDie } from '@/lib/dice'
 import { generateId } from '@/lib/uuid'
-import { computeFeatStatDelta, applyFeatAsi, featHasChoiceAsi } from '@/lib/characterStats'
+import { computeFeatStatDelta, featHasChoiceAsi } from '@/lib/characterStats'
+import { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug } from '@/lib/racialBonuses'
+
+// Re-exported so existing importers keep working after the move to racialBonuses.ts
+export { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug }
 import type { AbilityName, Abilities, Character, NewCharacter, SkillName, SkillProficiency, EquipmentItem } from '@/types/character'
 import type { DetailItem } from '@/types/detail-item'
-import type { Race, ClassData, SubclassData, Background, EquipmentGrant, FeatData, SpellData } from '@/types/data'
+import type { Race, Subrace, ClassData, SubclassData, Background, EquipmentGrant, FeatData, SpellData, ArmorItem } from '@/types/data'
 import type { SetupData } from '@/lib/data'
 
 // ---------------------------------------------------------------------------
@@ -153,12 +157,6 @@ export const ABILITY_LABELS: Record<AbilityName, string> = {
   int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma',
 }
 
-// Race data stores full lowercase ability names ("strength"), not short form ("str")
-const ABILITY_FULL_TO_SHORT: Record<string, AbilityName> = {
-  strength: 'str', dexterity: 'dex', constitution: 'con',
-  intelligence: 'int', wisdom: 'wis', charisma: 'cha',
-}
-
 export function slugToTitle(slug: string): string {
   return slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
@@ -236,6 +234,28 @@ export function raceToDetailItem(race: Race): DetailItem {
   }
 }
 
+export function subraceToDetailItem(subrace: Subrace, raceName: string): DetailItem {
+  const asiEntries = Object.entries(subrace.ability_score_increases)
+  const asiText = asiEntries.length
+    ? asiEntries.map(([key, val]) => {
+        const short = ABILITY_FULL_TO_SHORT[key]
+        const label = short ? ABILITY_LABELS[short] : (key.charAt(0).toUpperCase() + key.slice(1))
+        return `+${val} ${label}`
+      }).join(', ')
+    : null
+
+  return {
+    name: subrace.name,
+    subtitle: raceName,
+    sections: [
+      asiText ? { label: 'Ability Score Increases', value: asiText } : null,
+      subrace.languages.length ? { label: 'Languages', value: subrace.languages } : null,
+      subrace.proficiencies.length ? { label: 'Proficiencies', value: subrace.proficiencies } : null,
+      ...Object.entries(subrace.traits).map(([label, value]) => ({ label, value })),
+    ].filter(Boolean) as DetailItem['sections'],
+  }
+}
+
 export function classToDetailItem(cls: ClassData): DetailItem {
   const skillOptions = cls.skill_choices.options.map(normalizeOptionName).filter(Boolean)
   return {
@@ -291,6 +311,22 @@ export interface LevelAsiChoice {
   featAsiAbility?: AbilityName  // for feats with a choice ASI
 }
 
+// Shared ASI pick toggle (SetupScreen1 + LevelUpDialog). A pick list holds one
+// entry per +1; the same ability twice means +2. First click adds +1, a second
+// click stacks to +2 while under budget, clicking a fully stacked ability
+// clears all its picks.
+export function toggleAsiSelection(
+  current: AbilityName[],
+  ab: AbilityName,
+  budget = 2,
+): AbilityName[] {
+  const count = current.filter(x => x === ab).length
+  if (count === 1 && current.length < budget) return [...current, ab]
+  if (count > 0) return current.filter(x => x !== ab)
+  if (current.length < budget) return [...current, ab]
+  return current
+}
+
 export function getClassAsiLevels(classRecord: ClassData, level: number): number[] {
   return Object.entries(classRecord.levels)
     .filter(([lvl, data]) =>
@@ -301,6 +337,32 @@ export function getClassAsiLevels(classRecord: ClassData, level: number): number
     .sort((a, b) => a - b)
 }
 
+// One ASI/feat slot per qualifying class level, across the primary class and all
+// extra classes (BUG-19). Order matches levelAsiChoices indexing: primary class
+// slots first, then each extra class in order.
+export interface AsiSlot {
+  classSlug: string
+  classLevel: number  // the level within that class at which the ASI occurs
+}
+
+export function getAllAsiSlots(draft: SetupDraft, data: SetupData): AsiSlot[] {
+  const slots: AsiSlot[] = []
+  const primary = data.classes[draft.classSlug]
+  if (primary) {
+    for (const lvl of getClassAsiLevels(primary, draft.level)) {
+      slots.push({ classSlug: draft.classSlug, classLevel: lvl })
+    }
+  }
+  for (const ec of draft.extraClasses) {
+    const cls = data.classes[ec.classSlug]
+    if (!cls) continue
+    for (const lvl of getClassAsiLevels(cls, ec.level)) {
+      slots.push({ classSlug: ec.classSlug, classLevel: lvl })
+    }
+  }
+  return slots
+}
+
 export function isLevelAsiComplete(
   draft: SetupDraft,
   data: SetupData,
@@ -309,7 +371,7 @@ export function isLevelAsiComplete(
   if (!draft.classSlug) return true
   const cls = data.classes[draft.classSlug]
   if (!cls) return true
-  const count = getClassAsiLevels(cls, draft.level).length
+  const count = getAllAsiSlots(draft, data).length
   for (let i = 0; i < count; i++) {
     const choice = draft.levelAsiChoices[i]
     if (!choice) return false
@@ -344,6 +406,7 @@ export interface SetupDraft {
   name: string
   level: number
   raceSlug: string
+  subraceSlug: string   // '' = race has no subraces or none selected
   classSlug: string
   subclassSlug: string
   hpMethod: 'roll' | 'average' | 'max' | 'custom'
@@ -377,12 +440,17 @@ export interface SetupDraft {
   progressionType: 'xp' | 'milestone'
   // Multiclassing (Screen 1)
   extraClasses: ExtraClassDraft[]
+  // True when the draft round-trips an existing character (Edit flow):
+  // level-ASI/feat application is skipped — those are already in the stored
+  // base abilities, and feats are preserved by the edit merge
+  editMode: boolean
 }
 
 export const INITIAL_DRAFT: SetupDraft = {
   name: '',
   level: 1,
   raceSlug: '',
+  subraceSlug: '',
   classSlug: '',
   subclassSlug: '',
   hpMethod: 'average',
@@ -409,6 +477,7 @@ export const INITIAL_DRAFT: SetupDraft = {
   equipmentChoices: { optionPicks: {}, openPicks: {} },
   progressionType: 'milestone',
   extraClasses: [],
+  editMode: false,
 }
 
 // ---------------------------------------------------------------------------
@@ -461,47 +530,28 @@ function namesToEquipmentItems(names: string[]): EquipmentItem[] {
   return [...counts.entries()].map(([name, quantity]) => ({ id: generateId(), name, quantity }))
 }
 
+// Mark the first body-armor item and the first shield in a starting kit as worn so
+// AC computes out of the box (the AC derivation only counts equipped/attuned armor).
+// Exclusive per slot, matching EquipmentBlock.toggleActive. Mundane starting gear
+// never requires attunement, so only the `equipped` flag is set; weapons are left
+// alone (their `equipped` flag is a Loadout label only, never gates rolling).
+export function equipStartingArmor(equipment: EquipmentItem[], armor: ArmorItem[]): EquipmentItem[] {
+  const byName = new Map(armor.map(a => [a.name.toLowerCase(), a]))
+  let bodyDone = false
+  let shieldDone = false
+  return equipment.map(item => {
+    const a = byName.get(item.name.toLowerCase())
+    if (!a) return item
+    const isShield = a.armor_type === 'Shield'
+    if (isShield && !shieldDone) { shieldDone = true; return { ...item, equipped: true } }
+    if (!isShield && !bodyDone) { bodyDone = true; return { ...item, equipped: true } }
+    return item
+  })
+}
+
 // ---------------------------------------------------------------------------
 // SetupDraft → NewCharacter
 // ---------------------------------------------------------------------------
-
-function applyRaceAsi(
-  base: Abilities,
-  race: Race | undefined,
-  asiChoices: AbilityName[],
-): Abilities {
-  if (!race) return base
-  const bonuses = getRacialBonuses(race, asiChoices)
-  const result = { ...base }
-  for (const [key, val] of Object.entries(bonuses)) {
-    result[key as AbilityName] = (result[key as AbilityName] ?? 0) + val
-  }
-  return result
-}
-
-export function getRacialBonuses(
-  race: Race | undefined,
-  asiChoices: AbilityName[],
-): Partial<Record<AbilityName, number>> {
-  const bonuses: Partial<Record<AbilityName, number>> = {}
-  if (!race) return bonuses
-
-  for (const [key, val] of Object.entries(race.base.ability_score_increases)) {
-    const short = ABILITY_FULL_TO_SHORT[key] ?? (key as AbilityName)
-    bonuses[short] = (bonuses[short] ?? 0) + val
-  }
-
-  let offset = 0
-  for (const pool of race.base.asi_choices) {
-    for (let i = 0; i < pool.count; i++) {
-      const ability = asiChoices[offset + i]
-      if (ability) bonuses[ability] = (bonuses[ability] ?? 0) + pool.amount
-    }
-    offset += pool.count
-  }
-
-  return bonuses
-}
 
 export function draftToNewCharacter(
   draft: SetupDraft,
@@ -511,17 +561,21 @@ export function draftToNewCharacter(
   const race = data.races[draft.raceSlug]
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
+  const subraceData = draft.subraceSlug
+    ? race?.subraces.find(s => toSubraceSlug(s.name) === draft.subraceSlug)
+    : undefined
 
-  const racialAbilities = applyRaceAsi(draft.abilities, race, draft.asiChoices)
-
-  // Apply class-level ASI choices and feat stat effects
-  const abilities = { ...racialAbilities }
+  // Stored abilities are BASE scores: point-buy/rolled values plus permanent
+  // level-up ASI +1s. Racial ASIs and feat effects are derived at render time
+  // by deriveCharacterStats — never baked in here.
+  const abilities = { ...draft.abilities }
   const featChoices: Record<string, { asiAbility?: AbilityName }> = {}
-  let featSpeedBonus = 0
-  let featInitiativeBonus = 0
-  const featSaveProficiencies: AbilityName[] = []
-  const asiLevels = cls ? getClassAsiLevels(cls, draft.level) : []
-  for (let i = 0; i < asiLevels.length; i++) {
+  const featAbilityDeltas: Partial<Record<AbilityName, number>> = {}
+  // Edit mode: level-ASI +1s are already in the stored base abilities, and
+  // feats/featChoices are preserved from the existing record by the edit merge.
+  // Slots span all classes (primary + extras) so secondary-class ASIs apply (BUG-19).
+  const asiSlots = cls && !draft.editMode ? getAllAsiSlots(draft, data) : []
+  for (let i = 0; i < asiSlots.length; i++) {
     const choice = draft.levelAsiChoices[i]
     if (choice?.mode === 'asi') {
       for (const ab of choice.asiAbilities) {
@@ -536,19 +590,21 @@ export function draftToNewCharacter(
         } else if (hasStatEffect) {
           featChoices[choice.featSlug] = {}
         }
+        // Track ability deltas only for the HP/AC seeds below — not stored
         const delta = computeFeatStatDelta(choice.featSlug, feat, featChoices)
-        if (Object.keys(delta.abilities).length > 0) {
-          const updated = applyFeatAsi(abilities as Abilities, delta.abilities)
-          Object.assign(abilities, updated)
+        for (const [ab, amount] of Object.entries(delta.abilities) as [AbilityName, number][]) {
+          featAbilityDeltas[ab] = (featAbilityDeltas[ab] ?? 0) + amount
         }
-        featSpeedBonus += delta.speed
-        featInitiativeBonus += delta.initiativeBonus
-        if (delta.saveProficiency) featSaveProficiencies.push(delta.saveProficiency)
       }
     }
   }
 
-  const conMod = abilityModifier(abilities.con)
+  // HP and the AC seed must use EFFECTIVE scores (base + racial + feat ASIs),
+  // matching what deriveCharacterStats will display.
+  const racialBonuses = getRacialBonuses(race, draft.asiChoices, draft.subraceSlug)
+  const effectiveScore = (ab: AbilityName) =>
+    Math.min(20, abilities[ab] + (racialBonuses[ab] ?? 0) + (featAbilityDeltas[ab] ?? 0))
+  const conMod = abilityModifier(effectiveScore('con'))
   const dieSides = cls ? parseHitDie(cls.hit_die) : 8
   const extraClassesForHp = draft.extraClasses.map(ec => ({
     dieSides: parseHitDie(data.classes[ec.classSlug]?.hit_die ?? 'd8'),
@@ -579,10 +635,9 @@ export function draftToNewCharacter(
     if (key) skillProficiencies[key] = 'proficient'
   }
 
-  const savingThrowProficiencies = [
-    ...((cls?.saving_throw_proficiencies ?? []).map(toAbilityName).filter(Boolean) as AbilityName[]),
-    ...featSaveProficiencies.filter(a => !(cls?.saving_throw_proficiencies ?? []).map(toAbilityName).includes(a)),
-  ]
+  // Class-granted saves only — feat-granted saves (e.g. Resilient) are derived
+  const savingThrowProficiencies =
+    (cls?.saving_throw_proficiencies ?? []).map(toAbilityName).filter(Boolean) as AbilityName[]
 
   const raceLanguages = race?.base.languages ?? []
   const languages = [...new Set([...raceLanguages, ...draft.languageProficiencies])]
@@ -590,7 +645,7 @@ export function draftToNewCharacter(
   return {
     name: draft.name,
     race: draft.raceSlug,
-    subrace: null,
+    subrace: draft.subraceSlug || null,
     class: draft.classSlug,
     subclass: draft.subclassSlug || null,
     background: draft.backgroundSlug,
@@ -602,14 +657,17 @@ export function draftToNewCharacter(
     languages,
     backstory: draft.backstory,
     abilities,
+    raceAsiChoices: draft.asiChoices,
     maxHp,
     currentHp: maxHp,
     tempHp: 0,
-    armorClass: 10 + abilityModifier(abilities.dex),
-    speed: (race?.base.speed ?? 30) + featSpeedBonus,
-    initiativeBonus: featInitiativeBonus,
+    armorClass: 10 + abilityModifier(effectiveScore('dex')),
+    speed: subraceData?.speed ?? race?.base.speed ?? 30,
+    initiativeBonus: 0,
+    spellBonusModifier: 0,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0,
+    hitDiceUsedByClass: {},
     inspiration: false,
     skillProficiencies,
     savingThrowProficiencies,
@@ -670,6 +728,7 @@ export function characterToDraft(
     name: character.name,
     level: primaryLevel,
     raceSlug: character.race,
+    subraceSlug: character.subrace ?? '',
     classSlug: character.class,
     subclassSlug: primaryClass?.subclassSlug ?? character.subclass ?? '',
     hpMethod: 'custom',
@@ -677,7 +736,7 @@ export function characterToDraft(
     hpRolled: null,
     abilityMethod: 'custom',
     abilities: { ...character.abilities },
-    asiChoices: [],
+    asiChoices: [...(character.raceAsiChoices ?? [])],
     backgroundSlug: character.background,
     alignment: character.alignment,
     personalityTraits: character.personalityTraits,
@@ -697,6 +756,7 @@ export function characterToDraft(
     setupFeatChoices: {},
     equipmentChoices: { optionPicks: {}, openPicks: {} },
     progressionType: character.progressionType,
+    editMode: true,
     extraClasses: (character.classes ?? []).slice(1).map(c => ({
       classSlug: c.classSlug,
       subclassSlug: c.subclassSlug ?? '',

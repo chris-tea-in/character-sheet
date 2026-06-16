@@ -36,6 +36,10 @@ export const SKILL_DISPLAY_MAP: Record<SkillName, string> = {
   survival:       'Survival',
 }
 
+export function formatBonus(n: number): string {
+  return n >= 0 ? `+${n}` : `${n}`
+}
+
 export const SKILL_ABILITY_MAP: Record<SkillName, AbilityName> = {
   acrobatics:     'dex',
   animalHandling: 'wis',

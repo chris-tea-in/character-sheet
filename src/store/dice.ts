@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { generateId } from '../lib/uuid'
-import { rollDie, abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP, SKILL_DISPLAY_MAP } from '../lib/dice'
-import type { Character } from '../types/character'
-import type { RollKind, RollEntry } from '../types/dice'
+import { rollDie, abilityModifier, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '../lib/dice'
+import type { DerivedStats } from '../lib/characterStats'
+import type { RollKind, RollEntry, ExtraDamage, ExtraDamageResult } from '../types/dice'
 
 const MAX_ROLLS = 50
 
@@ -20,6 +20,8 @@ function buildLabel(kind: RollKind, modifier: number): string {
       return `${kind.ability.toUpperCase()} check (${sign}${modifier})${adv}`
     case 'attack':
       return `${kind.label} (${sign}${modifier})`
+    case 'heal':
+      return `${kind.label} (${sign}${modifier})`
   }
 }
 
@@ -29,50 +31,44 @@ export interface ModalState {
   damageDice?: string
   damageBonus?: number
   damageType?: string
+  extraDamage?: ExtraDamage[]   // rider damage of other types (Flame Tongue → +2d6 fire)
   isCrit: boolean
   // damage phase result — populated after the player rolls damage
   damageRolls?: number[]
   damageTotal?: number
+  extraDamageResults?: ExtraDamageResult[]
 }
 
 interface DiceState {
   rolls: RollEntry[]
-  roll: (kind: RollKind, character: Character) => RollEntry
+  roll: (kind: RollKind, derived: DerivedStats) => RollEntry
   clear: () => void
   modal: ModalState | null
   openModal: (state: ModalState) => void
   closeModal: () => void
-  setModalDamage: (rolls: number[], total: number) => void
+  setModalDamage: (rolls: number[], total: number, extraResults?: ExtraDamageResult[]) => void
 }
 
 export const useDiceStore = create<DiceState>()((set) => ({
   rolls: [],
   modal: null,
 
-  roll: (kind, character) => {
-    const d1 = kind.type === 'raw' ? rollDie(kind.die) : rollDie(20)
-    const hasAdvantage = kind.type !== 'raw' && kind.type !== 'attack' && kind.advantage === true
-    const hasDisadvantage = kind.type !== 'raw' && kind.type !== 'attack' && kind.advantage === false
+  roll: (kind, derived) => {
+    const d1 = kind.type === 'raw' || kind.type === 'heal' ? rollDie(kind.die) : rollDie(20)
+    const hasAdvantage = 'advantage' in kind && kind.advantage === true
+    const hasDisadvantage = 'advantage' in kind && kind.advantage === false
     const d2 = (hasAdvantage || hasDisadvantage) ? rollDie(20) : undefined
     const natural = d2 !== undefined ? (hasAdvantage ? Math.max(d1, d2) : Math.min(d1, d2)) : d1
     const natural2 = d2 !== undefined ? (hasAdvantage ? Math.min(d1, d2) : Math.max(d1, d2)) : undefined
 
     let modifier = 0
     if (kind.type === 'skill') {
-      const ability = SKILL_ABILITY_MAP[kind.skill]
-      modifier = abilityModifier(character.abilities[ability])
-      const prof = character.skillProficiencies[kind.skill]
-      if (prof) {
-        modifier += proficiencyBonus(character.level) * (prof === 'expertise' ? 2 : 1)
-      }
+      modifier = derived.skillModifiers[kind.skill]
     } else if (kind.type === 'save') {
-      modifier = abilityModifier(character.abilities[kind.ability])
-      if (character.savingThrowProficiencies.includes(kind.ability)) {
-        modifier += proficiencyBonus(character.level)
-      }
+      modifier = derived.saveModifiers[kind.ability]
     } else if (kind.type === 'ability') {
-      modifier = abilityModifier(character.abilities[kind.ability])
-    } else if (kind.type === 'attack') {
+      modifier = abilityModifier(derived.effectiveAbilities[kind.ability])
+    } else if (kind.type === 'attack' || kind.type === 'heal') {
       modifier = kind.modifier
     }
 
@@ -94,6 +90,6 @@ export const useDiceStore = create<DiceState>()((set) => ({
 
   closeModal: () => set({ modal: null }),
 
-  setModalDamage: (rolls, total) =>
-    set(s => s.modal ? { modal: { ...s.modal, phase: 'damage', damageRolls: rolls, damageTotal: total } } : {}),
+  setModalDamage: (rolls, total, extraResults) =>
+    set(s => s.modal ? { modal: { ...s.modal, phase: 'damage', damageRolls: rolls, damageTotal: total, extraDamageResults: extraResults } } : {}),
 }))

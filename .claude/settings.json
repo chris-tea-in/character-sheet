@@ -59,11 +59,78 @@
       "Bash(cd c:\\Users\\buyp1\\Workspace\\dnd-character-sheet; npx tsc *)",
       "Bash(magick --version)",
       "Bash(convert --version)",
-      "Bash(node -e \"const fs=require\\('fs'\\); const buf=fs.readFileSync\\('dnd-icon.png'\\); const view=new DataView\\(buf.buffer\\); const w=view.getUint32\\(16\\); const h=view.getUint32\\(20\\); console.log\\(w+'x'+h\\);\")"
+      "Bash(node -e \"const fs=require\\('fs'\\); const buf=fs.readFileSync\\('dnd-icon.png'\\); const view=new DataView\\(buf.buffer\\); const w=view.getUint32\\(16\\); const h=view.getUint32\\(20\\); console.log\\(w+'x'+h\\);\")",
+      "Bash(sort -t' ' -k3 -n)",
+      "Bash(node -e \"const d=require\\('./public/data/equipment.json'\\); const w=d.weapons||[]; const bonusWeapons=w.filter\\(x=>x.bonus!=null\\); console.log\\('Weapons with bonus:', bonusWeapons.length, bonusWeapons.map\\(x=>x.name+': +'+x.bonus\\)\\)\")",
+      "Read(//c/Users/buyp1/AppData/Roaming/npm/node_modules/@types/sql.js/**)",
+      "Bash(node -e \"console.log\\(typeof NaN, JSON.parse\\('1.5'\\)\\)\")",
+      "Edit(~/.claude/skills/dnd-data-verification/**)",
+      "Edit(~/.claude/skills/feature-effect-system/**)",
+      "Edit(~/.claude/skills/code-review-extras/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5174/)",
+      "Bash(npx playwright *)",
+      "Bash(node -e \"require\\('@playwright/test'\\)\")",
+      "Bash(gh pr *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git log *)",
+      "Bash(git status *)",
+      "Bash(npm run build:data*)",
+      "Bash(npm run build*)",
+      "Write(c:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\bugs.md)",
+      "PowerShell(node -e \"const s=require\\('./data/spells/fireball.json'\\); console.log\\(JSON.stringify\\(Object.keys\\(s\\)\\)\\); console.log\\(JSON.stringify\\(s\\).slice\\(0,700\\)\\)\")",
+      "PowerShell(node $env:TEMP\\\\audit-spells.js | Select-String -NotMatch 'unknown class ref' | Select-Object -First 20)",
+      "PowerShell(node -e \"console.log\\(JSON.stringify\\(require\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/equipment/weapons.json'\\)[0]\\)\\); const a=require\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/equipment/armor.json'\\); console.log\\(JSON.stringify\\(a[0]\\)\\); const fs=require\\('fs'\\); const ff=fs.readdirSync\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/feats'\\)[0]; console.log\\(ff, JSON.stringify\\(require\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/feats/'+ff\\)\\).slice\\(0,400\\)\\); const bf=fs.readdirSync\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/backgrounds'\\)[0]; console.log\\(bf, JSON.stringify\\(require\\('c:/Users/buyp1/Workspace/dnd-character-sheet/data/backgrounds/'+bf\\)\\).slice\\(0,400\\)\\)\")",
+      "PowerShell(node $env:TEMP\\\\audit-d4.js)",
+      "PowerShell(node scripts/build-data.js 2>&1)",
+      "PowerShell(node scripts/build-data.js | Select-Object -Last 6; \"EXIT: $LASTEXITCODE\"; git status --porcelain public/data | Select-Object -First 5)",
+      "Bash(git commit -q -m 'track skill proficiency sources for caps, dots, and pickers \\(BUG-27, BUG-29, BUG-30, BUG-37\\) *)",
+      "Read",
+      "Bash(git checkout*)",
+      "Bash(git branch*)",
+      "Bash(git switch*)",
+      "Bash(npm run *)",
+      "WebFetch(domain:dnd5e.wikidot.com)",
+      "Edit(/.claude/skills/codebase-invariants/**)",
+      "Bash(Get-ChildItem -Recurse \"c:\\\\Users\\\\buyp1\\\\Workspace\\\\dnd-character-sheet\\\\data\" -Filter \"*.json\")",
+      "Bash(Get-ChildItem data\\\\subclasses -Name)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(mkdir -p /c/Users/buyp1/.claude/skill-observations/archive)",
+      "PowerShell(Get-ChildItem data\\\\spells -Name | Where-Object { $_ -match \"\\\\-ua\" } | Sort-Object)",
+      "PowerShell(Get-ChildItem data\\\\spells -Name | Where-Object { $_ -match \"antagonize|draconic-transformation|fizban|nathair|raulothim|spray-of-cards|summon-draconic\" } | Sort-Object)",
+      "Bash(node -e \"console.log\\(require\\('./package.json'\\).scripts.build\\)\")",
+      "Bash(git commit -q -m 'complete hitDiceUsedByClass literal, restructure bug log, refresh invariants *)"
+    ],
+    "deny": [
+      "Bash(git push origin main*)",
+      "Bash(git push origin master*)",
+      "Bash(git push -u origin main*)",
+      "Bash(git push -u origin master*)",
+      "Bash(git push --force origin main*)",
+      "Bash(git push origin HEAD:main*)",
+      "Bash(git push origin HEAD:master*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\buyp1\\.claude\\skill-observations",
-      "C:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\data\\equipment"
+      "C:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\data\\equipment",
+      "C:\\Users\\buyp1\\AppData\\Local\\Temp"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "if": "Bash(git push*)",
+            "statusMessage": "Checking push target is not main/master",
+            "command": "node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const c=(JSON.parse(s).tool_input.command||'');if(/\\b(main|master)\\b/i.test(c)){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:'Push to main/master is blocked. Push to the feature branch and open a PR.'}}))}})\""
+          }
+        ]
+      }
     ]
   }
 }
