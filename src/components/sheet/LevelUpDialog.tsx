@@ -85,7 +85,13 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
   const newSpellInfo = getSpellcastingInfo(classRecord, newLevel)
   const oldProfile = parseClassSlots(classRecord, currentClassLevel)
   const newProfile = parseClassSlots(classRecord, newLevel)
-  const spellIncrease = getSpellsKnownIncrease(classRecord, currentClassLevel, newLevel)
+  // For prepared casters the per-level prep-limit delta drives the spell prompt;
+  // derive the casting-ability modifier from the (pre-level-up) effective scores.
+  const castingShort = classRecord.spellcasting?.ability
+    ? ABILITY_FULL_TO_SHORT[classRecord.spellcasting.ability.toLowerCase()]
+    : undefined
+  const castingMod = castingShort ? abilityModifier(effectiveAbilities[castingShort]) : 0
+  const spellIncrease = getSpellsKnownIncrease(classRecord, currentClassLevel, newLevel, castingMod)
 
   const newMaxSpellLevel = useMemo(() => {
     if (newProfile.kind === 'slots') {
@@ -379,9 +385,12 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
               </Section>
             )}
 
-            {/* Spells to learn */}
+            {/* Spells to learn (known casters) / prepare (prepared casters) */}
             {spellIncrease.spells > 0 && (
-              <Section title={`Spells to Learn — choose ${spellIncrease.spells}`} accent>
+              <Section
+                title={`${newSpellInfo.casterKind === 'prepared' ? 'Spells to Prepare' : 'Spells to Learn'} — choose ${spellIncrease.spells}`}
+                accent
+              >
                 <div className="space-y-2">
                   <div className="flex gap-2 flex-wrap">
                     {newSpells.map(slug => (
@@ -415,8 +424,8 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
               </Section>
             )}
 
-            {/* Prepared caster note */}
-            {newSpellInfo.casterKind === 'prepared' && (
+            {/* Prepared caster note — only when no new prep slot opened this level */}
+            {newSpellInfo.casterKind === 'prepared' && spellIncrease.spells === 0 && (
               <Section title="Spell Preparation">
                 <p className="text-xs text-muted-foreground">
                   You can prepare spells from the {classRecord.slug} spell list — use the Spells section on your sheet.

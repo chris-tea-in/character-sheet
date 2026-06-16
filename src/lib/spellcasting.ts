@@ -201,17 +201,41 @@ export function computeMulticlassSlots(
   return null
 }
 
+// Half prepared casters prepare a number based on half their level (rounded down);
+// full prepared casters use their full level.
+const HALF_PREPARED_SLUGS = ['paladin', 'artificer']
+
+// Prepared-caster preparation limit (PHB). Full casters (cleric, druid, wizard):
+// ability mod + class level. Half casters (paladin, artificer): ability mod +
+// floor(level / 2). Always at least 1.
+export function getPreparedSpellCount(
+  classSlug: string,
+  classLevel: number,
+  abilityMod: number,
+): number {
+  const effLevel = HALF_PREPARED_SLUGS.includes(classSlug)
+    ? Math.floor(classLevel / 2)
+    : classLevel
+  return Math.max(1, abilityMod + effLevel)
+}
+
 export function getSpellsKnownIncrease(
   cls: ClassData,
   oldLevel: number,
   newLevel: number,
+  preparedAbilityMod?: number,  // pass for prepared casters to get the prep-limit delta
 ): { spells: number; cantrips: number } {
   const oldInfo = getSpellcastingInfo(cls, oldLevel)
   const newInfo = getSpellcastingInfo(cls, newLevel)
 
-  const spellsDelta = newInfo.casterKind === 'known' || newInfo.casterKind === 'pact'
-    ? Math.max(0, newInfo.spellsKnown - oldInfo.spellsKnown)
-    : 0
+  let spellsDelta = 0
+  if (newInfo.casterKind === 'known' || newInfo.casterKind === 'pact') {
+    spellsDelta = Math.max(0, newInfo.spellsKnown - oldInfo.spellsKnown)
+  } else if (newInfo.casterKind === 'prepared' && preparedAbilityMod !== undefined) {
+    spellsDelta = Math.max(0,
+      getPreparedSpellCount(cls.slug, newLevel, preparedAbilityMod)
+      - getPreparedSpellCount(cls.slug, oldLevel, preparedAbilityMod))
+  }
 
   const cantripsDelta = Math.max(0, newInfo.cantripsKnown - oldInfo.cantripsKnown)
 

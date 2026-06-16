@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { InfoPopup } from '@/components/InfoPopup'
 import { StepperField } from './StepperField'
-import { getSpellcastingInfo, PACT_SLOT_KEY } from '@/lib/spellcasting'
+import { getSpellcastingInfo, getPreparedSpellCount, PACT_SLOT_KEY } from '@/lib/spellcasting'
 import type { SpellcastingProfile, CasterKind, SpellLevel } from '@/lib/spellcasting'
 import { useRollDispatch } from '@/lib/useRollDispatch'
+import { abilityModifier } from '@/lib/dice'
+import { ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
 import { loadSpellsData } from '@/lib/data'
 import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
 import { RollButton } from '@/components/sheet/RollButton'
@@ -163,7 +165,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
     loadSpellsData().then(setAllSpells).catch(() => {})
   }, [])
 
-  const { profile: rawProfile, casterKind: rawCasterKind } = getSpellcastingInfo(classRecord, classLevel)
+  const { profile: rawProfile, casterKind: rawCasterKind, spellsKnown: rawSpellsKnown } = getSpellcastingInfo(classRecord, classLevel)
   const profile = overrideSlotProfile ?? rawProfile
   if (profile.kind === 'none' && rawProfile.kind === 'none') return null
 
@@ -244,6 +246,29 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
     }
     return map
   }, [character.spells, allSpells])
+
+  // "Spells Known" card indicator (mirrors the creation wizard): a total
+  // (cantrips + known/prepared) plus a per-level breakdown. Totals are a
+  // per-class concept, so they use the primary classRecord/classLevel; per-level
+  // denominators use the (override-aware) slot profile. Per the wizard, the
+  // per-level denominator is the slot count and is informational only (BUG-24).
+  const castingShort = classRecord.spellcasting?.ability
+    ? ABILITY_FULL_TO_SHORT[classRecord.spellcasting.ability.toLowerCase()]
+    : undefined
+  const castingMod = castingShort ? abilityModifier(derived.effectiveAbilities[castingShort]) : 0
+  const cantripsSelected = (spellsByLevel.get(0) ?? []).length
+  const spellsSelected = character.spells.length - cantripsSelected
+  const cantripLimit = rawProfile.kind === 'none' ? 0 : rawProfile.cantripsKnown
+  const spellLimit = isPreparedCaster
+    ? getPreparedSpellCount(classRecord.slug, classLevel, castingMod)
+    : rawSpellsKnown
+  const spellLimitLabel = isPreparedCaster ? 'Prepared' : 'Known'
+  const indicatorSlots: Partial<Record<number, number>> =
+    profile.kind === 'slots' || profile.kind === 'slots+pact'
+      ? profile.slotsByLevel
+      : profile.kind === 'pact'
+        ? { [profile.slotLevel]: profile.slotCount }
+        : {}
 
   return (
     <section className="space-y-3">
@@ -370,6 +395,33 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
             Add Spell
           </Button>
         </div>
+
+        {/* X/Y indicator — mirrors the creation wizard (total + per-level) */}
+        {rawProfile.kind !== 'none' && (
+          <p className="text-xs text-muted-foreground mb-1">
+            Cantrips {cantripsSelected}/{cantripLimit}
+            <span className="mx-1.5">·</span>
+            {spellLimitLabel} {spellsSelected}{spellLimit > 0 && `/${spellLimit}`}
+          </p>
+        )}
+        {Object.keys(indicatorSlots).length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {Object.entries(indicatorSlots)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([lvl, cap]) => {
+                const used = (spellsByLevel.get(Number(lvl)) ?? []).length
+                return (
+                  <span
+                    key={lvl}
+                    className="text-[11px]"
+                    style={{ color: 'var(--color-text-muted)', opacity: used >= (cap ?? 0) ? 0.45 : 1 }}
+                  >
+                    {ORDINALS[Number(lvl)]}: {used}/{cap}
+                  </span>
+                )
+              })}
+          </div>
+        )}
 
         {character.spells.length === 0 ? (
           <p className="text-sm text-muted-foreground">No spells added yet.</p>

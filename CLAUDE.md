@@ -397,14 +397,14 @@ Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` 
 2. **Build and deploy**
    ```bash
    npm run build
-   wrangler pages deploy dist/ --project-name dnd-character-sheet
+   wrangler pages deploy dist/ --project-name dnd-character-sheet-e9k
    ```
-   First run creates the project and returns `https://dnd-character-sheet.pages.dev`. No `wrangler.toml` needed — the `--project-name` flag is sufficient.
+   First run creates the project and returns `https://dnd-character-sheet-e9k.pages.dev` (the bare `dnd-character-sheet` name is taken by an unrelated project, so Cloudflare assigned the `-e9k` suffix — this is the canonical project name and subdomain). No `wrangler.toml` needed — the `--project-name` flag is sufficient.
 
 3. **Set up Cloudflare Zero Trust Access**
    - Go to `https://one.dash.cloudflare.com` → Access → Applications → Add an application
    - Type: **Self-hosted**
-   - Application domain: `dnd-character-sheet.pages.dev`, Path: blank (protects entire domain, including `/data/*.json`)
+   - Application domain: `dnd-character-sheet-e9k.pages.dev`, Path: blank (protects entire domain, including `/data/*.json`)
    - Policy: Action = Allow, rule = Emails → enter each friend's email address
    - Session duration: 24 hours or 1 week (so friends don't re-auth every visit)
    - Enable One-time PIN as an identity provider if any friend lacks Google/GitHub
@@ -413,7 +413,7 @@ Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` 
 #### Verification — do this before sharing the URL
 
 ```bash
-curl -I https://dnd-character-sheet.pages.dev/data/classes.json
+curl -I https://dnd-character-sheet-e9k.pages.dev/data/classes.json
 ```
 
 **Expected (correct):** `HTTP/2 302` redirecting to the Cloudflare Access login page.
@@ -423,7 +423,7 @@ curl -I https://dnd-character-sheet.pages.dev/data/classes.json
 #### Redeployment (any future update)
 ```bash
 npm run build
-wrangler pages deploy dist/ --project-name dnd-character-sheet
+wrangler pages deploy dist/ --project-name dnd-character-sheet-e9k
 ```
 
 #### Notes
