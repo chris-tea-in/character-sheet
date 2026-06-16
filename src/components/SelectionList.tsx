@@ -186,6 +186,12 @@ export function SelectionList({
       <DialogContent
         aria-describedby={undefined}
         className="flex flex-col p-0 gap-0 max-h-[90dvh] sm:max-w-lg"
+        onOpenAutoFocus={(e) => {
+          // On touch devices, auto-focusing the search input pops up the
+          // on-screen keyboard the moment the modal opens. Skip it there;
+          // desktop keeps focus-to-search for quick typing.
+          if (window.matchMedia('(pointer: coarse)').matches) e.preventDefault()
+        }}
       >
         {view === 'detail' && focused ? (
           <>
