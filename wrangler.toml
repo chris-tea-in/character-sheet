@@ -12,11 +12,10 @@ compatibility_date = "2026-06-16"
 pages_build_output_dir = "dist"
 
 # D1 binding — the Function reads it as env.DB.
-# Replace database_id with the UUID printed by `wrangler d1 create dnd-characters`.
 [[d1_databases]]
 binding = "DB"
 database_name = "dnd-characters"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "2655acf3-5115-483f-b4bc-c0b6fb95bfc4"
 
 # Non-secret, account-specific values. Replace the placeholders (see the
 # Prerequisites table in CLOUD_SYNC.md for where to find each).
@@ -25,8 +24,8 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 # (DM access is now per-campaign — created in-app via invite codes — so there is
 #  no global DM_EMAILS allowlist any more.)
 [vars]
-TEAM_DOMAIN = "https://REPLACE_WITH_TEAM.cloudflareaccess.com"
-POLICY_AUD = "REPLACE_WITH_ACCESS_APPLICATION_AUD_TAG"
+TEAM_DOMAIN = "https://chris-tea-in.cloudflareaccess.com"
+POLICY_AUD = "38ace68c88aa72952b40625664f7d019bc0f4f5ef437740cd8419e6cad47fdb0"
 # DEV_EMAIL is intentionally NOT set here. It is a LOCAL-ONLY auth bypass for
 # `wrangler pages dev` (no Access in front of localhost). Pass it at the CLI:
 #   wrangler pages dev --var DEV_EMAIL:you@example.com
