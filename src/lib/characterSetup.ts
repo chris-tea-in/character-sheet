@@ -697,6 +697,9 @@ export function draftToNewCharacter(
         ...draft.toolProficiencies,
       ]),
     ],
+    // Campaign membership is assigned by the create flow (see ?campaign), never
+    // by the wizard itself; the edit merge preserves the existing value (INV-4).
+    campaignId: null,
   }
 }
 

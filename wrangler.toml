@@ -1,0 +1,33 @@
+# Cloudflare Pages config for the cloud character-storage backend.
+#
+# With pages_build_output_dir set, deploy and local-dev commands read this file:
+#   npm run build && wrangler pages deploy        # production (uploads ./dist + functions/)
+#   npm run build && wrangler pages dev           # local: serves ./dist + functions/ with a LOCAL D1
+#
+# `data/` and `public/data/` are gitignored, so the build must run locally (the
+# source data won't exist on a cloud runner). See CLOUD_SYNC.md for the runbook.
+
+name = "dnd-character-sheet"
+compatibility_date = "2026-06-16"
+pages_build_output_dir = "dist"
+
+# D1 binding — the Function reads it as env.DB.
+# Replace database_id with the UUID printed by `wrangler d1 create dnd-characters`.
+[[d1_databases]]
+binding = "DB"
+database_name = "dnd-characters"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Non-secret, account-specific values. Replace the placeholders (see the
+# Prerequisites table in CLOUD_SYNC.md for where to find each).
+#   TEAM_DOMAIN — Zero Trust → Settings → team domain
+#   POLICY_AUD  — Zero Trust → Access → Applications → this app → Application Audience (AUD) Tag
+# (DM access is now per-campaign — created in-app via invite codes — so there is
+#  no global DM_EMAILS allowlist any more.)
+[vars]
+TEAM_DOMAIN = "https://REPLACE_WITH_TEAM.cloudflareaccess.com"
+POLICY_AUD = "REPLACE_WITH_ACCESS_APPLICATION_AUD_TAG"
+# DEV_EMAIL is intentionally NOT set here. It is a LOCAL-ONLY auth bypass for
+# `wrangler pages dev` (no Access in front of localhost). Pass it at the CLI:
+#   wrangler pages dev --var DEV_EMAIL:you@example.com
+# Never set DEV_EMAIL in this file or in the dashboard — it would bypass identity.

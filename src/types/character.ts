@@ -109,6 +109,12 @@ export interface Character {
   }>  // per-feat player choices
   toolProficiencies: string[]  // tool names (free-form, from equipment catalog)
 
+  // Campaign association (player-owned, synced like any other field). null = not
+  // in a campaign. Does NOT gate the main list — it only adds the character to a
+  // campaign view. The server keeps a derived campaign_id column (set from this on
+  // owner writes) so the DM query is indexed.
+  campaignId: string | null
+
   createdAt: number  // unix ms
   updatedAt: number
 }
@@ -139,5 +145,6 @@ export function defaultCharacter(name: string): NewCharacter {
     feats: [],
     featChoices: {},
     toolProficiencies: [],
+    campaignId: null,
   }
 }

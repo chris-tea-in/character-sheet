@@ -15,8 +15,10 @@ import { useCharacterStore } from '@/store/characters'
 import { defaultCharacter } from '@/types/character'
 import type { Character } from '@/types/character'
 import { DataManagementDialog } from '@/components/DataManagementDialog'
+import { CampaignsTab } from './CampaignsTab'
 
 type SortOrder = 'recent' | 'alpha'
+type HomeTab = 'characters' | 'campaigns'
 
 interface CharacterListPageProps {
   /** Show the non-persistent-storage warning (only surfaced on this page). */
@@ -27,6 +29,7 @@ export default function CharacterListPage({ notPersistent }: CharacterListPagePr
   const characters = useCharacterStore((s) => s.characters)
   const createCharacter = useCharacterStore((s) => s.create)
   const loadCharacters = useCharacterStore((s) => s.load)
+  const [tab, setTab] = useState<HomeTab>('characters')
   const [sort, setSort] = useState<SortOrder>('recent')
   const [quickStartOpen, setQuickStartOpen] = useState(false)
   const [dataOpen, setDataOpen] = useState(false)
@@ -55,49 +58,63 @@ export default function CharacterListPage({ notPersistent }: CharacterListPagePr
         </div>
       )}
       <div className="p-4 sm:p-6 max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
-          <h1 className="text-2xl font-bold">Characters</h1>
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <h1 className="text-2xl font-bold">{tab === 'characters' ? 'Characters' : 'Campaigns'}</h1>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => setDataOpen(true)}>
               <HardDriveDownload className="h-4 w-4" />
               Data
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setQuickStartOpen(true)}>
-              <PenLine className="h-4 w-4" />
-              Quick Start
-            </Button>
-            <Button size="sm" onClick={() => navigate('/create')}>
-              <Wand2 className="h-4 w-4" />
-              Guided Setup
-            </Button>
+            {tab === 'characters' && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => setQuickStartOpen(true)}>
+                  <PenLine className="h-4 w-4" />
+                  Quick Start
+                </Button>
+                <Button size="sm" onClick={() => navigate('/create')}>
+                  <Wand2 className="h-4 w-4" />
+                  Guided Setup
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
-        {characters.length === 0 ? (
-          <EmptyState
-            onGuided={() => navigate('/create')}
-            onQuickStart={() => setQuickStartOpen(true)}
-          />
+        {/* Top-level tabs */}
+        <div className="flex gap-1 mb-5 border-b border-border">
+          <TabButton active={tab === 'characters'} onClick={() => setTab('characters')}>Characters</TabButton>
+          <TabButton active={tab === 'campaigns'} onClick={() => setTab('campaigns')}>Campaigns</TabButton>
+        </div>
+
+        {tab === 'characters' ? (
+          characters.length === 0 ? (
+            <EmptyState
+              onGuided={() => navigate('/create')}
+              onQuickStart={() => setQuickStartOpen(true)}
+            />
+          ) : (
+            <>
+              <div className="flex gap-1 mb-4">
+                <SortButton active={sort === 'recent'} onClick={() => setSort('recent')}>
+                  Recent
+                </SortButton>
+                <SortButton active={sort === 'alpha'} onClick={() => setSort('alpha')}>
+                  A–Z
+                </SortButton>
+              </div>
+              <div className="flex flex-col gap-3">
+                {sorted.map((c) => (
+                  <CharacterCard
+                    key={c.id}
+                    character={c}
+                    onClick={() => navigate(`/character/${c.id}`)}
+                  />
+                ))}
+              </div>
+            </>
+          )
         ) : (
-          <>
-            <div className="flex gap-1 mb-4">
-              <SortButton active={sort === 'recent'} onClick={() => setSort('recent')}>
-                Recent
-              </SortButton>
-              <SortButton active={sort === 'alpha'} onClick={() => setSort('alpha')}>
-                A–Z
-              </SortButton>
-            </div>
-            <div className="flex flex-col gap-3">
-              {sorted.map((c) => (
-                <CharacterCard
-                  key={c.id}
-                  character={c}
-                  onClick={() => navigate(`/character/${c.id}`)}
-                />
-              ))}
-            </div>
-          </>
+          <CampaignsTab />
         )}
       </div>
 
@@ -112,6 +129,30 @@ export default function CharacterListPage({ notPersistent }: CharacterListPagePr
         onCharacterImported={handleCharacterImported}
       />
     </div>
+  )
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors',
+        active
+          ? 'border-[var(--color-accent-gold)] text-foreground'
+          : 'border-transparent text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
   )
 }
 

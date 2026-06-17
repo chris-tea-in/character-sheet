@@ -17,7 +17,19 @@ export default defineConfig({
       registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
+        // Never serve the SPA index.html fallback for an API request — keep the
+        // Access redirect flow and the `curl /api/me` verification honest. (API
+        // calls are fetch(), not navigations, so this is belt-and-suspenders.)
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
+          {
+            // Character sync must never be cached or replayed. NetworkOnly caches
+            // nothing, so a Cloudflare Access login redirect or a stale write can
+            // never be served from cache. Listed first to stay correct even if a
+            // broad catch-all rule is added later (first match wins).
+            urlPattern: /^\/api\//,
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern: /^\/data\/.*\.json$/,
             // Serve the cached copy instantly, then refresh from the network in

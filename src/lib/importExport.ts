@@ -135,6 +135,9 @@ export async function importCharacter(file: File): Promise<Character> {
   validateCharacterPayload(doc.character)
 
   let character: NewCharacter = doc.character
+  // An imported character belongs to no campaign — strip any campaignId that
+  // rode along in the export so it can't claim membership it was never granted.
+  character = { ...character, campaignId: null }
   if (version < 2) {
     // v1 exports have racial/feat bonuses baked into abilities/speed/initiative —
     // convert to the base-stats model before inserting

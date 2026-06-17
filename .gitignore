@@ -29,6 +29,10 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Cloudflare local dev state + local-only vars (e.g. DEV_EMAIL bypass)
+.wrangler/
+.dev.vars
+
 # Scraper
 scraper/
 

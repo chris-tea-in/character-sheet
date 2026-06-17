@@ -18,16 +18,14 @@ import { DiceRollModal } from '@/components/sheet/DiceRollModal'
 import { StepperField } from '@/components/sheet/StepperField'
 import { LevelUpDialog } from '@/components/sheet/LevelUpDialog'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
+import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
 import { useCharacterStore } from '@/store/characters'
 import { loadSetupData, loadEquipmentData, loadFeatsData } from '@/lib/data'
-import { deriveCharacterStats } from '@/lib/characterStats'
 import {
-  parseHitDie, RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
+  RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
   subclassToDetailItem, backgroundToDetailItem, subraceToDetailItem,
   slugToTitle, ABILITY_ORDER, ABILITY_LABELS, toSubraceSlug, ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
-import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
-import type { CasterKind } from '@/lib/spellcasting'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { ALL_LANGUAGES, toSkillName } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
@@ -564,47 +562,16 @@ export default function CharacterPage() {
 
   const currentRaceData = character.race ? (setupData?.races[character.race] ?? null) : null
 
-  // Background-granted skills — excluded from the class skill-pick cap (BUG-29)
-  const backgroundSkills = useMemo((): SkillName[] => (
-    (setupData?.backgrounds[character.background]?.skill_proficiencies ?? [])
-      .map(toSkillName)
-      .filter((s): s is SkillName => s !== null)
-  ), [setupData, character.background])
-
-  // All class records ordered to match character.classes ([0] = primary)
-  const classRecords = useMemo(() => (
-    character.classes?.length
-      ? character.classes.map(c => setupData?.classes[c.classSlug] ?? null)
-      : [classRecord]
-  ), [character.classes, setupData, classRecord])
-
-  const derived = useMemo(
-    () => deriveCharacterStats(character, {
-      classes: classRecords, race: currentRaceData, catalog: equipmentCatalog, featData,
-    }),
-    [character, classRecords, currentRaceData, equipmentCatalog, featData],
+  // All render-time character stats derive through the shared hook so the owner
+  // sheet and the campaign (DM) sheet can never drift (see useDerivedSheet).
+  const sheetData = useMemo(
+    () => ({ setupData, equipmentCatalog, featData }),
+    [setupData, equipmentCatalog, featData],
   )
-
-  // Primary class level (classes[0].level, or character.level for single-class legacy)
-  const primaryClassLevel = character.classes?.length
-    ? (character.classes[0]?.level ?? character.level)
-    : character.level
-
-  // Multiclass slot override — null when single-class (SpellBlock uses per-class slots)
-  const multiclassSlotProfile = character.classes?.length > 1 && setupData
-    ? computeMulticlassSlots(character.classes, setupData.classes)
-    : null
-
-  // When multiclassed, derive casterKind from the actual spellcasting classes (not just primary)
-  const multiclassCasterKind = useMemo((): CasterKind | undefined => {
-    if (!multiclassSlotProfile || !setupData || !character.classes?.length) return undefined
-    for (const c of character.classes) {
-      const rec = setupData.classes[c.classSlug]
-      if (!rec) continue
-      if (getSpellcastingInfo(rec, c.level).casterKind === 'prepared') return 'prepared'
-    }
-    return undefined
-  }, [multiclassSlotProfile, setupData, character.classes])
+  const {
+    classRecords, derived, backgroundSkills, primaryClassLevel,
+    multiclassSlotProfile, multiclassCasterKind, classHitDice,
+  } = useDerivedSheet(character, sheetData)
 
   // Build class display string:
   //   single class → "Fighter" (header appends level separately)
@@ -855,16 +822,7 @@ export default function CharacterPage() {
             character={character}
             derived={derived}
             onSave={save}
-            classHitDice={character.classes?.length > 1
-              ? character.classes.map(c => ({
-                  classSlug: c.classSlug,
-                  className: slugToTitle(c.classSlug),
-                  hitDie: setupData?.classes[c.classSlug]
-                    ? parseHitDie(setupData.classes[c.classSlug].hit_die)
-                    : derived.hitDiceType,
-                  level: c.level,
-                }))
-              : undefined}
+            classHitDice={classHitDice}
           />
           <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} catalog={equipmentCatalog} derived={derived} onSave={save} />
           <FeatsBlock character={character} derived={derived} onSave={save} />

@@ -95,6 +95,52 @@ derivation (`computeActiveItemEffects`).
   store wraps insert/update/delete in try/catch and sets `storageError` (create
   rethrows so the wizard doesn't navigate to a non-existent character). BUG-40 fixed.
 
+## Cloud sync tier (added 2026-06-16, branch `feat/prepared-spell-limits`)
+
+Local-first is unchanged — sql.js/IndexedDB stays the source of truth. The cloud
+(Cloudflare Pages Functions + D1) is a synced **mirror**. As of the shared-campaigns
+work (Phase 2) writes are a **field-scoped merge**, not whole-blob LWW. Wiring:
+
+- `useCharacterStore.create/update/remove` fire fire-and-forget pushes after the
+  local write: create → immediate push (full patch); update → **debounced**
+  (`src/store/sync.ts`, 3s coalesce per id) push of **only the changed fields**
+  (`syncOnUpdate(character, changes)` accumulates a per-id `pendingPatch`);
+  remove → cloud tombstone. Failures queue + retry on `online`/`visibilitychange`.
+- **PUT body is `{ createdAt?, updatedAt, patch }`** where `patch` is a partial
+  `NewCharacter` (the whole character for a new row). The server (`functions/api/
+  characters/[id].ts`) shallow-merges `patch` over the stored JSON and advances
+  `updated_at = max(stored, incoming)`, so concurrent edits to *different* top-level
+  fields both survive. The client push shape and this server shape are **coupled** —
+  change them together (`src/lib/syncApi.ts pushCharacter`, `src/store/sync.ts`).
+  `pushOne` falls back to the full character when no `pendingPatch` exists (boot
+  "local is newer" push), so the boot path stays whole-document.
+- Boot (`main.tsx`) runs `runInitialSync()` AFTER first render: `getMe` →
+  `pullCharacters` → **whole-character LWW boot-merge** (`upsertSyncedCharacter` for
+  remote-newer, repo `deleteCharacter` for remote tombstones — NOT store.remove) →
+  `flush()` → `store.load()`. The merge granularity here is still whole-document
+  (the documented offline-divergence path). `useCampaignStore.load()` runs alongside.
+- `src/lib/syncApi.ts` classifies every response into good-read / auth-expired /
+  offline; only a good read merges, so a truncated/non-JSON/redirect response can
+  never be misread as data, and **absence is never a delete** (deletes travel only as
+  explicit `deleted` tombstones). Auth-expired → App reconnect banner → full reload.
+- The synced `data` blob is the full base-stats `NewCharacter` (id+timestamps
+  preserved so the same character matches across devices) — **INV-4 applies**: any new
+  `Character` field rides along via `data`, but a field needing a dedicated column in
+  `upsertSyncedCharacter` must be added there too (mirrors `insertCharacter`). The
+  legacy `class`/`subclass`/`level` inside the blob may go stale under field-scoped
+  merge, but `upsertSyncedCharacter` re-derives the columns from `classes[]` on the
+  receiving side, so they never surface (legacy-columns duality, INV-3).
+- **Campaigns (Phase 2):** `campaignId: string | null` is a player-owned synced
+  `Character` field; the server mirrors it to an indexed `characters.campaign_id`
+  column on owner writes only. Authority is recomputed server-side from the verified
+  email per request: a character row may be written by its `owner_email` OR the
+  `dm_email` of its campaign; a DM patch is stripped of `campaignId`/owner. `campaigns`
+  + `campaign_members` tables back `/api/campaigns/*`. The old global DM view
+  (`DM_EMAILS`, `isDm`, `/api/dm/characters`, `/dm`, `DmViewPage`) is **removed**.
+- Backend lives in `functions/` (Pages Functions, file-routed; `functions/_lib/auth.ts`
+  exports no `onRequest` so it is never routed). Identity = verified email from the
+  Cloudflare Access JWT; `owner_email` scopes every character query. See CLOUD_SYNC.md.
+
 ## Data pipeline
 
 `scripts/build-data.js`: `data/**` → validate → `public/data/*.json`. Equipment is
