@@ -115,6 +115,14 @@ export interface Character {
   // owner writes) so the DM query is indexed.
   campaignId: string | null
 
+  // Per-character class disguise, shown only to OTHER players in the campaign
+  // roster (the DM and the owner always see the real class). `disguiseClass`
+  // toggles it on; `disguiseAs` is the decoy class slug to show instead, or '' to
+  // show no class (just the level). Applied server-side in the roster endpoint so
+  // the real class never leaves the server for a disguised viewer.
+  disguiseClass: boolean
+  disguiseAs: string
+
   createdAt: number  // unix ms
   updatedAt: number
 }
@@ -146,5 +154,28 @@ export function defaultCharacter(name: string): NewCharacter {
     featChoices: {},
     toolProficiencies: [],
     campaignId: null,
+    disguiseClass: false,
+    disguiseAs: '',
   }
+}
+
+/**
+ * Coerce an arbitrary, possibly-partial character blob into a complete
+ * `NewCharacter` by filling any missing field with its default.
+ *
+ * Apply this at every boundary where untrusted external JSON becomes a
+ * `Character`: the synced cloud `data` blob and campaign fetches are *typed*
+ * `NewCharacter`, but that is an unchecked assertion over network/DB JSON — a
+ * record written by an older client, a partial write, or an import may be missing
+ * a field. Without normalization the first missing array/object field crashes
+ * `deriveCharacterStats` (e.g. spreading an `undefined` `savingThrowProficiencies`).
+ *
+ * Local-DB reads are already normalized by the column defaults; this closes the
+ * one path that skips that round-trip — the DM campaign view, which renders other
+ * players' raw cloud blobs directly. Present fields are preserved as-is (JSON
+ * never carries `undefined` own-properties, so a missing key stays defaulted).
+ */
+export function normalizeNewCharacter(data: unknown): NewCharacter {
+  const d = data && typeof data === 'object' ? (data as Partial<NewCharacter>) : {}
+  return { ...defaultCharacter(typeof d.name === 'string' ? d.name : ''), ...d }
 }

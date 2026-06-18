@@ -3,6 +3,7 @@ import { getEmail, isCampaignDm, json, unauthorized, forbidden, type Env } from 
 interface MemberRow {
   email: string
   role: string
+  username: string | null
 }
 
 // GET /api/campaigns/:id/members — DM-only roster (email + role). Players don't
@@ -14,10 +15,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const id = String(params.id)
   if (!(await isCampaignDm(env, id, email))) return forbidden('Not the DM of this campaign')
 
+  // LEFT JOIN users for each member's display name (null until they onboard).
   const { results } = await env.DB
-    .prepare('SELECT email, role FROM campaign_members WHERE campaign_id = ? ORDER BY role DESC, email')
+    .prepare(`SELECT m.email, m.role, u.username
+              FROM campaign_members m LEFT JOIN users u ON u.email = m.email
+              WHERE m.campaign_id = ? ORDER BY m.role DESC, m.email`)
     .bind(id)
     .all<MemberRow>()
 
-  return json({ members: results ?? [] })
+  const members = (results ?? []).map(m => ({ email: m.email, role: m.role, username: m.username ?? null }))
+  return json({ members })
 }

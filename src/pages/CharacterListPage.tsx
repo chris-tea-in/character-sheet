@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Wand2, PenLine, HardDriveDownload } from 'lucide-react'
+import { Wand2, PenLine, HardDriveDownload, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -12,9 +12,11 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useCharacterStore } from '@/store/characters'
+import { useSyncStore } from '@/store/sync'
 import { defaultCharacter } from '@/types/character'
 import type { Character } from '@/types/character'
 import { DataManagementDialog } from '@/components/DataManagementDialog'
+import { UsernameDialog } from '@/components/UsernameDialog'
 import { CampaignsTab } from './CampaignsTab'
 
 type SortOrder = 'recent' | 'alpha'
@@ -29,10 +31,12 @@ export default function CharacterListPage({ notPersistent }: CharacterListPagePr
   const characters = useCharacterStore((s) => s.characters)
   const createCharacter = useCharacterStore((s) => s.create)
   const loadCharacters = useCharacterStore((s) => s.load)
+  const me = useSyncStore((s) => s.me)
   const [tab, setTab] = useState<HomeTab>('characters')
   const [sort, setSort] = useState<SortOrder>('recent')
   const [quickStartOpen, setQuickStartOpen] = useState(false)
   const [dataOpen, setDataOpen] = useState(false)
+  const [editUsernameOpen, setEditUsernameOpen] = useState(false)
   const navigate = useNavigate()
 
   const sorted = useMemo(() => {
@@ -79,6 +83,17 @@ export default function CharacterListPage({ notPersistent }: CharacterListPagePr
             )}
           </div>
         </div>
+
+        {/* Display name — shown once cloud identity has loaded and a username is set. */}
+        {me?.username && (
+          <button
+            onClick={() => setEditUsernameOpen(true)}
+            className="group mb-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Signed in as <span className="font-medium text-foreground">{me.username}</span>
+            <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-70 transition-opacity" />
+          </button>
+        )}
 
         {/* Top-level tabs */}
         <div className="flex gap-1 mb-5 border-b border-border">
@@ -127,6 +142,12 @@ export default function CharacterListPage({ notPersistent }: CharacterListPagePr
         open={dataOpen}
         onClose={() => setDataOpen(false)}
         onCharacterImported={handleCharacterImported}
+      />
+      <UsernameDialog
+        mode="edit"
+        open={editUsernameOpen}
+        initialValue={me?.username ?? ''}
+        onClose={() => setEditUsernameOpen(false)}
       />
     </div>
   )

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Character, NewCharacter } from '../types/character'
+import { normalizeNewCharacter } from '../types/character'
 import { getDb, flush } from '../storage'
 import { listCharacters, upsertSyncedCharacter, deleteCharacter } from '../storage/characterRepo'
 import { useCharacterStore } from './characters'
@@ -32,7 +33,9 @@ function toData(c: Character): NewCharacter {
 }
 
 function fromSynced(r: SyncedCharacter): Character {
-  return { id: r.id, createdAt: r.createdAt, updatedAt: r.updatedAt, ...r.data }
+  // r.data is typed NewCharacter but is untrusted JSON — normalize so missing
+  // fields can't surface downstream (see normalizeNewCharacter).
+  return { id: r.id, createdAt: r.createdAt, updatedAt: r.updatedAt, ...normalizeNewCharacter(r.data) }
 }
 
 function settleStatus() {
@@ -142,6 +145,8 @@ interface SyncState {
   setStatus: (status: SyncStatus) => void
   /** Initial pull + last-write-wins merge. Safe to call once at startup. */
   runInitialSync: () => Promise<void>
+  /** Set/change the display name. On success updates `me`, which closes the onboarding gate. */
+  setUsername: (username: string) => Promise<api.SetUsernameResult>
   /** Full-page reload to re-run the Access login and get a fresh cookie. */
   reconnect: () => void
 }
@@ -209,6 +214,12 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
     }
 
     settleStatus()
+  },
+
+  setUsername: async (username) => {
+    const res = await api.setUsername(username)
+    if (res.ok) set({ me: res.data })
+    return res
   },
 
   reconnect: () => {

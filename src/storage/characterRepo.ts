@@ -77,6 +77,8 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     featChoices: JSON.parse(row['feat_choices'] as string ?? '{}'),
     toolProficiencies: JSON.parse(row['tool_proficiencies'] as string ?? '[]'),
     campaignId: (row['campaign_id'] as string | null) ?? null,
+    disguiseClass: Boolean(row['disguise_class']),
+    disguiseAs: (row['disguise_as'] as string | null) ?? '',
     createdAt: row['created_at'] as number,
     updatedAt: row['updated_at'] as number,
   }
@@ -141,9 +143,9 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, feats, feat_choices, tool_proficiencies, classes,
-        race_asi_choices, hit_dice_used_by_class, campaign_id, stats_normalized, created_at, updated_at
+        race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race ?? '', data.subrace ?? null, data.class ?? '', data.subclass ?? null, data.background ?? '',
@@ -167,6 +169,7 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         JSON.stringify(data.raceAsiChoices ?? []),
         JSON.stringify(data.hitDiceUsedByClass ?? {}),
         data.campaignId ?? null,
+        data.disguiseClass ? 1 : 0, data.disguiseAs ?? '',
         1, // app-created characters are born normalized (base abilities stored)
         now, now,
       ],
@@ -204,7 +207,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
         equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?, classes=?,
-        race_asi_choices=?, campaign_id=?, updated_at=?
+        race_asi_choices=?, campaign_id=?, disguise_class=?, disguise_as=?, updated_at=?
       WHERE id=?`,
       [
         merged.name, merged.race, merged.subrace, primaryClassSlug, primarySubclass, merged.background,
@@ -227,6 +230,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         JSON.stringify(merged.classes ?? []),
         JSON.stringify(merged.raceAsiChoices ?? []),
         merged.campaignId ?? null,
+        merged.disguiseClass ? 1 : 0, merged.disguiseAs ?? '',
         merged.updatedAt,
         id,
       ],
@@ -272,9 +276,9 @@ export function upsertSyncedCharacter(db: Database, full: Character): void {
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, feats, feat_choices, tool_proficiencies, classes,
-        race_asi_choices, hit_dice_used_by_class, campaign_id, stats_normalized, created_at, updated_at
+        race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )
       ON CONFLICT(id) DO UPDATE SET
         name=excluded.name, race_slug=excluded.race_slug, subrace=excluded.subrace,
@@ -292,6 +296,7 @@ export function upsertSyncedCharacter(db: Database, full: Character): void {
         feat_choices=excluded.feat_choices, tool_proficiencies=excluded.tool_proficiencies, classes=excluded.classes,
         race_asi_choices=excluded.race_asi_choices, hit_dice_used_by_class=excluded.hit_dice_used_by_class,
         campaign_id=excluded.campaign_id,
+        disguise_class=excluded.disguise_class, disguise_as=excluded.disguise_as,
         stats_normalized=excluded.stats_normalized, updated_at=excluded.updated_at`,
       [
         full.id, full.name, full.race ?? '', full.subrace ?? null, primaryClassSlug, primarySubclass, full.background ?? '',
@@ -315,6 +320,7 @@ export function upsertSyncedCharacter(db: Database, full: Character): void {
         JSON.stringify(full.raceAsiChoices ?? []),
         JSON.stringify(full.hitDiceUsedByClass ?? {}),
         full.campaignId ?? null,
+        full.disguiseClass ? 1 : 0, full.disguiseAs ?? '',
         1, // synced rows are always base-stats (export v2) — born normalized
         full.createdAt, full.updatedAt,
       ],

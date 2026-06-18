@@ -9,6 +9,7 @@ import JoinCampaignPage from './pages/JoinCampaignPage'
 import type { DbInitResult } from './storage'
 import { useCharacterStore } from './store/characters'
 import { useSyncStore } from './store/sync'
+import { UsernameDialog } from './components/UsernameDialog'
 
 interface AppProps {
   dbResult: DbInitResult
@@ -20,6 +21,7 @@ export default function App({ dbResult }: AppProps) {
   const clearStorageError = useCharacterStore(s => s.clearStorageError)
   const syncStatus = useSyncStore(s => s.status)
   const reconnect = useSyncStore(s => s.reconnect)
+  const me = useSyncStore(s => s.me)
 
   useEffect(() => {
     load()
@@ -48,6 +50,9 @@ export default function App({ dbResult }: AppProps) {
         <Route path="/campaign/:id/character/:charId" element={<CampaignCharacterPage />} />
         <Route path="/join/:code" element={<JoinCampaignPage />} />
       </Routes>
+      {/* First-run gate: once cloud identity loads with no username yet, block until set.
+          When offline/local-only, `me` is null, so this never opens. */}
+      <UsernameDialog mode="onboard" open={!!me && me.username === null} />
     </>
   )
 }

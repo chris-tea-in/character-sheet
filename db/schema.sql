@@ -42,6 +42,20 @@ CREATE TABLE IF NOT EXISTS campaign_members (
 
 CREATE INDEX IF NOT EXISTS idx_campaign_members_email ON campaign_members(email);
 
+-- ── User profiles ──────────────────────────────────────────────────────────
+-- The display-name layer. Email (from the verified Access JWT) stays the
+-- immutable join key for every other table; username is resolved by LEFT JOIN
+-- for display, so a user who hasn't onboarded yet simply falls back to email.
+CREATE TABLE IF NOT EXISTS users (
+  email      TEXT PRIMARY KEY,   -- verified Access email (lowercased) — the join key
+  username   TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- Case-insensitive uniqueness of the display name.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE);
+
 -- Derived from data.campaignId on owner writes; the single source of truth for
 -- the DM's campaign query, never set by a non-owner.
 -- NOTE: `wrangler d1 execute --remote --file db/schema.sql` re-runs cleanly because

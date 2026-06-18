@@ -83,6 +83,32 @@ export async function isCampaignMember(env: Env, campaignId: string, email: stri
   return !!row
 }
 
+/** The caller's chosen display name, or null if they haven't onboarded yet. */
+export async function getUsername(env: Env, email: string): Promise<string | null> {
+  const row = await env.DB
+    .prepare('SELECT username FROM users WHERE email = ?')
+    .bind(email.toLowerCase())
+    .first<{ username: string }>()
+  return row?.username ?? null
+}
+
+const USERNAME_MAX = 24
+// Letters, numbers, spaces, and a few separators. No control chars / emoji.
+const USERNAME_ALLOWED = /^[A-Za-z0-9 _.\-]+$/
+
+/**
+ * Normalize and validate a proposed username. Trims, enforces a length cap and
+ * a conservative character set, and requires at least one non-space character.
+ */
+export function validateUsername(raw: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  if (typeof raw !== 'string') return { ok: false, error: 'Username is required' }
+  const value = raw.trim()
+  if (!value) return { ok: false, error: 'Username is required' }
+  if (value.length > USERNAME_MAX) return { ok: false, error: `Username must be ${USERNAME_MAX} characters or fewer` }
+  if (!USERNAME_ALLOWED.test(value)) return { ok: false, error: 'Use only letters, numbers, spaces, and _ . -' }
+  return { ok: true, value }
+}
+
 /** A short, human-shareable invite code (no ambiguous I/L/O/0/1). */
 export function randomInviteCode(): string {
   const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -103,3 +129,5 @@ export function json(data: unknown, status = 200): Response {
 export const unauthorized = () => json({ error: 'Unauthorized' }, 403)
 export const forbidden = (error = 'Forbidden') => json({ error }, 403)
 export const notFound = (error = 'Not found') => json({ error }, 404)
+export const badRequest = (error = 'Bad request') => json({ error }, 400)
+export const conflict = (error = 'Conflict') => json({ error }, 409)

@@ -130,6 +130,16 @@ work (Phase 2) writes are a **field-scoped merge**, not whole-blob LWW. Wiring:
   legacy `class`/`subclass`/`level` inside the blob may go stale under field-scoped
   merge, but `upsertSyncedCharacter` re-derives the columns from `classes[]` on the
   receiving side, so they never surface (legacy-columns duality, INV-3).
+- **The cloud `data` blob is untrusted JSON despite its `NewCharacter` type.**
+  `normalizeNewCharacter` (src/types/character.ts) coalesces an arbitrary blob over
+  `defaultCharacter()` and MUST be applied at every boundary that builds a
+  `Character` from it — `fromSynced` (sync.ts) and `CampaignCharacterPage` — so a
+  record missing a field (older client, partial write, import) can't reach
+  `deriveCharacterStats` and crash it (spreading an `undefined`
+  `savingThrowProficiencies` → "not iterable"). Owner paths round-trip through the
+  local DB (columns are `NOT NULL DEFAULT`), which normalizes them; the **DM
+  campaign view is the one path that skips that round-trip**, so it is the load-
+  bearing consumer of the boundary normalizer.
 - **Campaigns (Phase 2):** `campaignId: string | null` is a player-owned synced
   `Character` field; the server mirrors it to an indexed `characters.campaign_id`
   column on owner writes only. Authority is recomputed server-side from the verified

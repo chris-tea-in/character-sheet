@@ -257,6 +257,9 @@ export default function CreateCharacterPage() {
           // Preserve campaign membership — the wizard can't represent it, so a
           // bare merge would silently drop the character from its campaign (INV-4)
           campaignId: existing.campaignId,
+          // Preserve the class disguise — also not represented in the wizard.
+          disguiseClass: existing.disguiseClass,
+          disguiseAs: existing.disguiseAs,
         }
         updateCharacter(editId, changes)
         navigate(`/character/${editId}`)

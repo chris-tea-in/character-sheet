@@ -7,6 +7,7 @@ import type { NewCharacter } from '../types/character'
 
 export interface Me {
   email: string
+  username: string | null  // null until the user picks one (onboarding)
 }
 
 /** A synced row for the caller's own characters (includes tombstones). */
@@ -22,6 +23,7 @@ export interface SyncedCharacter {
 export interface CampaignCharacter {
   id: string
   ownerEmail: string
+  ownerUsername: string | null  // owner's display name, null until they onboard
   createdAt: number
   updatedAt: number
   data: NewCharacter
@@ -38,6 +40,22 @@ export interface Campaign {
 export interface CampaignMember {
   email: string
   role: 'dm' | 'player'
+  username: string | null  // display name, null until they onboard
+}
+
+/** A thin, list-only view of another player's character (no full sheet). The class
+ *  label is computed server-side and already honors that player's disguise. */
+export interface RosterCharacter {
+  id: string
+  name: string
+  classLabel: string
+}
+
+/** One other player in the campaign and their characters (party roster). */
+export interface RosterMember {
+  email: string
+  username: string | null  // display name, null until they onboard
+  characters: RosterCharacter[]
 }
 
 // Every response is classified into exactly one of: good read, auth expired, or
@@ -83,6 +101,57 @@ async function request<T>(input: string, init?: RequestInit): Promise<SyncResult
 
 export function getMe(): Promise<SyncResult<Me>> {
   return request<Me>('/api/me')
+}
+
+// setUsername needs to tell apart 400 (invalid) and 409 (taken) so the dialog can
+// show the reason inline — the generic request() collapses both into 'offline'.
+// So it has its own fetch, mirroring request()'s redirect/timeout handling.
+export type SetUsernameResult =
+  | { ok: true; data: Me }
+  | { ok: false; reason: 'taken' | 'invalid' | 'auth-expired' | 'offline'; message?: string }
+
+async function readErrorMessage(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { error?: unknown }
+    return typeof body?.error === 'string' ? body.error : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export async function setUsername(username: string): Promise<SetUsernameResult> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+
+  let res: Response
+  try {
+    res = await fetch('/api/me', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username }),
+      redirect: 'manual',
+      signal: controller.signal,
+    })
+  } catch {
+    clearTimeout(timer)
+    return { ok: false, reason: 'offline' }
+  }
+  clearTimeout(timer)
+
+  if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) {
+    return { ok: false, reason: 'auth-expired' }
+  }
+  if (res.status === 409) return { ok: false, reason: 'taken', message: await readErrorMessage(res) }
+  if (res.status === 400) return { ok: false, reason: 'invalid', message: await readErrorMessage(res) }
+  if (!res.ok) return { ok: false, reason: 'offline' }
+
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) return { ok: false, reason: 'offline' }
+  try {
+    return { ok: true, data: (await res.json()) as Me }
+  } catch {
+    return { ok: false, reason: 'offline' }
+  }
 }
 
 export async function pullCharacters(): Promise<SyncResult<SyncedCharacter[]>> {
@@ -153,10 +222,28 @@ export async function campaignMembers(id: string): Promise<SyncResult<CampaignMe
   return res.ok ? { ok: true, data: res.data.members } : res
 }
 
+// The party roster any member may see: other players + their characters as a
+// thin name/class projection (no full sheets). Class labels already honor each
+// player's disguise (the DM sees real classes).
+export async function campaignRoster(id: string): Promise<SyncResult<RosterMember[]>> {
+  const res = await request<{ roster: RosterMember[] }>(`/api/campaigns/${encodeURIComponent(id)}/roster`)
+  return res.ok ? { ok: true, data: res.data.roster } : res
+}
+
 export function rotateCode(id: string): Promise<SyncResult<{ inviteCode: string }>> {
   return request<{ inviteCode: string }>(`/api/campaigns/${encodeURIComponent(id)}/code`, { method: 'POST' })
 }
 
 export function removeMember(id: string, email: string): Promise<SyncResult<unknown>> {
   return request(`/api/campaigns/${encodeURIComponent(id)}/members/${encodeURIComponent(email)}`, { method: 'DELETE' })
+}
+
+// DM-only: remove one player's character from the campaign (clears its membership;
+// the character itself is kept by its owner). Players remove their own characters
+// locally instead, by setting campaignId to null via the character store.
+export function removeCampaignCharacter(campaignId: string, charId: string): Promise<SyncResult<unknown>> {
+  return request(
+    `/api/campaigns/${encodeURIComponent(campaignId)}/characters/${encodeURIComponent(charId)}`,
+    { method: 'DELETE' },
+  )
 }

@@ -18,9 +18,9 @@ Browser (local-first SQLite)  ──same-origin fetch /api/*──▶  Cloudflar
 
 | Path | Purpose |
 |---|---|
-| `db/schema.sql` | D1 tables + indexes (characters, campaigns, campaign_members) |
-| `functions/_lib/auth.ts` | JWT verification (`jose`), `isCampaignDm`/`isCampaignMember`, invite-code + JSON helpers (not a route) |
-| `functions/api/me.ts` | `GET /api/me` → `{ email }` |
+| `db/schema.sql` | D1 tables + indexes (characters, campaigns, campaign_members, users) |
+| `functions/_lib/auth.ts` | JWT verification (`jose`), `isCampaignDm`/`isCampaignMember`, `getUsername`/`validateUsername`, invite-code + JSON helpers (not a route) |
+| `functions/api/me.ts` | `GET /api/me` → `{ email, username }`; `PUT /api/me { username }` sets the display name (400 invalid · 409 taken) |
 | `functions/api/characters.ts` | `GET /api/characters` → caller's own rows (incl. tombstones) |
 | `functions/api/characters/[id].ts` | `PUT` field-scoped merge (owner OR campaign-DM authority), `DELETE` soft-delete |
 | `functions/api/campaigns.ts` | `GET` my campaigns, `POST` create (DM + invite code) |
@@ -48,6 +48,14 @@ None are secret, but all are account-specific. Fill the placeholders in `wrangle
 > create a campaign (becoming its DM) and share an invite code; there is no
 > `DM_EMAILS` var. The whole-domain Cloudflare Access policy still gates who can
 > reach the app at all.
+
+> **Usernames are a display layer over email.** Email (from the JWT) stays the
+> immutable key for every table; the `users` table maps email → a chosen
+> username, resolved by `LEFT JOIN` wherever a player is shown (campaign roster,
+> members list, DM views). `GET /api/me` returns `username: null` until the user
+> picks one, which the client uses to trigger a required first-run prompt; they
+> can change it later. A user with no username falls back to their email
+> everywhere. Names are unique case-insensitively (`idx_users_username_nocase`).
 
 ## One-time setup
 
@@ -116,7 +124,7 @@ wrangler d1 execute dnd-characters --local --file db/schema.sql   # seed the LOC
 wrangler pages dev                                         # reads dist/ + DB binding + .dev.vars
 
 # In another terminal, against the printed localhost URL (default :8788):
-curl -s http://localhost:8788/api/me                       # → {"email":"you@example.com","isDm":true}
+curl -s http://localhost:8788/api/me                       # → {"email":"you@example.com","username":null}
 # create/edit a character in the browser tab, then:
 wrangler d1 execute dnd-characters --local --command "SELECT id, owner_email, deleted FROM characters"
 ```

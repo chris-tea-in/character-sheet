@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, RefreshCw, Trash2, UserMinus, Plus } from 'lucide-react'
+import { ArrowLeft, Copy, Check, RefreshCw, Trash2, UserMinus, Plus, X, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose,
 } from '@/components/ui/dialog'
 import { useCharacterStore } from '@/store/characters'
 import { useCampaignStore } from '@/store/campaigns'
-import { useSyncStore } from '@/store/sync'
 import {
-  campaignCharacters, campaignMembers, removeMember as apiRemoveMember,
+  campaignRoster, campaignMembers, removeMember as apiRemoveMember,
+  removeCampaignCharacter,
 } from '@/lib/syncApi'
-import type { CampaignCharacter, CampaignMember } from '@/lib/syncApi'
+import type { CampaignMember, RosterMember } from '@/lib/syncApi'
 import { slugToTitle } from '@/lib/characterSetup'
+import { loadSetupData } from '@/lib/data'
 import type { Character } from '@/types/character'
 
 function classLabel(c: Pick<Character, 'classes' | 'class' | 'level'>): string {
@@ -28,9 +29,9 @@ export default function CampaignPage() {
   const campaignsLoaded = useCampaignStore(s => s.loaded)
   const removeCampaign = useCampaignStore(s => s.remove)
   const rotateCampaignCode = useCampaignStore(s => s.rotateCode)
-  const me = useSyncStore(s => s.me)
 
   const allCharacters = useCharacterStore(s => s.characters)
+  const updateCharacter = useCharacterStore(s => s.update)
   const campaign = campaigns.find(c => c.id === id)
   const isDm = campaign?.role === 'dm'
 
@@ -43,28 +44,55 @@ export default function CampaignPage() {
 
   const [addOpen, setAddOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  // The character pending a "remove from campaign" confirmation. `scope` decides
+  // the path: 'mine' is a local owner write, 'other' is the DM-only cloud call.
+  const [removing, setRemoving] = useState<{ id: string; name: string; scope: 'mine' | 'other' } | null>(null)
+  // The character whose class disguise the player is editing.
+  const [disguising, setDisguising] = useState<Character | null>(null)
 
-  // DM-only: every other player's characters, fetched from the cloud.
-  const [otherChars, setOtherChars] = useState<CampaignCharacter[] | null>(null)
+  // Class options for the disguise decoy picker (slugs from the compiled data).
+  const [classOptions, setClassOptions] = useState<{ slug: string; title: string }[]>([])
   useEffect(() => {
-    if (!isDm || !id) return
+    loadSetupData()
+      .then(d => setClassOptions(Object.keys(d.classes).sort().map(slug => ({ slug, title: slugToTitle(slug) }))))
+      .catch(() => {})
+  }, [])
+
+  // The party roster (other players + their characters), visible to every member.
+  // Class labels arrive already disguise-resolved server-side. Bumping reloadKey
+  // re-runs the fetch (e.g. after the DM removes a character).
+  const [roster, setRoster] = useState<RosterMember[] | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  useEffect(() => {
+    if (!id) return
     let cancelled = false
-    campaignCharacters(id).then(res => {
-      if (!cancelled && res.ok) setOtherChars(res.data)
+    campaignRoster(id).then(res => {
+      if (!cancelled && res.ok) setRoster(res.data)
     })
     return () => { cancelled = true }
-  }, [isDm, id])
+  }, [id, reloadKey])
 
-  const otherGroups = useMemo(() => {
-    if (!otherChars || !me) return []
-    const byOwner = new Map<string, CampaignCharacter[]>()
-    for (const r of otherChars) {
-      if (r.ownerEmail === me.email) continue // the DM's own come from the local store
-      if (!byOwner.has(r.ownerEmail)) byOwner.set(r.ownerEmail, [])
-      byOwner.get(r.ownerEmail)!.push(r)
+  async function confirmRemove() {
+    if (!removing || !campaign) return
+    if (removing.scope === 'mine') {
+      // Owner write — clears campaignId locally and syncs it up (the My Characters
+      // filter drops it immediately).
+      await updateCharacter(removing.id, { campaignId: null })
+    } else {
+      // DM removing a player's character — server clears membership; re-fetch to
+      // reflect it in the Players list.
+      await removeCampaignCharacter(campaign.id, removing.id)
+      setReloadKey(k => k + 1)
     }
-    return [...byOwner.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-  }, [otherChars, me])
+    setRemoving(null)
+  }
+
+  async function saveDisguise(changes: { disguiseClass: boolean; disguiseAs: string }) {
+    if (!disguising) return
+    // Owner write — syncs up so other players' next roster fetch sees the decoy.
+    await updateCharacter(disguising.id, changes)
+    setDisguising(null)
+  }
 
   if (!campaign) {
     return (
@@ -114,39 +142,52 @@ export default function CampaignPage() {
           ) : (
             <div className="flex flex-col gap-2">
               {myChars.map(c => (
-                <CharRow key={c.id} name={c.name} sub={classLabel(c)} onClick={() => navigate(`/character/${c.id}`)} />
+                <CharRow
+                  key={c.id}
+                  name={c.name}
+                  sub={classLabel(c)}
+                  onClick={() => navigate(`/character/${c.id}`)}
+                  onDisguise={() => setDisguising(c)}
+                  disguised={c.disguiseClass}
+                  onRemove={() => setRemoving({ id: c.id, name: c.name || 'Unnamed', scope: 'mine' })}
+                />
               ))}
             </div>
           )}
         </section>
 
-        {/* DM-only: every other player's sheets */}
-        {isDm && (
-          <section className="space-y-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players</h2>
-            {otherChars === null ? (
-              <p className="text-sm text-muted-foreground">Loading players’ characters…</p>
-            ) : otherGroups.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No other players have added a character yet.</p>
-            ) : (
-              otherGroups.map(([owner, rows]) => (
-                <div key={owner} className="space-y-2">
-                  <p className="text-xs text-muted-foreground">{owner}</p>
+        {/* The other players in the party. The DM can open and remove their
+            characters; a player only sees the list (names + classes, with any
+            disguise applied server-side). */}
+        <section className="space-y-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players</h2>
+          {roster === null ? (
+            <p className="text-sm text-muted-foreground">Loading players…</p>
+          ) : roster.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No other players have joined yet.</p>
+          ) : (
+            roster.map(member => (
+              <div key={member.email} className="space-y-2">
+                <p className="text-xs text-muted-foreground">{member.username ?? member.email}</p>
+                {member.characters.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">No character yet.</p>
+                ) : (
                   <div className="flex flex-col gap-2">
-                    {rows.map(r => (
+                    {member.characters.map(ch => (
                       <CharRow
-                        key={r.id}
-                        name={r.data.name || 'Unnamed'}
-                        sub={classLabel(r.data)}
-                        onClick={() => navigate(`/campaign/${campaign.id}/character/${r.id}`)}
+                        key={ch.id}
+                        name={ch.name}
+                        sub={ch.classLabel}
+                        onClick={isDm ? () => navigate(`/campaign/${campaign.id}/character/${ch.id}`) : undefined}
+                        onRemove={isDm ? () => setRemoving({ id: ch.id, name: ch.name, scope: 'other' }) : undefined}
                       />
                     ))}
                   </div>
-                </div>
-              ))
-            )}
-          </section>
-        )}
+                )}
+              </div>
+            ))
+          )}
+        </section>
       </main>
 
       <AddCharacterDialog
@@ -165,19 +206,142 @@ export default function CampaignPage() {
           if (ok) navigate('/')
         }}
       />
+
+      <RemoveCharacterDialog
+        pending={removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={confirmRemove}
+      />
+
+      <DisguiseDialog
+        character={disguising}
+        classOptions={classOptions}
+        onClose={() => setDisguising(null)}
+        onSave={saveDisguise}
+      />
     </div>
   )
 }
 
-function CharRow({ name, sub, onClick }: { name: string; sub: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full text-left rounded-lg border border-border bg-card px-4 py-3 hover:border-[var(--color-accent-gold)] hover:bg-[var(--color-surface-2)] transition-colors"
-    >
+function CharRow({
+  name, sub, onClick, onRemove, onDisguise, disguised,
+}: {
+  name: string
+  sub: string
+  onClick?: () => void          // omit → the row is a static, non-navigable card
+  onRemove?: () => void
+  onDisguise?: () => void       // present → show the class-disguise toggle (My Characters)
+  disguised?: boolean
+}) {
+  const body = (
+    <>
       <p className="font-bold leading-tight truncate">{name}</p>
       <p className="text-sm text-muted-foreground truncate">{sub}</p>
-    </button>
+    </>
+  )
+  return (
+    <div className="flex items-stretch gap-2">
+      {onClick ? (
+        <button
+          onClick={onClick}
+          className="flex-1 min-w-0 text-left rounded-lg border border-border bg-card px-4 py-3 hover:border-[var(--color-accent-gold)] hover:bg-[var(--color-surface-2)] transition-colors"
+        >
+          {body}
+        </button>
+      ) : (
+        <div className="flex-1 min-w-0 rounded-lg border border-border bg-card px-4 py-3">
+          {body}
+        </div>
+      )}
+      {onDisguise && (
+        <button
+          onClick={onDisguise}
+          className={`flex-none rounded-lg border border-border bg-card px-3 transition-colors hover:border-[var(--color-accent-gold)] ${disguised ? 'text-[var(--color-accent-gold)]' : 'text-muted-foreground hover:text-foreground'}`}
+          title={disguised ? 'Class is disguised from other players' : 'Disguise class from other players'}
+          aria-label={`Disguise ${name}'s class`}
+        >
+          {disguised ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      )}
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          className="flex-none rounded-lg border border-border bg-card px-3 text-muted-foreground hover:border-destructive hover:text-destructive transition-colors"
+          title="Remove from campaign"
+          aria-label={`Remove ${name} from campaign`}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Class disguise (player-owned): choose a decoy class other players see ───────
+
+function DisguiseDialog({
+  character, classOptions, onClose, onSave,
+}: {
+  character: Character | null
+  classOptions: { slug: string; title: string }[]
+  onClose: () => void
+  onSave: (changes: { disguiseClass: boolean; disguiseAs: string }) => void
+}) {
+  const [enabled, setEnabled] = useState(false)
+  const [decoy, setDecoy] = useState('')
+
+  // Seed the form from the character each time the dialog opens.
+  useEffect(() => {
+    if (character) {
+      setEnabled(character.disguiseClass)
+      setDecoy(character.disguiseAs)
+    }
+  }, [character])
+
+  return (
+    <Dialog open={!!character} onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Disguise class — {character?.name || 'Character'}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Choose what the other players see in the party roster. The DM always sees your real class.
+        </p>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={e => setEnabled(e.target.checked)}
+            className="h-4 w-4 accent-[var(--color-accent-gold)]"
+          />
+          Hide my real class from other players
+        </label>
+
+        {enabled && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Show them instead</label>
+            <select
+              value={decoy}
+              onChange={e => setDecoy(e.target.value)}
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="">Nothing — just my level</option>
+              {classOptions.map(o => (
+                <option key={o.slug} value={o.slug}>{o.title}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <DialogFooter>
+          <DialogClose asChild><Button variant="ghost">Cancel</Button></DialogClose>
+          <Button onClick={() => onSave({ disguiseClass: enabled, disguiseAs: enabled ? decoy : '' })}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -252,7 +416,7 @@ function DmControls({
             {members.map(m => (
               <li key={m.email} className="flex items-center justify-between gap-2 px-3 py-2">
                 <span className="text-sm truncate">
-                  {m.email}
+                  {m.username ?? m.email}
                   {m.role === 'dm' && <span className="ml-2 text-xs text-[var(--color-accent-gold)]">DM</span>}
                 </span>
                 {m.role !== 'dm' && (
@@ -348,6 +512,33 @@ function AddCharacterDialog({
 
         <DialogFooter className="flex-none px-6 py-3 border-t border-border">
           <DialogClose asChild><Button variant="ghost">Close</Button></DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RemoveCharacterDialog({
+  pending, onClose, onConfirm,
+}: {
+  pending: { name: string; scope: 'mine' | 'other' } | null
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <Dialog open={!!pending} onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Remove “{pending?.name}” from the campaign?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {pending?.scope === 'mine'
+            ? 'This takes your character out of this campaign. You keep it in your own Characters list and can add it back any time.'
+            : 'This takes the player’s character out of this campaign. They keep it in their own Characters list — it just stops being grouped here.'}
+        </p>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="ghost">Cancel</Button></DialogClose>
+          <Button variant="destructive" onClick={onConfirm}>Remove</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

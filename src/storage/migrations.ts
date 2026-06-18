@@ -147,4 +147,14 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN campaign_id TEXT`)
     },
   },
+  {
+    version: 12,
+    up: (db) => {
+      // Per-character class disguise for the campaign roster. disguise_class flags
+      // it on; disguise_as is the decoy class slug shown to other players ('' =
+      // show no class). The DM and owner always see the real class.
+      db.run(`ALTER TABLE characters ADD COLUMN disguise_class INTEGER NOT NULL DEFAULT 0`)
+      db.run(`ALTER TABLE characters ADD COLUMN disguise_as TEXT NOT NULL DEFAULT ''`)
+    },
+  },
 ]

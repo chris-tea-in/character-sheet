@@ -10,6 +10,7 @@ import { loadSetupData, loadEquipmentData, loadFeatsData } from '@/lib/data'
 import { slugToTitle } from '@/lib/characterSetup'
 import { campaignCharacters, pushCharacter } from '@/lib/syncApi'
 import type { Character, NewCharacter } from '@/types/character'
+import { normalizeNewCharacter } from '@/types/character'
 
 const PUSH_DEBOUNCE_MS = 1_200
 
@@ -44,7 +45,10 @@ export default function CampaignCharacterPage() {
       const row = res.data.find(r => r.id === charId)
       if (!row) { setLoadState('notfound'); return }
       metaRef.current = { id: row.id, createdAt: row.createdAt }
-      setCharacter({ id: row.id, createdAt: row.createdAt, updatedAt: row.updatedAt, ...row.data })
+      // row.data is untrusted JSON typed as NewCharacter — normalize so a record
+      // missing a field can't crash the sheet (this is the one path that doesn't
+      // round-trip through the local DB's column defaults).
+      setCharacter({ id: row.id, createdAt: row.createdAt, updatedAt: row.updatedAt, ...normalizeNewCharacter(row.data) })
       setLoadState('ready')
     })
     return () => { cancelled = true }
