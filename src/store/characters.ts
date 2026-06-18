@@ -6,6 +6,7 @@ import {
   updateCharacter,
   deleteCharacter,
 } from '../storage/characterRepo'
+import { syncOnCreate, syncOnUpdate, syncOnRemove } from './sync'
 import type { Character, NewCharacter } from '../types/character'
 
 interface CharacterState {
@@ -50,6 +51,7 @@ export const useCharacterStore = create<CharacterState>()((set) => ({
     }
     await tryFlush(set)
     set(s => ({ characters: [character, ...s.characters] }))
+    syncOnCreate(character) // fire-and-forget cloud push
     return character
   },
 
@@ -65,6 +67,7 @@ export const useCharacterStore = create<CharacterState>()((set) => ({
     }
     await tryFlush(set)
     set(s => ({ characters: s.characters.map(c => c.id === id ? updated : c) }))
+    syncOnUpdate(updated, changes) // debounced field-scoped cloud push
   },
 
   remove: async (id) => {
@@ -79,6 +82,7 @@ export const useCharacterStore = create<CharacterState>()((set) => ({
       characters: s.characters.filter(c => c.id !== id),
       activeId: s.activeId === id ? null : s.activeId,
     }))
+    syncOnRemove(id) // cloud tombstone
   },
 
   setActive: (id) => set({ activeId: id }),

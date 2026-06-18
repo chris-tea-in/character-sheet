@@ -6,6 +6,8 @@ import './styles/globals.css'
 import { initDb, getDb, flush, type DbInitResult } from './storage'
 import { normalizeCharacterStats } from './storage/normalizeStats'
 import { loadSetupData, loadFeatsData } from './lib/data'
+import { useSyncStore } from './store/sync'
+import { useCampaignStore } from './store/campaigns'
 
 const root = createRoot(document.getElementById('root')!)
 
@@ -48,6 +50,13 @@ async function bootstrap() {
       </BrowserRouter>
     </StrictMode>,
   )
+
+  // Cloud sync runs after the local render so a slow/failed network never blocks
+  // first paint (local-first). It pulls + merges, then refreshes the store; if
+  // there's no backend or we're offline, it no-ops and the app stays local-only.
+  // Campaign membership is cloud-only, so load it alongside (it no-ops offline).
+  void useSyncStore.getState().runInitialSync()
+  void useCampaignStore.getState().load()
 }
 
 bootstrap()

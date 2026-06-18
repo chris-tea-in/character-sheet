@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -91,6 +91,8 @@ function validateScreen(
 export default function CreateCharacterPage() {
   const navigate = useNavigate()
   const { id: editId } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
+  const campaignParam = searchParams.get('campaign')
   const isEditMode = !!editId
 
   const createCharacter = useCharacterStore((s) => s.create)
@@ -252,6 +254,12 @@ export default function CreateCharacterPage() {
           feats: existing.feats,
           featChoices: existing.featChoices,
           toolProficiencies: newCharData.toolProficiencies,
+          // Preserve campaign membership — the wizard can't represent it, so a
+          // bare merge would silently drop the character from its campaign (INV-4)
+          campaignId: existing.campaignId,
+          // Preserve the class disguise — also not represented in the wizard.
+          disguiseClass: existing.disguiseClass,
+          disguiseAs: existing.disguiseAs,
         }
         updateCharacter(editId, changes)
         navigate(`/character/${editId}`)
@@ -262,6 +270,8 @@ export default function CreateCharacterPage() {
         if (catalog?.armor) {
           newCharData.equipment = equipStartingArmor(newCharData.equipment, catalog.armor)
         }
+        // Created from within a campaign (?campaign=:id) → join it on creation.
+        if (campaignParam) newCharData.campaignId = campaignParam
         const created = await createCharacter(newCharData)
         navigate(`/character/${created.id}`)
       }

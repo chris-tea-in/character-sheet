@@ -100,7 +100,44 @@
       "PowerShell(Get-ChildItem data\\\\spells -Name | Where-Object { $_ -match \"\\\\-ua\" } | Sort-Object)",
       "PowerShell(Get-ChildItem data\\\\spells -Name | Where-Object { $_ -match \"antagonize|draconic-transformation|fizban|nathair|raulothim|spray-of-cards|summon-draconic\" } | Sort-Object)",
       "Bash(node -e \"console.log\\(require\\('./package.json'\\).scripts.build\\)\")",
-      "Bash(git commit -q -m 'complete hitDiceUsedByClass literal, restructure bug log, refresh invariants *)"
+      "Bash(git commit -q -m 'complete hitDiceUsedByClass literal, restructure bug log, refresh invariants *)",
+      "mcp__cloudflare-docs__search_cloudflare_documentation",
+      "Bash(curl -sS -o /dev/null -w \"final_url=%{url_effective}\\\\nhttp_code=%{http_code}\\\\n\" -L \"https://dnd-character-sheet-e9k.pages.dev/data/classes.json\")",
+      "Bash(curl -sS -D - -o /dev/null \"https://dnd-character-sheet-e9k.pages.dev/data/classes.json\")",
+      "PowerShell(npm run build 2>&1 | Select-Object -Last 12; Write-Output \"===== SW strategy check =====\"; if \\(Select-String -Path dist/sw.js -Pattern 'game-data-v2','StaleWhileRevalidate' -SimpleMatch -Quiet\\) { Write-Output \"FOUND new strategy markers in dist/sw.js\" } else { Write-Output \"MISSING markers - inspect sw.js\" }; Select-String -Path dist/sw.js -Pattern 'game-data' -SimpleMatch | Select-Object -First 3 | ForEach-Object { $_.Line.Substring\\(0,[Math]::Min\\(160,$_.Line.Length\\)\\) })",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('jose:', p.dependencies.jose\\); console.log\\('workers-types:', p.devDependencies['@cloudflare/workers-types']\\)\")",
+      "PowerShell(npm run typecheck:functions)",
+      "PowerShell(npx --no-install wrangler --version 2>&1; if \\(-not $?\\) { Write-Output \"NOT_INSTALLED_LOCALLY\" }; \\(Get-Command wrangler -ErrorAction SilentlyContinue\\).Source)",
+      "PowerShell($env:CLOUDFLARE_API_TOKEN=\"\"; wrangler d1 execute dnd-characters --local --file db/schema.sql --persist-to .wrangler/state 2>&1 | Select-Object -Last 30)",
+      "PowerShell($env:CLOUDFLARE_API_TOKEN=\"\"; wrangler pages dev --port 8788 --persist-to .wrangler/state 2>&1 | Tee-Object -FilePath .wrangler/pages-dev.log)",
+      "Bash(mv \"/c/Users/buyp1/.claude/plans/lets-make-a-plan-buzzing-russell.md\" \"/c/Users/buyp1/.claude/plans/shared-campaigns.md\" && ls -la \"/c/Users/buyp1/.claude/plans/shared-campaigns.md\")",
+      "Bash(npx --no-install wrangler --version)",
+      "PowerShell(npx wrangler d1 execute dnd-characters --local --file db/schema.sql 2>&1)",
+      "Bash(cd /c/Users/buyp1/Workspace/dnd-character-sheet *)",
+      "Bash(npx wrangler *)",
+      "PowerShell(npx wrangler whoami 2>&1)",
+      "PowerShell(npx wrangler pages project list 2>&1)",
+      "PowerShell(npx wrangler d1 list 2>&1)",
+      "PowerShell(npx wrangler d1 create dnd-characters 2>&1)",
+      "Bash(curl -sS -D - -o /dev/null --max-time 15 \"https://dnd-character-sheet-e9k.pages.dev/api/me\")",
+      "PowerShell(npx wrangler pages deploy dist --project-name dnd-character-sheet 2>&1)",
+      "PowerShell(npx wrangler pages deploy dist --project-name dnd-character-sheet --branch main --commit-dirty=true 2>&1)",
+      "Bash(curl -sS -o /dev/null -w \"root http_code=%{http_code}\\\\n\" --max-time 15 \"https://dnd-character-sheet-e9k.pages.dev/\")",
+      "Bash(node \"C:/Users/buyp1/AppData/Local/Temp/campaign-ui.mjs\")",
+      "Bash(node ./_tmp-campaign-ui.mjs)",
+      "Bash(echo \"=== EXIT $? ===\")",
+      "Bash(ls functions/tsconfig.json tsconfig*.json)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,1\\)\\)\")",
+      "Bash(npx eslint *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(echo \"frontend exit: $?\")",
+      "Bash(echo \"functions exit: $?\")",
+      "Bash(cd /c/Users/buyp1/.claude/skill-observations && echo \"=== highest obs number ===\" && grep -oE '### Observation [0-9]+' log.md | grep -oE '[0-9]+' | sort -n | tail -1 && echo \"=== the 1 OPEN observation \\(title + status\\) ===\" && grep -B1 -A6 \"Status:.*OPEN\" log.md | head -30)",
+      "Read(//c/c/Users/buyp1/.claude/skill-observations/**)",
+      "Bash(break)",
+      "Bash(git --no-pager diff HEAD -- .claude/settings.json)",
+      "Bash(git commit *)",
+      "Bash(echo \"COMMIT_EXIT:$?\")"
     ],
     "deny": [
       "Bash(git push origin main*)",
@@ -114,7 +151,9 @@
     "additionalDirectories": [
       "C:\\Users\\buyp1\\.claude\\skill-observations",
       "C:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\data\\equipment",
-      "C:\\Users\\buyp1\\AppData\\Local\\Temp"
+      "C:\\Users\\buyp1\\AppData\\Local\\Temp",
+      "C:\\Users\\buyp1\\.claude\\plans",
+      "\\tmp"
     ]
   },
   "hooks": {
@@ -124,10 +163,10 @@
         "hooks": [
           {
             "type": "command",
-            "shell": "bash",
+            "command": "node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const c=(JSON.parse(s).tool_input.command||'');if(/\\b(main|master)\\b/i.test(c)){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:'Push to main/master is blocked. Push to the feature branch and open a PR.'}}))}})\"",
             "if": "Bash(git push*)",
-            "statusMessage": "Checking push target is not main/master",
-            "command": "node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const c=(JSON.parse(s).tool_input.command||'');if(/\\b(main|master)\\b/i.test(c)){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:'Push to main/master is blocked. Push to the feature branch and open a PR.'}}))}})\""
+            "shell": "bash",
+            "statusMessage": "Checking push target is not main/master"
           }
         ]
       }

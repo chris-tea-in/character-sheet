@@ -697,6 +697,12 @@ export function draftToNewCharacter(
         ...draft.toolProficiencies,
       ]),
     ],
+    // Campaign membership is assigned by the create flow (see ?campaign), never
+    // by the wizard itself; the edit merge preserves the existing value (INV-4).
+    campaignId: null,
+    // Class disguise is a campaign-only privacy toggle, off for a fresh character.
+    disguiseClass: false,
+    disguiseAs: '',
   }
 }
 

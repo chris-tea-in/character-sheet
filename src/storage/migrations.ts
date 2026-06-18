@@ -139,4 +139,22 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN hit_dice_used_by_class TEXT NOT NULL DEFAULT '{}'`)
     },
   },
+  {
+    version: 11,
+    up: (db) => {
+      // Shared-campaign association (player-owned, nullable). Mirrors the cloud
+      // characters.campaign_id column; used to filter a character into a campaign view.
+      db.run(`ALTER TABLE characters ADD COLUMN campaign_id TEXT`)
+    },
+  },
+  {
+    version: 12,
+    up: (db) => {
+      // Per-character class disguise for the campaign roster. disguise_class flags
+      // it on; disguise_as is the decoy class slug shown to other players ('' =
+      // show no class). The DM and owner always see the real class.
+      db.run(`ALTER TABLE characters ADD COLUMN disguise_class INTEGER NOT NULL DEFAULT 0`)
+      db.run(`ALTER TABLE characters ADD COLUMN disguise_as TEXT NOT NULL DEFAULT ''`)
+    },
+  },
 ]

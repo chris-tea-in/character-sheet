@@ -76,6 +76,9 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     feats: JSON.parse(row['feats'] as string ?? '[]'),
     featChoices: JSON.parse(row['feat_choices'] as string ?? '{}'),
     toolProficiencies: JSON.parse(row['tool_proficiencies'] as string ?? '[]'),
+    campaignId: (row['campaign_id'] as string | null) ?? null,
+    disguiseClass: Boolean(row['disguise_class']),
+    disguiseAs: (row['disguise_as'] as string | null) ?? '',
     createdAt: row['created_at'] as number,
     updatedAt: row['updated_at'] as number,
   }
@@ -140,9 +143,9 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, feats, feat_choices, tool_proficiencies, classes,
-        race_asi_choices, hit_dice_used_by_class, stats_normalized, created_at, updated_at
+        race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race ?? '', data.subrace ?? null, data.class ?? '', data.subclass ?? null, data.background ?? '',
@@ -165,6 +168,8 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         JSON.stringify(data.classes ?? []),
         JSON.stringify(data.raceAsiChoices ?? []),
         JSON.stringify(data.hitDiceUsedByClass ?? {}),
+        data.campaignId ?? null,
+        data.disguiseClass ? 1 : 0, data.disguiseAs ?? '',
         1, // app-created characters are born normalized (base abilities stored)
         now, now,
       ],
@@ -202,7 +207,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
         equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?, classes=?,
-        race_asi_choices=?, updated_at=?
+        race_asi_choices=?, campaign_id=?, disguise_class=?, disguise_as=?, updated_at=?
       WHERE id=?`,
       [
         merged.name, merged.race, merged.subrace, primaryClassSlug, primarySubclass, merged.background,
@@ -224,6 +229,8 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         JSON.stringify(merged.toolProficiencies ?? []),
         JSON.stringify(merged.classes ?? []),
         JSON.stringify(merged.raceAsiChoices ?? []),
+        merged.campaignId ?? null,
+        merged.disguiseClass ? 1 : 0, merged.disguiseAs ?? '',
         merged.updatedAt,
         id,
       ],
@@ -240,4 +247,88 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
 export function deleteCharacter(db: Database, id: string): void {
   // character_spells rows deleted by ON DELETE CASCADE
   db.run('DELETE FROM characters WHERE id = ?', [id])
+}
+
+/**
+ * Insert or replace a character with an EXPLICIT id + timestamps — used by the
+ * cloud sync merge to mirror a remote snapshot locally. `insertCharacter`
+ * generates its own id/timestamps, so it can't be reused: the same character
+ * must keep the same id and `updatedAt` across devices for last-write-wins to
+ * work. On conflict we overwrite every field but preserve the original
+ * `created_at` and adopt the incoming `updated_at`.
+ */
+export function upsertSyncedCharacter(db: Database, full: Character): void {
+  const primaryClass = full.classes?.[0]
+  const primaryClassSlug = primaryClass?.classSlug ?? full.class ?? ''
+  const primarySubclass = primaryClass?.subclassSlug ?? full.subclass ?? null
+  const totalLevel = full.classes?.length
+    ? full.classes.reduce((s, c) => s + c.level, 0)
+    : full.level
+
+  db.run('BEGIN')
+  try {
+    db.run(
+      `INSERT INTO characters (
+        id, name, race_slug, subrace, class_slug, subclass, background_slug,
+        level, xp, progression_type, alignment, languages, backstory,
+        abilities, max_hp, current_hp, temp_hp,
+        armor_class, speed, initiative_bonus, spell_bonus_modifier, death_saves, hit_dice_used, inspiration,
+        skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
+        personality_traits, ideals, bonds, flaws, notes,
+        equipment, currency, feats, feat_choices, tool_proficiencies, classes,
+        race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at
+      ) VALUES (
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        name=excluded.name, race_slug=excluded.race_slug, subrace=excluded.subrace,
+        class_slug=excluded.class_slug, subclass=excluded.subclass, background_slug=excluded.background_slug,
+        level=excluded.level, xp=excluded.xp, progression_type=excluded.progression_type, alignment=excluded.alignment,
+        languages=excluded.languages, backstory=excluded.backstory, abilities=excluded.abilities,
+        max_hp=excluded.max_hp, current_hp=excluded.current_hp, temp_hp=excluded.temp_hp,
+        armor_class=excluded.armor_class, speed=excluded.speed, initiative_bonus=excluded.initiative_bonus,
+        spell_bonus_modifier=excluded.spell_bonus_modifier, death_saves=excluded.death_saves,
+        hit_dice_used=excluded.hit_dice_used, inspiration=excluded.inspiration,
+        skill_proficiencies=excluded.skill_proficiencies, saving_throw_proficiencies=excluded.saving_throw_proficiencies,
+        spell_slots_used=excluded.spell_slots_used, personality_traits=excluded.personality_traits,
+        ideals=excluded.ideals, bonds=excluded.bonds, flaws=excluded.flaws, notes=excluded.notes,
+        equipment=excluded.equipment, currency=excluded.currency, feats=excluded.feats,
+        feat_choices=excluded.feat_choices, tool_proficiencies=excluded.tool_proficiencies, classes=excluded.classes,
+        race_asi_choices=excluded.race_asi_choices, hit_dice_used_by_class=excluded.hit_dice_used_by_class,
+        campaign_id=excluded.campaign_id,
+        disguise_class=excluded.disguise_class, disguise_as=excluded.disguise_as,
+        stats_normalized=excluded.stats_normalized, updated_at=excluded.updated_at`,
+      [
+        full.id, full.name, full.race ?? '', full.subrace ?? null, primaryClassSlug, primarySubclass, full.background ?? '',
+        totalLevel, full.xp ?? 0, full.progressionType ?? 'milestone', full.alignment ?? '',
+        JSON.stringify(full.languages ?? []), full.backstory ?? '',
+        JSON.stringify(full.abilities),
+        full.maxHp, full.currentHp ?? full.maxHp, full.tempHp ?? 0,
+        full.armorClass ?? 10, full.speed ?? 30, full.initiativeBonus ?? 0, full.spellBonusModifier ?? 0,
+        JSON.stringify(full.deathSaves ?? { successes: 0, failures: 0 }),
+        full.hitDiceUsed ?? 0, full.inspiration ? 1 : 0,
+        JSON.stringify(full.skillProficiencies ?? {}),
+        JSON.stringify(full.savingThrowProficiencies ?? []),
+        JSON.stringify(full.spellSlotsUsed ?? {}),
+        full.personalityTraits ?? '', full.ideals ?? '', full.bonds ?? '', full.flaws ?? '', full.notes ?? '',
+        JSON.stringify(full.equipment ?? []),
+        JSON.stringify(full.currency ?? {}),
+        JSON.stringify(full.feats ?? []),
+        JSON.stringify(full.featChoices ?? {}),
+        JSON.stringify(full.toolProficiencies ?? []),
+        JSON.stringify(full.classes ?? []),
+        JSON.stringify(full.raceAsiChoices ?? []),
+        JSON.stringify(full.hitDiceUsedByClass ?? {}),
+        full.campaignId ?? null,
+        full.disguiseClass ? 1 : 0, full.disguiseAs ?? '',
+        1, // synced rows are always base-stats (export v2) — born normalized
+        full.createdAt, full.updatedAt,
+      ],
+    )
+    syncSpells(db, full.id, full.spells)
+    db.run('COMMIT')
+  } catch (err) {
+    db.run('ROLLBACK')
+    throw err
+  }
 }

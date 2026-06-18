@@ -397,9 +397,9 @@ Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` 
 2. **Build and deploy**
    ```bash
    npm run build
-   wrangler pages deploy dist/ --project-name dnd-character-sheet-e9k
+   wrangler pages deploy dist/ --project-name dnd-character-sheet
    ```
-   First run creates the project and returns `https://dnd-character-sheet-e9k.pages.dev` (the bare `dnd-character-sheet` name is taken by an unrelated project, so Cloudflare assigned the `-e9k` suffix — this is the canonical project name and subdomain). No `wrangler.toml` needed — the `--project-name` flag is sufficient.
+   The Pages **project name is `dnd-character-sheet`**. The bare `dnd-character-sheet.pages.dev` *subdomain* was taken by an unrelated project, so Cloudflare assigned the **subdomain** `https://dnd-character-sheet-e9k.pages.dev` — note the `-e9k` suffix is on the subdomain only, NOT the project name passed to `--project-name`. No `wrangler.toml` needed — the `--project-name` flag is sufficient.
 
 3. **Set up Cloudflare Zero Trust Access**
    - Go to `https://one.dash.cloudflare.com` → Access → Applications → Add an application
@@ -423,7 +423,7 @@ curl -I https://dnd-character-sheet-e9k.pages.dev/data/classes.json
 #### Redeployment (any future update)
 ```bash
 npm run build
-wrangler pages deploy dist/ --project-name dnd-character-sheet-e9k
+wrangler pages deploy dist/ --project-name dnd-character-sheet
 ```
 
 #### Notes
