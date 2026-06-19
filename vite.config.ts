@@ -14,7 +14,12 @@ export default defineConfig({
     tailwindcss(),
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' so a new deploy doesn't reload mid-session: the waiting SW stays
+      // parked until the user clicks Refresh in UpdateBanner (useRegisterSW →
+      // updateServiceWorker(true)). injectRegister:false because that hook does the
+      // registration — avoids a double-register from an auto-injected script.
+      registerType: 'prompt',
+      injectRegister: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
         // Never serve the SPA index.html fallback for an API request — keep the

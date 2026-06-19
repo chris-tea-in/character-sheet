@@ -1,0 +1,7 @@
+# Cloudflare Pages headers. The service worker entry point must always revalidate,
+# otherwise a stale edge/browser-cached sw.js defeats PWA update detection and a new
+# deploy never reaches open clients. (The hashed workbox-*.js and asset bundles are
+# content-addressed, so they can stay immutably cached — only the stable-named sw.js
+# needs this.)
+/sw.js
+  Cache-Control: no-cache

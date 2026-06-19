@@ -10,6 +10,8 @@ import type { DbInitResult } from './storage'
 import { useCharacterStore } from './store/characters'
 import { useSyncStore } from './store/sync'
 import { UsernameDialog } from './components/UsernameDialog'
+import { UpdateBanner } from './components/UpdateBanner'
+import { WhatsNewModal } from './components/WhatsNewModal'
 
 interface AppProps {
   dbResult: DbInitResult
@@ -29,6 +31,7 @@ export default function App({ dbResult }: AppProps) {
 
   return (
     <>
+      <UpdateBanner />
       {syncStatus === 'auth-expired' && (
         <div style={{ background: '#c4a35a', color: '#1a1a2e', padding: '0.5rem 1rem', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Your session expired — your edits are saved locally. Reconnect to resume syncing.</span>
@@ -53,6 +56,9 @@ export default function App({ dbResult }: AppProps) {
       {/* First-run gate: once cloud identity loads with no username yet, block until set.
           When offline/local-only, `me` is null, so this never opens. */}
       <UsernameDialog mode="onboard" open={!!me && me.username === null} />
+      {/* Hold the changelog until any first-run username onboarding is done, so the
+          two dialogs don't stack. */}
+      {!(me && me.username === null) && <WhatsNewModal />}
     </>
   )
 }
