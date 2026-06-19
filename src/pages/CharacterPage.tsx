@@ -20,6 +20,7 @@ import { LevelUpDialog } from '@/components/sheet/LevelUpDialog'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
 import { useCharacterStore } from '@/store/characters'
+import { useSyncStore } from '@/store/sync'
 import { loadSetupData, loadEquipmentData, loadFeatsData } from '@/lib/data'
 import {
   RACE_TIER_MAP, raceToDetailItem, classToDetailItem,
@@ -505,6 +506,7 @@ export default function CharacterPage() {
   const navigate = useNavigate()
   const character = useCharacterStore(s => s.characters.find(c => c.id === id))
   const update = useCharacterStore(s => s.update)
+  const pullLatest = useSyncStore(s => s.pullLatest)
 
   const [setupData, setSetupData] = useState<SetupData | null>(null)
   const [classRecord, setClassRecord] = useState<ClassData | null>(null)
@@ -544,6 +546,23 @@ export default function CharacterPage() {
       setClassRecord(null)
     }
   }, [character?.class, setupData])
+
+  // Live-refresh from the cloud while a campaign character's sheet is open and the
+  // tab is visible, so a DM's committed edits surface without a manual refresh.
+  // Solo (non-campaign) characters have no external editor, so they never poll.
+  // The merge is whole-character LWW, so it won't clobber the player's own
+  // in-progress edits (their local copy stays newer until they stop editing).
+  const campaignId = character?.campaignId ?? null
+  useEffect(() => {
+    if (!campaignId) return
+    const tick = () => { if (document.visibilityState === 'visible') void pullLatest() }
+    const interval = setInterval(tick, 10_000)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [campaignId, pullLatest])
 
   if (!character) {
     return (
@@ -824,9 +843,9 @@ export default function CharacterPage() {
             onSave={save}
             classHitDice={classHitDice}
           />
-          <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} catalog={equipmentCatalog} derived={derived} onSave={save} />
+          <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} derived={derived} onSave={save} />
           <FeatsBlock character={character} derived={derived} onSave={save} />
-          <EquipmentBlock character={character} derived={derived} onSave={save} catalog={equipmentCatalog} />
+          <EquipmentBlock character={character} derived={derived} onSave={save} catalog={equipmentCatalog} classRecord={classRecord} />
           {classRecord && (
             <SpellBlock
               character={character}

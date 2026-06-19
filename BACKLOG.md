@@ -1,5 +1,59 @@
 # D&D Character Sheet — Bug & Refactor Backlog
 
+## Cloud Sync Hardening — Conflict Handling & Corruption Defense (2026-06-18)
+
+Follow-on to the distributed-app feedback. Two gaps in the local↔cloud merge: (1) a corrupt
+or gutted cloud blob can silently overwrite good local data (`normalizeNewCharacter` prevents
+crashes, not data loss); (2) conflicts are whole-character last-write-wins with no detection of
+genuine divergence. **Decision:** keep the uniform local-first + cloud-mirror model (no separate
+fully-cloud path); add corruption defenses + a 3-way reconcile that prompts only on true
+conflict. Full design + reconcile table + required-vs-optional policy:
+`.claude/plans/cloud-sync-hardening.md`.
+
+| # | Item | Session | Status |
+|---|---|---|---|
+| H1 | **Shared validator** `{ok, reason}` — refactor `validateCharacterPayload` ([src/lib/importExport.ts](src/lib/importExport.ts)) into a pure required-vs-optional core importable by both client and Pages Functions (verify it typechecks/bundles under `functions/`). | 1 | Planned |
+| H2 | **Server-side content validation on `PUT`** ([functions/api/characters/[id].ts](functions/api/characters/[id].ts)) — validate the **MERGED** blob (not the partial patch) before writing; reject 400 so bad data never lands in D1. | 1 | Planned |
+| H3 | **Per-row defensive parse on reads** ([functions/api/characters.ts](functions/api/characters.ts) + campaign characters) — a corrupt row skips/flags instead of throwing the whole pull (absence is never a delete). | 1 | Planned |
+| H4 | **`last_synced_updated_at` base** — append migration **v13** (current last is v12) + repo/sync plumbing; device-local only, never in the synced `data` blob (INV-4). | 2 | Planned |
+| H5 | **3-way reconcile + adopt-gate** — rewrite `mergeRemote` ([src/store/sync.ts](src/store/sync.ts)): base vs local vs remote → silent-adopt / keep-local-push / real-conflict; validate-before-adopt (halt on missing **required**, default optional); never advance base on a rejected blob; skip only the bad row. | 2 | Planned |
+| H6 | **Conflict prompt modal** — fires only on true divergence; campaign-aware default (cloud/DM for campaign chars, local for solo); whole-character choice v1. | 2 | Planned |
+| H7 | **Local rollback snapshots** — local-only `character_backups` (last N per character) written before any adopt-over-local; minimal restore affordance. | 2 | Planned |
+| H8 | *(Optional/defer)* **Field-scoped client merge** mirroring the server, so non-overlapping edits auto-resolve and the prompt fires only on same-field collisions. Updates the codebase-invariants system-map if built. | 3 | Planned |
+
+**Already protected (no work needed):** transport-level garbage — `syncApi.request` only treats
+parseable `application/json` as data; truncated/non-JSON/redirect responses are classified
+`offline` and never merge.
+
+---
+
+## Distributed-App Feedback (2026-06-18)
+
+First round of feedback after distributing the app to the friend group (Cloudflare Pages +
+D1 + Zero Trust Access). Fixes are grouped into three sessions (see
+`.claude/plans/app-was-distributed-to-glimmering-lecun.md` for the full plan and the
+Cloudflare free-tier capacity analysis).
+
+| # | Item | Session | Status |
+|---|---|---|---|
+| 1 | **DM can't finalize/propagate sheet edits** — the DM edit flow already exists in [CampaignCharacterPage.tsx](src/pages/CampaignCharacterPage.tsx) (Edit/View toggle, debounced push, server `isDmEditor` auth) but lacks a clean commit step and players don't see changes. Need: red **Edit→Done** button at the top, a "click Done when finished" popup, **apply-on-Done** (buffer edits, single push), and **live propagation** to the player's open sheet (visibility-gated 1-row poll listener → pull+merge on change). | 2 | Built ✓ (verify in-browser) |
+| 2 | **App is local-first on open** — `runInitialSync()` fires after first paint ([src/main.tsx](src/main.tsx)), so opening/refreshing paints the local IndexedDB cache and never authoritatively shows the latest cloud data. Make the initial pull gate first render (cloud-authoritative, ~3–4 s timeout, offline fallback to local). | 1 | Built ✓ (verify in-browser) |
+| 3 | **Currency not typable + no fine-tune modal** — currency is only adjustable via a single ± stepper in [EquipmentBlock.tsx](src/components/sheet/EquipmentBlock.tsx). Make each value typable (EditableField) and add a "+" button opening a modal with place-value steppers (1 / 10 / 100 / 1000 / 10000) side by side + Done/Cancel. | 3 | Built ✓ (verify in-browser) |
+| 4 | **Tools section misplaced** — Tools lives in the Proficiencies tabs ([ProficienciesBlock.tsx](src/components/sheet/ProficienciesBlock.tsx)). Move it into the Equipment block between Items and Currency; remove the Tools tab from Proficiencies. | 3 | Built ✓ (verify in-browser) |
+| 5 | **Refresh doesn't pull from DB** — page refresh re-reads the local cache instead of re-fetching D1 and showing pushed updates. Same root cause as #2; fixed by the same cloud-authoritative-load change. | 1 | Built ✓ (verify in-browser) |
+
+**Implementation note (live updates, item 1):** rather than add a new server endpoint, the
+player's open campaign sheet polls the existing `GET /api/characters` (visibility-gated, ~10 s)
+and reuses the boot pull + LWW merge via `pullLatest()` in [src/store/sync.ts](src/store/sync.ts)
+— well within the D1 read budget at friend-group scale. True WebSocket push (a Durable Object
+per campaign) is the future upgrade if instant propagation is ever wanted.
+
+**Known limitation (future, not in these sessions):** the client boot merge is whole-character
+last-write-wins; a player's newer local edit can still clobber a DM-edited field on the next
+push. Acceptable for friend-group play — revisit with a field-aware/CRDT merge if it bites.
+
+---
+
 ## ✅ Character Creation Bugs
 
 | Priority | Bug | Status |

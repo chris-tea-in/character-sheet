@@ -11,7 +11,23 @@ import { useCampaignStore } from './store/campaigns'
 
 const root = createRoot(document.getElementById('root')!)
 
+// Cap on how long first paint waits for the cloud pull before falling back to the
+// local cache, so a slow/absent network never hangs the open (offline returns fast
+// on its own; this only bounds a slow-but-connected case).
+const SYNC_GATE_MS = 4_000
+
+function Splash({ message }: { message: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', fontFamily: 'system-ui, sans-serif', color: '#9a9a9a', background: '#1c1c1c', fontSize: '0.95rem' }}>
+      {message}
+    </div>
+  )
+}
+
 async function bootstrap() {
+  // Immediate feedback while the local DB opens and the cloud pull runs.
+  root.render(<Splash message="Loading your characters…" />)
+
   let dbResult: DbInitResult
   try {
     dbResult = await initDb()
@@ -43,6 +59,17 @@ async function bootstrap() {
     // data fetch failed — keep rows flagged, retry next launch
   }
 
+  // Cloud-authoritative open: pull the latest saved characters from the cloud and
+  // merge them into the local DB BEFORE first paint, so opening or refreshing the
+  // app shows the freshest data (e.g. a DM's edits) instead of a stale local cache.
+  // runInitialSync no-ops quickly when offline/no-backend; the timeout bounds a
+  // slow-but-connected pull so the open is never blocked. If the timeout wins, the
+  // pull finishes in the background and refreshes the store in place.
+  await Promise.race([
+    useSyncStore.getState().runInitialSync(),
+    new Promise<void>(resolve => setTimeout(resolve, SYNC_GATE_MS)),
+  ]).catch(() => { /* never block first paint on a sync error */ })
+
   root.render(
     <StrictMode>
       <BrowserRouter>
@@ -51,11 +78,8 @@ async function bootstrap() {
     </StrictMode>,
   )
 
-  // Cloud sync runs after the local render so a slow/failed network never blocks
-  // first paint (local-first). It pulls + merges, then refreshes the store; if
-  // there's no backend or we're offline, it no-ops and the app stays local-only.
-  // Campaign membership is cloud-only, so load it alongside (it no-ops offline).
-  void useSyncStore.getState().runInitialSync()
+  // Campaign membership is cloud-only and not needed for first paint — load it
+  // after render (it no-ops offline).
   void useCampaignStore.getState().load()
 }
 

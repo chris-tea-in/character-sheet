@@ -136,6 +136,49 @@ export function syncOnRemove(id: string) {
   void deleteOne(id) // tombstone so the delete propagates to other devices
 }
 
+// Merge a remote pull into the local DB (whole-character LWW) and, if anything
+// changed, persist + reload the store. Shared by the boot sync and the live poll
+// so the merge semantics (remote-newer wins, tombstones, push-local-newer) can't
+// drift between the two paths.
+async function mergeRemote(remote: SyncedCharacter[]) {
+  const db = getDb()
+  const local = listCharacters(db)
+  const localById = new Map(local.map(c => [c.id, c]))
+  const remoteIds = new Set<string>()
+  let mutated = false
+
+  for (const r of remote) {
+    remoteIds.add(r.id)
+    const localChar = localById.get(r.id)
+    if (!localChar) {
+      // New on the server. Tombstones for characters we never had are no-ops.
+      if (!r.deleted) { upsertSyncedCharacter(db, fromSynced(r)); mutated = true }
+    } else if (r.updatedAt > localChar.updatedAt) {
+      if (r.deleted) deleteCharacter(db, r.id)
+      else upsertSyncedCharacter(db, fromSynced(r))
+      mutated = true
+    } else if (localChar.updatedAt > r.updatedAt) {
+      // Local is newer — push it up.
+      dirty.set(localChar.id, localChar)
+      void pushOne(localChar.id)
+    }
+    // equal updatedAt → already in sync
+  }
+
+  // Local characters the server has never seen → push them up.
+  for (const localChar of local) {
+    if (!remoteIds.has(localChar.id)) {
+      dirty.set(localChar.id, localChar)
+      void pushOne(localChar.id)
+    }
+  }
+
+  if (mutated) {
+    try { await flush() } catch { /* flush failure is surfaced by the character store's storageError */ }
+    useCharacterStore.getState().load()
+  }
+}
+
 // ── Sync store (render-facing state only) ─────────────────────────────────────
 
 interface SyncState {
@@ -145,6 +188,8 @@ interface SyncState {
   setStatus: (status: SyncStatus) => void
   /** Initial pull + last-write-wins merge. Safe to call once at startup. */
   runInitialSync: () => Promise<void>
+  /** Re-pull + merge the caller's own rows — a quiet live refresh for an open sheet. */
+  pullLatest: () => Promise<void>
   /** Set/change the display name. On success updates `me`, which closes the onboarding gate. */
   setUsername: (username: string) => Promise<api.SetUsernameResult>
   /** Full-page reload to re-run the Access login and get a fresh cookie. */
@@ -176,44 +221,19 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
       return
     }
 
-    const db = getDb()
-    const local = listCharacters(db)
-    const localById = new Map(local.map(c => [c.id, c]))
-    const remoteIds = new Set<string>()
-    let mutated = false
-
-    for (const r of pull.data) {
-      remoteIds.add(r.id)
-      const localChar = localById.get(r.id)
-      if (!localChar) {
-        // New on the server. Tombstones for characters we never had are no-ops.
-        if (!r.deleted) { upsertSyncedCharacter(db, fromSynced(r)); mutated = true }
-      } else if (r.updatedAt > localChar.updatedAt) {
-        if (r.deleted) deleteCharacter(db, r.id)
-        else upsertSyncedCharacter(db, fromSynced(r))
-        mutated = true
-      } else if (localChar.updatedAt > r.updatedAt) {
-        // Local is newer — push it up.
-        dirty.set(localChar.id, localChar)
-        void pushOne(localChar.id)
-      }
-      // equal updatedAt → already in sync
-    }
-
-    // Local characters the server has never seen → push them up.
-    for (const localChar of local) {
-      if (!remoteIds.has(localChar.id)) {
-        dirty.set(localChar.id, localChar)
-        void pushOne(localChar.id)
-      }
-    }
-
-    if (mutated) {
-      try { await flush() } catch { /* flush failure is surfaced by the character store's storageError */ }
-      useCharacterStore.getState().load()
-    }
-
+    await mergeRemote(pull.data)
     settleStatus()
+  },
+
+  pullLatest: async () => {
+    // Quiet background refresh — no 'syncing' flicker. Only an expired session
+    // escalates; a transient offline poll just no-ops until the next tick.
+    const pull = await api.pullCharacters()
+    if (!pull.ok) {
+      if (pull.reason === 'auth-expired') set({ status: 'auth-expired' })
+      return
+    }
+    await mergeRemote(pull.data)
   },
 
   setUsername: async (username) => {

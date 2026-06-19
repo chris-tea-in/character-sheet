@@ -4,13 +4,16 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { InfoPopup } from '@/components/InfoPopup'
 import { StepperField } from './StepperField'
+import { EditableField } from './EditableField'
+import { ToolsSection } from './ToolsSection'
+import { CurrencyAdjustModal } from './CurrencyAdjustModal'
 import { generateId } from '@/lib/uuid'
 import { computeWeaponBonus, summarizeItemEffects, isVariableBaseArmor } from '@/lib/characterStats'
 import { abilityModifier } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
-import type { WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData, ItemCharges } from '@/types/data'
+import type { WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData, ItemCharges, ClassData } from '@/types/data'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
 import type { DerivedStats } from '@/lib/characterStats'
 
@@ -19,6 +22,9 @@ interface Props {
   derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
   catalog: EquipmentData | null
+  // Primary class record — used by the relocated Tools section to flag
+  // class-granted tool proficiencies.
+  classRecord: ClassData | null
 }
 
 const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary', 'Artifact', 'Unique'] as const
@@ -856,10 +862,12 @@ function buildGearEntries(gear: AdventuringGearItem[]): SelectionEntry[] {
   }))
 }
 
-export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
+export function EquipmentBlock({ character, derived, onSave, catalog, classRecord }: Props) {
   const [weaponPickerOpen, setWeaponPickerOpen] = useState(false)
   const [armorPickerOpen, setArmorPickerOpen] = useState(false)
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
+  // Currency whose place-value fine-tune modal is open (null = closed).
+  const [currencyModal, setCurrencyModal] = useState<keyof Currency | null>(null)
   // Variable-base ("any sword/any armor") item whose base picker is open, and the
   // item being prompted to pick a base after activation. Lifted here so the equip
   // flow and the in-row "Change" control share one picker.
@@ -1275,6 +1283,14 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
         </div>
       </div>
 
+      {/* Tools — relocated from the Proficiencies block (below Items, above Currency) */}
+      <ToolsSection
+        character={character}
+        catalog={catalog}
+        classRecord={classRecord}
+        onSave={onSave}
+      />
+
       {/* Currency */}
       <div className="rounded-lg border border-border bg-card p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
@@ -1282,20 +1298,39 @@ export function EquipmentBlock({ character, derived, onSave, catalog }: Props) {
         </p>
         <div className="flex gap-4 flex-wrap">
           {CURRENCY_KEYS.map(({ key, label }) => (
-            <div key={key} className="flex flex-col items-center gap-1">
+            <div key={key} className="flex flex-col items-center gap-1.5">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {label}
               </span>
-              <StepperField
-                value={character.currency[key]}
-                onSave={v => setCurrency(key, Math.max(0, v))}
-                min={0}
-                size="sm"
-              />
+              <div className="flex items-center gap-1.5">
+                <EditableField
+                  type="number"
+                  min={0}
+                  value={String(character.currency[key])}
+                  onSave={v => setCurrency(key, Math.max(0, Math.floor(Number(v) || 0)))}
+                  className="text-sm font-bold tabular-nums min-w-[2ch] text-center"
+                  inputClassName="text-sm font-bold tabular-nums w-14 text-center"
+                />
+                <button
+                  onClick={() => setCurrencyModal(key)}
+                  aria-label={`Adjust ${label}`}
+                  className="w-5 h-5 rounded border border-border hover:bg-secondary flex items-center justify-center transition-colors"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
       </div>
+
+      <CurrencyAdjustModal
+        open={currencyModal !== null}
+        label={currencyModal ? (CURRENCY_KEYS.find(c => c.key === currencyModal)?.label ?? '') : ''}
+        value={currencyModal ? character.currency[currencyModal] : 0}
+        onClose={() => setCurrencyModal(null)}
+        onSave={v => { if (currencyModal) setCurrency(currencyModal, v); setCurrencyModal(null) }}
+      />
 
       <SelectionList
         entries={[]}

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Pencil, Eye } from 'lucide-react'
+import { ArrowLeft, Pencil, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { InfoPopup } from '@/components/InfoPopup'
 import { CharacterSheetBlocks } from '@/components/sheet/CharacterSheetBlocks'
 import { useDerivedSheet, type SheetReferenceData } from '@/components/sheet/useDerivedSheet'
 import { DiceTray } from '@/components/sheet/DiceTray'
@@ -12,8 +13,6 @@ import { campaignCharacters, pushCharacter } from '@/lib/syncApi'
 import type { Character, NewCharacter } from '@/types/character'
 import { normalizeNewCharacter } from '@/types/character'
 
-const PUSH_DEBOUNCE_MS = 1_200
-
 export default function CampaignCharacterPage() {
   const { id: campaignId, charId } = useParams<{ id: string; charId: string }>()
   const navigate = useNavigate()
@@ -23,11 +22,11 @@ export default function CampaignCharacterPage() {
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'notfound' | 'error'>('loading')
   const [editing, setEditing] = useState(false)
   const [saveError, setSaveError] = useState(false)
+  const [showEditNotice, setShowEditNotice] = useState(false)
 
-  // Debounced remote field-scoped push (the DM edits a record they don't own
-  // locally, so this goes straight to the API rather than the local store).
+  // The DM edits a record they don't own locally, so edits are buffered here and
+  // pushed straight to the API (not the local store) as a single commit on Done.
   const patchRef = useRef<Partial<NewCharacter>>({})
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const metaRef = useRef<{ id: string; createdAt: number } | null>(null)
 
   useEffect(() => {
@@ -55,7 +54,6 @@ export default function CampaignCharacterPage() {
   }, [campaignId, charId])
 
   async function flushPatch() {
-    timerRef.current = null
     const meta = metaRef.current
     const patch = patchRef.current
     patchRef.current = {}
@@ -64,19 +62,25 @@ export default function CampaignCharacterPage() {
     setSaveError(!res.ok)
   }
 
-  // Flush any pending edit when leaving the page.
-  useEffect(() => () => { if (timerRef.current) { clearTimeout(timerRef.current); void flushPatch() } }, [])
+  // Commit any buffered edits when leaving the page — a safety net if the DM
+  // navigates away without clicking Done. flushPatch no-ops when nothing's buffered.
+  useEffect(() => () => { void flushPatch() }, [])
 
   function handleSave(changes: Partial<NewCharacter>) {
+    // Buffer edits locally; they're committed to the cloud as one push when the DM
+    // clicks Done (commit-on-Done), so the player's sheet updates once, cleanly.
     setCharacter(c => c ? { ...c, ...changes, updatedAt: Date.now() } : c)
     patchRef.current = { ...patchRef.current, ...changes }
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => { void flushPatch() }, PUSH_DEBOUNCE_MS)
   }
 
   function toggleEditing() {
-    if (editing && timerRef.current) { clearTimeout(timerRef.current); void flushPatch() }
-    setEditing(e => !e)
+    if (editing) {
+      void flushPatch()        // Done → apply all buffered changes in one push
+      setEditing(false)
+    } else {
+      setEditing(true)
+      setShowEditNotice(true)  // explain that Done applies the changes
+    }
   }
 
   const sub = character
@@ -103,7 +107,7 @@ export default function CampaignCharacterPage() {
           </div>
           {loadState === 'ready' && (
             <Button size="sm" variant={editing ? 'default' : 'outline'} onClick={toggleEditing}>
-              {editing ? <><Eye className="h-4 w-4" />View</> : <><Pencil className="h-4 w-4" />Edit</>}
+              {editing ? <><Check className="h-4 w-4" />Done</> : <><Pencil className="h-4 w-4" />Edit</>}
             </Button>
           )}
         </div>
@@ -119,6 +123,15 @@ export default function CampaignCharacterPage() {
           )}
         </div>
       </main>
+
+      <InfoPopup
+        open={showEditNotice}
+        onClose={() => setShowEditNotice(false)}
+        title="Editing this character"
+        description="You're editing this player's character as the campaign DM. Make your changes, then tap Done at the top to apply them — your edits sync to the player's sheet."
+      >
+        <Button onClick={() => setShowEditNotice(false)}>Got it</Button>
+      </InfoPopup>
     </div>
   )
 }

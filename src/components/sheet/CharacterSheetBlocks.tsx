@@ -48,7 +48,6 @@ export function CharacterSheetBlocks({
         classRecord={sheet.classRecord}
         classRecords={sheet.classRecords}
         backgroundSkills={sheet.backgroundSkills}
-        catalog={data.equipmentCatalog}
         derived={sheet.derived}
         onSave={save}
       />
@@ -58,6 +57,7 @@ export function CharacterSheetBlocks({
         derived={sheet.derived}
         onSave={save}
         catalog={data.equipmentCatalog}
+        classRecord={sheet.classRecord}
       />
       {sheet.classRecord && (
         <SpellBlock

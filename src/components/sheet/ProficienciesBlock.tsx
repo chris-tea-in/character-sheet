@@ -1,14 +1,11 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP, formatBonus } from '@/lib/dice'
 import { ABILITY_LABELS, ABILITY_ORDER, ABILITY_FULL_TO_SHORT, toSkillName } from '@/lib/characterSetup'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
-import { SelectionList } from '@/components/SelectionList'
 import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
-import type { ClassData, EquipmentData } from '@/types/data'
-import type { SelectionEntry } from '@/components/SelectionList'
+import type { ClassData } from '@/types/data'
 import type { DerivedStats } from '@/lib/characterStats'
 
 interface Props {
@@ -20,7 +17,6 @@ interface Props {
   // Skills granted by the character's background — excluded from the class
   // skill-pick cap so they don't consume class picks (BUG-29)
   backgroundSkills?: SkillName[]
-  catalog?: EquipmentData | null
   derived: DerivedStats
   onSave: (changes: Partial<NewCharacter>) => void
 }
@@ -32,7 +28,7 @@ const SKILL_ORDER: SkillName[] = [
   'sleightOfHand', 'stealth', 'survival',
 ]
 
-type Tab = 'skills' | 'saves' | 'tools'
+type Tab = 'skills' | 'saves'
 
 // User-assignable expertise slots: each class contributes its "Expertise"
 // features (2 each), counted only up to THAT class's level. Feat-granted
@@ -136,7 +132,7 @@ function SaveDot({
   )
 }
 
-export function ProficienciesBlock({ character, classRecord, classRecords, backgroundSkills, catalog, derived, onSave }: Props) {
+export function ProficienciesBlock({ character, classRecord, classRecords, backgroundSkills, derived, onSave }: Props) {
   const [tab, setTab] = useState<Tab>('skills')
   const { dispatch } = useRollDispatch(derived)
   const hasClass = !!classRecord
@@ -246,15 +242,6 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
           )}
         >
           Saving Throws
-        </button>
-        <button
-          onClick={() => setTab('tools')}
-          className={cn(
-            'px-3 py-1 text-xs rounded-md font-semibold uppercase tracking-wide transition-colors',
-            tab === 'tools' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          Tools
         </button>
         {tab === 'skills' && classSkillMax !== Infinity && (
           <span
@@ -395,107 +382,6 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
           </p>
         </>
       )}
-
-      {tab === 'tools' && (
-        <ToolsTab
-          character={character}
-          catalog={catalog}
-          classRecord={classRecord}
-          onSave={onSave}
-        />
-      )}
     </section>
-  )
-}
-
-// ── Tools tab ────────────────────────────────────────────────────────────────
-
-function ToolsTab({
-  character,
-  catalog,
-  classRecord,
-  onSave,
-}: {
-  character: Character
-  catalog?: EquipmentData | null
-  classRecord: ClassData | null
-  onSave: (changes: Partial<NewCharacter>) => void
-}) {
-  const [pickerOpen, setPickerOpen] = useState(false)
-
-  const catalogTools: SelectionEntry[] = (catalog?.tools ?? []).map(t => ({
-    slug: t.name,
-    detail: {
-      name: t.name,
-      subtitle: t.tool_category,
-      sections: [],
-    },
-    group: t.tool_category,
-  }))
-
-  const granted = new Set([
-    ...(classRecord?.tool_proficiencies ?? []),
-  ])
-
-  const current = character.toolProficiencies ?? []
-
-  function addTool(name: string) {
-    if (!current.includes(name)) {
-      onSave({ toolProficiencies: [...current, name] })
-    }
-    setPickerOpen(false)
-  }
-
-  function removeTool(name: string) {
-    onSave({ toolProficiencies: current.filter(t => t !== name) })
-  }
-
-  return (
-    <>
-      <div className="rounded-lg border border-border bg-card divide-y divide-border">
-        {current.length === 0 && (
-          <p className="px-4 py-3 text-sm text-muted-foreground italic">No tool proficiencies</p>
-        )}
-        {current.map(name => {
-          const isGranted = granted.has(name)
-          return (
-            <div key={name} className="flex items-center gap-3 px-4 py-2.5">
-              <span className="flex-1 text-sm truncate">{name}</span>
-              {isGranted && (
-                <span className="text-[10px] uppercase tracking-wide flex-none" style={{ color: 'var(--color-accent-gold)' }}>
-                  class
-                </span>
-              )}
-              <button
-                onClick={() => removeTool(name)}
-                className="text-muted-foreground hover:text-destructive transition-colors flex-none"
-                aria-label={`Remove ${name}`}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )
-        })}
-        <button
-          onClick={() => setPickerOpen(true)}
-          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
-          style={{ color: 'var(--color-accent-gold)' }}
-        >
-          + Add tool proficiency
-        </button>
-      </div>
-      <p className="text-[11px] text-muted-foreground mt-1.5">
-        Class-granted tools highlighted · tap ✕ to remove
-      </p>
-
-      <SelectionList
-        entries={catalogTools}
-        value=""
-        title="Add Tool Proficiency"
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onSelect={addTool}
-      />
-    </>
   )
 }
