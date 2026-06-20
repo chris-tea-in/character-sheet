@@ -397,9 +397,17 @@ Radix UI Dialog and Popover render in `position: fixed` DOM portals at `<body>` 
 2. **Build and deploy**
    ```bash
    npm run build
-   wrangler pages deploy dist/ --project-name dnd-character-sheet
+   wrangler pages deploy dist/ --project-name dnd-character-sheet --branch main --commit-dirty=true
    ```
-   The Pages **project name is `dnd-character-sheet`**. The bare `dnd-character-sheet.pages.dev` *subdomain* was taken by an unrelated project, so Cloudflare assigned the **subdomain** `https://dnd-character-sheet-e9k.pages.dev` — note the `-e9k` suffix is on the subdomain only, NOT the project name passed to `--project-name`. No `wrangler.toml` needed — the `--project-name` flag is sufficient.
+   ⚠️ **ALWAYS pass `--branch main`.** This is a direct-upload (non-git) Pages project
+   whose **production** environment is the `main` branch label. `wrangler pages deploy`
+   otherwise tags the deployment with your *current git branch*, and any branch other
+   than `main` lands as a throwaway **Preview** URL that the friend group never sees —
+   the live site `dnd-character-sheet-e9k.pages.dev` stays stale. The git branch you're
+   on is irrelevant to where it ships; only `--branch main` puts it in production.
+   `--commit-dirty=true` just silences the "uncommitted changes" warning (the build is
+   from your working tree, by design — `data/` is gitignored). The Pages **project name
+   is `dnd-character-sheet`**. The bare `dnd-character-sheet.pages.dev` *subdomain* was taken by an unrelated project, so Cloudflare assigned the **subdomain** `https://dnd-character-sheet-e9k.pages.dev` — note the `-e9k` suffix is on the subdomain only, NOT the project name passed to `--project-name`. No `wrangler.toml` needed — the `--project-name` flag is sufficient.
 
 3. **Set up Cloudflare Zero Trust Access**
    - Go to `https://one.dash.cloudflare.com` → Access → Applications → Add an application
@@ -423,8 +431,12 @@ curl -I https://dnd-character-sheet-e9k.pages.dev/data/classes.json
 #### Redeployment (any future update)
 ```bash
 npm run build
-wrangler pages deploy dist/ --project-name dnd-character-sheet
+wrangler pages deploy dist/ --project-name dnd-character-sheet --branch main --commit-dirty=true
 ```
+**Never omit `--branch main`** — without it a deploy from any feature branch goes to a
+Preview URL, not the live production site (see the warning above). Confirm afterward with
+`wrangler pages deployment list --project-name dnd-character-sheet` that the newest row is
+`Environment: Production`.
 
 #### Notes
 - PWA `CacheFirst` strategy caches `/data/*.json` after the first authenticated visit. Subsequent loads serve from the browser cache — this is not an auth bypass, the initial fetch was gated.
