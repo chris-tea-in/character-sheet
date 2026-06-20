@@ -41,6 +41,19 @@ interface SelectionListProps {
 
 type View = 'list' | 'detail'
 
+/**
+ * Matches an entry against a (lowercased) search query. Searches the name plus
+ * the "type" fields shown on the row — subtitle, group, and tags — so typing a
+ * category (e.g. "instrument") surfaces every entry of that type, not just
+ * entries whose name contains the word.
+ */
+function matchesQuery(entry: SelectionEntry, q: string): boolean {
+  if (!q) return true
+  const { name, subtitle, tags } = entry.detail
+  const haystacks = [name, subtitle, entry.group, ...(tags ?? [])]
+  return haystacks.some((field) => field?.toLowerCase().includes(q))
+}
+
 function EntryRow({
   entry,
   selected,
@@ -61,6 +74,11 @@ function EntryRow({
     >
       <span className="text-sm font-medium">{entry.detail.name}</span>
       <div className="flex items-center gap-2 flex-none">
+        {entry.detail.edition && (
+          <span className="text-xs font-medium flex-none" style={{ color: 'var(--color-accent-gold)' }}>
+            ({entry.detail.edition})
+          </span>
+        )}
         {entry.warning && (
           <span
             className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-none"
@@ -134,7 +152,7 @@ export function SelectionList({
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     const pool = isGlobalSearch ? tabs!.flatMap((t) => t.entries) : activeEntries
-    const result = pool.filter((e) => e.detail.name.toLowerCase().includes(q))
+    const result = pool.filter((e) => matchesQuery(e, q))
     result.sort((a, b) => {
       const cmp = a.detail.name.localeCompare(b.detail.name)
       return sort === 'a-z' ? cmp : -cmp

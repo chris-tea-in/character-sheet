@@ -90,6 +90,24 @@ Item-granted languages mirror feat skill grants: exposed as
 Resistances/immunities surface read-only in CombatBlock ("Defenses") from
 `derived.resistances`/`immunities`.
 
+**Class features (2026-06-19):** selected class/subclass feature options
+(`character.classFeatureChoices`, group key → option slugs) carry an optional
+`FeatureEffect[]`; `computeFeatureEffects` (characterStats.ts) is the single
+render-time application point, parallel to `computeActiveItemEffects`. It applies
+the `ac` effect (Fighting Style: Defense → +1 AC while body armor worn) into
+`effectiveAC`, and exposes the weapon-conditional `weapon_attack`/`weapon_damage`
+shapes as `derived.featureWeaponEffects`; those fold **per-weapon** into
+`computeWeaponBonus` via `computeFeatureWeaponBonus` (Archery +2 ranged to-hit,
+Dueling +2 one-handed-melee damage — Dueling's "no other weapon" clause is
+approximated as "melee, not Two-Handed", same simplification policy as advantages).
+`WeaponRow` is the single consumer, so display and the dice roll share the result.
+Group applicability + known-count are resolved by `src/lib/classFeatures.ts`
+(`applicableGroups`/`knownCount`/`resourceCount`) from the OWNING class's level
+(INV-2). Option prerequisites are a **soft, non-blocking** picker warning
+(`meetsFeatureOptionPrereqs`: level / chosen-pact-boon / known-cantrip), mirroring
+FeatsBlock. `featureResourcesUsed` is a usage tracker (Superiority Dice), never a
+stat effect.
+
 - Members (fixed): BUG-01, 02, 05, 13, 36; spell focus BUG-09/21 (render-time,
   session 3; folded into attuned-item `effects` 2026-06-14)
 - Recipe: in any write site (characterSetup.ts, LevelUpDialog, FeatsBlock,
@@ -128,8 +146,14 @@ reverts on reload while appearing to work in-session.
 `characterToDraft` → wizard → `draftToNewCharacter` → edit merge must preserve
 every sheet-managed field and produce identical output when nothing is changed.
 The edit merge in `CreateCharacterPage.handleFinish` preserves: `feats`,
-`featChoices`, `armorClass`, `initiativeBonus`, `savingThrowProficiencies`,
-`notes`, expertise. **Any new sheet-managed field must be added to that merge.**
+`featChoices`, `featureResourcesUsed`, `armorClass`, `initiativeBonus`,
+`savingThrowProficiencies`, `notes`, expertise. **Any new sheet-managed field must
+be added to that merge.** `classFeatureChoices` is the exception that proves the
+rule: it is **wizard-managed** (round-tripped via `characterToDraft` →
+`SetupDraft.classFeatureChoices` → `draftToNewCharacter`, edited on the wizard's
+Class Features screen), so the merge takes the NEW value, not `existing.*` —
+matching spells/skills. Its sibling `featureResourcesUsed` (Superiority Dice spent)
+is pure sheet usage state and IS preserved from existing.
 
 - Members (fixed): BUG-12, 13, 14
 - Recipe: when adding a `Character` field, check it appears in BOTH
@@ -199,18 +223,32 @@ two source signals consumers actually need are now derived:
 - **Feat-granted** skills are exposed as `derived.featSkillGrants.{proficient,expertise}`.
   Render dot state from `derived.effectiveSkillProficiencies` (not the stored
   record) and lock feat-sourced dots so a click can't write a duplicate.
-- **Background-granted** skills are computed in `CharacterPage` and passed as
-  `backgroundSkills` to ProficienciesBlock; the class skill cap excludes them.
+- **Background-granted** skills are parsed by `parseBackgroundSkills` (characterSetup.ts)
+  into `{ fixed, choice }`: a background's `skill_proficiencies` mixes plain skill
+  names ("Insight") with **choice prose** ("Your choice of two from: …", ability-
+  scoped "One Int, Wis, or Cha skill of your choice"). Raw `toSkillName` over the
+  list silently drops every choice entry (returns null) — those 7 backgrounds
+  granted nothing and offered no picker (fixed 2026-06-19). Pickers render in
+  SetupScreen3 (wizard) and BackgroundPromptDialog (sheet background change); picks
+  bake into `skillProficiencies` (`draft.backgroundSkillChoices` is wizard-local — no
+  Character field, no migration). The class cap excludes background skills via
+  `backgroundGrantedSkills(list, character.skillProficiencies)` = fixed ∪ (choice
+  options ∩ proficient). **Any consumer reading a background's granted skills must use
+  `parseBackgroundSkills`/`backgroundGrantedSkills`, never `list.map(toSkillName)`.**
 
 Members fixed (2026-06-13): BUG-27 (setup excludes bg skills from class options),
 29 (cap excludes bg + feat skills), 30 (dots from derived + locked), 37 (expertise
-picker is proficient-but-not-expert, from derived). No source field is stored on
+picker is proficient-but-not-expert, from derived). Background skill-choice prose
+handled 2026-06-19 (parser + wizard/sheet pickers). No source field is stored on
 the record itself — class-vs-manual picks are still indistinguishable, so a NEW
 counting consumer must reuse `backgroundSkills` + `featSkillGrants`, not re-derive
 from the raw record.
 
 - Recipe: `rg -n "skillProficiencies" src/ -l` — any new consumer that COUNTS or
   GATES must subtract `backgroundSkills` and `featSkillGrants.*`.
+  `rg -n "skill_proficiencies" src/` — every hit must route through
+  `parseBackgroundSkills`/`backgroundGrantedSkills`; a raw `.map(toSkillName)` over
+  the list drops choice-prose entries.
 
 ## INV-10 — Data pipeline allowlist and nullable shapes — ENFORCED
 

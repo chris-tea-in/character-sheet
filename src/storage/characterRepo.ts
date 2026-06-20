@@ -76,6 +76,8 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     feats: JSON.parse(row['feats'] as string ?? '[]'),
     featChoices: JSON.parse(row['feat_choices'] as string ?? '{}'),
     toolProficiencies: JSON.parse(row['tool_proficiencies'] as string ?? '[]'),
+    classFeatureChoices: JSON.parse(row['class_feature_choices'] as string ?? '{}'),
+    featureResourcesUsed: JSON.parse(row['feature_resources_used'] as string ?? '{}'),
     campaignId: (row['campaign_id'] as string | null) ?? null,
     disguiseClass: Boolean(row['disguise_class']),
     disguiseAs: (row['disguise_as'] as string | null) ?? '',
@@ -142,10 +144,11 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         armor_class, speed, initiative_bonus, spell_bonus_modifier, death_saves, hit_dice_used, inspiration,
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
-        equipment, currency, feats, feat_choices, tool_proficiencies, classes,
+        equipment, currency, feats, feat_choices, tool_proficiencies,
+        class_feature_choices, feature_resources_used, classes,
         race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race ?? '', data.subrace ?? null, data.class ?? '', data.subclass ?? null, data.background ?? '',
@@ -165,6 +168,8 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         JSON.stringify(data.feats ?? []),
         JSON.stringify(data.featChoices ?? {}),
         JSON.stringify(data.toolProficiencies ?? []),
+        JSON.stringify(data.classFeatureChoices ?? {}),
+        JSON.stringify(data.featureResourcesUsed ?? {}),
         JSON.stringify(data.classes ?? []),
         JSON.stringify(data.raceAsiChoices ?? []),
         JSON.stringify(data.hitDiceUsedByClass ?? {}),
@@ -206,7 +211,8 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         armor_class=?, speed=?, initiative_bonus=?, spell_bonus_modifier=?, death_saves=?, hit_dice_used=?, hit_dice_used_by_class=?, inspiration=?,
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
-        equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?, classes=?,
+        equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?,
+        class_feature_choices=?, feature_resources_used=?, classes=?,
         race_asi_choices=?, campaign_id=?, disguise_class=?, disguise_as=?, updated_at=?
       WHERE id=?`,
       [
@@ -227,6 +233,8 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         JSON.stringify(merged.feats),
         JSON.stringify(merged.featChoices ?? {}),
         JSON.stringify(merged.toolProficiencies ?? []),
+        JSON.stringify(merged.classFeatureChoices ?? {}),
+        JSON.stringify(merged.featureResourcesUsed ?? {}),
         JSON.stringify(merged.classes ?? []),
         JSON.stringify(merged.raceAsiChoices ?? []),
         merged.campaignId ?? null,
@@ -257,7 +265,7 @@ export function deleteCharacter(db: Database, id: string): void {
  * work. On conflict we overwrite every field but preserve the original
  * `created_at` and adopt the incoming `updated_at`.
  */
-export function upsertSyncedCharacter(db: Database, full: Character): void {
+export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedUpdatedAt: number): void {
   const primaryClass = full.classes?.[0]
   const primaryClassSlug = primaryClass?.classSlug ?? full.class ?? ''
   const primarySubclass = primaryClass?.subclassSlug ?? full.subclass ?? null
@@ -275,10 +283,12 @@ export function upsertSyncedCharacter(db: Database, full: Character): void {
         armor_class, speed, initiative_bonus, spell_bonus_modifier, death_saves, hit_dice_used, inspiration,
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
-        equipment, currency, feats, feat_choices, tool_proficiencies, classes,
-        race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at
+        equipment, currency, feats, feat_choices, tool_proficiencies,
+        class_feature_choices, feature_resources_used, classes,
+        race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at,
+        last_synced_updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )
       ON CONFLICT(id) DO UPDATE SET
         name=excluded.name, race_slug=excluded.race_slug, subrace=excluded.subrace,
@@ -293,11 +303,14 @@ export function upsertSyncedCharacter(db: Database, full: Character): void {
         spell_slots_used=excluded.spell_slots_used, personality_traits=excluded.personality_traits,
         ideals=excluded.ideals, bonds=excluded.bonds, flaws=excluded.flaws, notes=excluded.notes,
         equipment=excluded.equipment, currency=excluded.currency, feats=excluded.feats,
-        feat_choices=excluded.feat_choices, tool_proficiencies=excluded.tool_proficiencies, classes=excluded.classes,
+        feat_choices=excluded.feat_choices, tool_proficiencies=excluded.tool_proficiencies,
+        class_feature_choices=excluded.class_feature_choices, feature_resources_used=excluded.feature_resources_used,
+        classes=excluded.classes,
         race_asi_choices=excluded.race_asi_choices, hit_dice_used_by_class=excluded.hit_dice_used_by_class,
         campaign_id=excluded.campaign_id,
         disguise_class=excluded.disguise_class, disguise_as=excluded.disguise_as,
-        stats_normalized=excluded.stats_normalized, updated_at=excluded.updated_at`,
+        stats_normalized=excluded.stats_normalized, updated_at=excluded.updated_at,
+        last_synced_updated_at=excluded.last_synced_updated_at`,
       [
         full.id, full.name, full.race ?? '', full.subrace ?? null, primaryClassSlug, primarySubclass, full.background ?? '',
         totalLevel, full.xp ?? 0, full.progressionType ?? 'milestone', full.alignment ?? '',
@@ -316,6 +329,8 @@ export function upsertSyncedCharacter(db: Database, full: Character): void {
         JSON.stringify(full.feats ?? []),
         JSON.stringify(full.featChoices ?? {}),
         JSON.stringify(full.toolProficiencies ?? []),
+        JSON.stringify(full.classFeatureChoices ?? {}),
+        JSON.stringify(full.featureResourcesUsed ?? {}),
         JSON.stringify(full.classes ?? []),
         JSON.stringify(full.raceAsiChoices ?? []),
         JSON.stringify(full.hitDiceUsedByClass ?? {}),
@@ -323,6 +338,7 @@ export function upsertSyncedCharacter(db: Database, full: Character): void {
         full.disguiseClass ? 1 : 0, full.disguiseAs ?? '',
         1, // synced rows are always base-stats (export v2) — born normalized
         full.createdAt, full.updatedAt,
+        lastSyncedUpdatedAt, // device-local reconcile base (never synced; INV-4)
       ],
     )
     syncSpells(db, full.id, full.spells)
@@ -331,4 +347,83 @@ export function upsertSyncedCharacter(db: Database, full: Character): void {
     db.run('ROLLBACK')
     throw err
   }
+}
+
+/**
+ * Read every character's reconcile base (`last_synced_updated_at`) as an id→base
+ * map. Device-local sync bookkeeping; deliberately kept off the `Character` type
+ * so it can never ride along in the synced `data` blob (INV-4). A row missing the
+ * value reads as 0 — the "never reconciled" sentinel.
+ */
+export function getSyncBases(db: Database): Map<string, number> {
+  const rows = query(db, 'SELECT id, last_synced_updated_at FROM characters')
+  const map = new Map<string, number>()
+  for (const row of rows) {
+    map.set(row['id'] as string, (row['last_synced_updated_at'] as number) ?? 0)
+  }
+  return map
+}
+
+/**
+ * Advance one character's reconcile base — called after a remote row is adopted
+ * or a local push is acknowledged with the server's authoritative `updated_at`.
+ * A no-op if the row no longer exists.
+ */
+export function setSyncBase(db: Database, id: string, lastSyncedUpdatedAt: number): void {
+  db.run('UPDATE characters SET last_synced_updated_at = ? WHERE id = ?', [lastSyncedUpdatedAt, id])
+}
+
+// ── Local rollback snapshots (H7) ──────────────────────────────────────────────
+
+export interface CharacterBackup {
+  id: string
+  characterId: string
+  data: NewCharacter   // the snapshotted base-stats payload (restore = update() with this)
+  updatedAt: number    // the character's updatedAt at snapshot time
+  backedUpAt: number   // when the snapshot was taken
+}
+
+const MAX_BACKUPS_PER_CHARACTER = 5
+
+/**
+ * Snapshot a character's `data` payload before the sync merge overwrites or
+ * discards the local copy. Keeps only the most recent MAX_BACKUPS_PER_CHARACTER
+ * per character (prunes older ones in the same transaction). Local-only — never
+ * pushed to the cloud.
+ */
+export function insertBackup(db: Database, characterId: string, data: NewCharacter, updatedAt: number): void {
+  const id = generateId()
+  const backedUpAt = Date.now()
+  db.run('BEGIN')
+  try {
+    db.run(
+      'INSERT INTO character_backups (id, character_id, data, updated_at, backed_up_at) VALUES (?,?,?,?,?)',
+      [id, characterId, JSON.stringify(data), updatedAt, backedUpAt],
+    )
+    db.run(
+      `DELETE FROM character_backups WHERE character_id = ? AND id NOT IN (
+         SELECT id FROM character_backups WHERE character_id = ? ORDER BY backed_up_at DESC LIMIT ?
+       )`,
+      [characterId, characterId, MAX_BACKUPS_PER_CHARACTER],
+    )
+    db.run('COMMIT')
+  } catch (err) {
+    db.run('ROLLBACK')
+    throw err
+  }
+}
+
+/** Most-recent-first list of a character's local rollback snapshots. */
+export function listBackups(db: Database, characterId: string): CharacterBackup[] {
+  const rows = query(db,
+    'SELECT * FROM character_backups WHERE character_id = ? ORDER BY backed_up_at DESC',
+    [characterId],
+  )
+  return rows.map(r => ({
+    id: r['id'] as string,
+    characterId: r['character_id'] as string,
+    data: JSON.parse(r['data'] as string) as NewCharacter,
+    updatedAt: r['updated_at'] as number,
+    backedUpAt: r['backed_up_at'] as number,
+  }))
 }

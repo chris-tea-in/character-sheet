@@ -12,6 +12,7 @@ import { useSyncStore } from './store/sync'
 import { UsernameDialog } from './components/UsernameDialog'
 import { UpdateBanner } from './components/UpdateBanner'
 import { WhatsNewModal } from './components/WhatsNewModal'
+import { ConflictResolutionModal } from './components/ConflictResolutionModal'
 
 interface AppProps {
   dbResult: DbInitResult
@@ -24,6 +25,8 @@ export default function App({ dbResult }: AppProps) {
   const syncStatus = useSyncStore(s => s.status)
   const reconnect = useSyncStore(s => s.reconnect)
   const me = useSyncStore(s => s.me)
+  const quarantines = useSyncStore(s => s.quarantines)
+  const dismissQuarantine = useSyncStore(s => s.dismissQuarantine)
 
   useEffect(() => {
     load()
@@ -44,6 +47,14 @@ export default function App({ dbResult }: AppProps) {
           <button onClick={clearStorageError} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 'bold', marginLeft: '1rem' }}>✕</button>
         </div>
       )}
+      {quarantines.length > 0 && (
+        <div style={{ background: '#c4a35a', color: '#1a1a2e', padding: '0.5rem 1rem', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>
+            {quarantines.length === 1 ? 'A cloud copy of a character looked corrupted' : `${quarantines.length} cloud character copies looked corrupted`} and {quarantines.length === 1 ? 'was' : 'were'} not applied — your local version is kept.
+          </span>
+          <button onClick={() => quarantines.forEach(q => dismissQuarantine(q.id))} style={{ background: '#1a1a2e', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 'bold', marginLeft: '1rem', padding: '0.25rem 0.75rem', borderRadius: '4px' }}>Dismiss</button>
+        </div>
+      )}
       <Routes>
         <Route path="/" element={<CharacterListPage notPersistent={!dbResult.persistent} />} />
         <Route path="/create" element={<CreateCharacterPage />} />
@@ -59,6 +70,8 @@ export default function App({ dbResult }: AppProps) {
       {/* Hold the changelog until any first-run username onboarding is done, so the
           two dialogs don't stack. */}
       {!(me && me.username === null) && <WhatsNewModal />}
+      {/* Forced choice on a both-sides edit conflict; renders nothing when none queued. */}
+      <ConflictResolutionModal />
     </>
   )
 }

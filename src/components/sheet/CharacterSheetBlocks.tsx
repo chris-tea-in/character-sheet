@@ -4,6 +4,7 @@ import { ProficienciesBlock } from './ProficienciesBlock'
 import { SpellBlock } from './SpellBlock'
 import { EquipmentBlock } from './EquipmentBlock'
 import { FeatsBlock } from './FeatsBlock'
+import { FeaturesBlock } from './FeaturesBlock'
 import { DescriptionBlock } from './DescriptionBlock'
 import { useDerivedSheet, type SheetReferenceData } from './useDerivedSheet'
 import type { Character, NewCharacter } from '@/types/character'
@@ -51,6 +52,7 @@ export function CharacterSheetBlocks({
         derived={sheet.derived}
         onSave={save}
       />
+      <FeaturesBlock character={character} setupData={data.setupData} onSave={save} />
       <FeatsBlock character={character} derived={sheet.derived} onSave={save} />
       <EquipmentBlock
         character={character}

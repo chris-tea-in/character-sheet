@@ -157,4 +157,54 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN disguise_as TEXT NOT NULL DEFAULT ''`)
     },
   },
+  {
+    version: 13,
+    up: (db) => {
+      // 3-way cloud reconcile base: the server `updated_at` this device last
+      // reconciled to. The merge compares it against local + remote to tell a real
+      // conflict from a one-sided change. DEVICE-LOCAL ONLY — it is never written
+      // into the synced `data` blob and never pushed (INV-4); it is a column, not a
+      // field of NewCharacter.
+      //
+      // DEFAULT 0 is a sentinel meaning "never reconciled": on the first boot after
+      // this migration every existing row reads 0, and the merge treats 0 as
+      // "fall back to last-write-wins for this row, then set the real base from the
+      // winner." That avoids a first-boot conflict prompt on the entire roster
+      // (every row would otherwise look both-changed against base 0).
+      db.run(`ALTER TABLE characters ADD COLUMN last_synced_updated_at INTEGER NOT NULL DEFAULT 0`)
+    },
+  },
+  {
+    version: 14,
+    up: (db) => {
+      // Local-only rollback snapshots. Before the sync merge adopts a remote row
+      // over local changes, discards local on a "keep cloud" conflict choice, or
+      // honors a remote delete, it snapshots the prior local `data` JSON here so a
+      // user can recover it. NEVER synced to D1 — purely a device-local safety net.
+      // No FK to characters(id): a backup must survive its character being deleted
+      // (that is exactly when recovery matters). Capped per character on insert.
+      db.run(`
+        CREATE TABLE character_backups (
+          id TEXT PRIMARY KEY,
+          character_id TEXT NOT NULL,
+          data TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          backed_up_at INTEGER NOT NULL
+        )
+      `)
+      db.run(`CREATE INDEX idx_character_backups_char ON character_backups(character_id, backed_up_at)`)
+    },
+  },
+  {
+    version: 15,
+    up: (db) => {
+      // Selectable class features. class_feature_choices: group key → chosen option
+      // slugs (maneuvers, fighting styles, invocations, …) — choices only; effects
+      // derive at render time (INV-1). feature_resources_used: group key → count of
+      // the choice-attached resource spent (Battle Master Superiority Dice) — a
+      // usage tracker, not a stat effect.
+      db.run(`ALTER TABLE characters ADD COLUMN class_feature_choices TEXT NOT NULL DEFAULT '{}'`)
+      db.run(`ALTER TABLE characters ADD COLUMN feature_resources_used TEXT NOT NULL DEFAULT '{}'`)
+    },
+  },
 ]

@@ -10,6 +10,8 @@ import { SetupScreen2 } from '@/components/setup/SetupScreen2'
 import { SetupScreen3 } from '@/components/setup/SetupScreen3'
 import { SetupScreen4 } from '@/components/setup/SetupScreen4'
 import { SetupScreen5 } from '@/components/setup/SetupScreen5'
+import { SetupScreenFeatures } from '@/components/setup/SetupScreenFeatures'
+import { applicableGroups } from '@/lib/classFeatures'
 import {
   INITIAL_DRAFT,
   characterToDraft,
@@ -24,13 +26,14 @@ import { useCharacterStore } from '@/store/characters'
 import type { SetupDraft } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { FeatData } from '@/types/data'
-import type { NewCharacter } from '@/types/character'
+import type { Character, NewCharacter, ClassEntry } from '@/types/character'
 
 
 const SCREEN_TITLES = [
   'Identity & Stats',
   'Background & Details',
   'Proficiencies',
+  'Class Features',
   'Starting Equipment',
   'Progression',
 ]
@@ -65,8 +68,27 @@ function validateScreen(
   if (screen === 2) {
     if (!draft.backgroundSlug) return ['Background is required']
   }
-  // Skip equipment validation in edit mode (equipment managed on sheet)
+  // Class features (screen 4): every applicable group must be filled to its known
+  // count. Skipped in edit mode — selections are round-tripped from the record.
   if (screen === 4 && data && !isEditMode) {
+    const classes: ClassEntry[] = [
+      { classSlug: draft.classSlug, subclassSlug: draft.subclassSlug || null, level: draft.level },
+      ...draft.extraClasses.map(ec => ({
+        classSlug: ec.classSlug, subclassSlug: ec.subclassSlug || null, level: ec.level,
+      })),
+    ].filter(c => c.classSlug)
+    const charLike = {
+      classes, class: draft.classSlug, subclass: draft.subclassSlug || null, level: draft.level,
+    } as Character
+    const errors: string[] = []
+    for (const { group, known } of applicableGroups(charLike, data.classFeatures)) {
+      const have = (draft.classFeatureChoices[group.key] ?? []).length
+      if (have < known) errors.push(`Choose ${known - have} more ${group.label.toLowerCase()}`)
+    }
+    return errors
+  }
+  // Skip equipment validation in edit mode (equipment managed on sheet)
+  if (screen === 5 && data && !isEditMode) {
     if (!isEquipmentComplete(draft, data)) {
       return ['Complete all starting equipment choices before continuing']
     }
@@ -253,6 +275,11 @@ export default function CreateCharacterPage() {
           // Preserve feats — added via FeatsBlock/level-up, not the wizard
           feats: existing.feats,
           featChoices: existing.featChoices,
+          // Class-feature selections are editable in the wizard's Class Features
+          // screen (round-tripped via characterToDraft), so take the new value.
+          // Resource usage (Superiority Dice spent) is sheet-only — preserve it.
+          classFeatureChoices: newCharData.classFeatureChoices,
+          featureResourcesUsed: existing.featureResourcesUsed,
           toolProficiencies: newCharData.toolProficiencies,
           // Preserve campaign membership — the wizard can't represent it, so a
           // bare merge would silently drop the character from its campaign (INV-4)
@@ -372,6 +399,9 @@ export default function CreateCharacterPage() {
             <SetupScreen3 draft={draft} data={data} errors={errors} onChange={updateDraft} />
           )}
           {screen === 4 && (
+            <SetupScreenFeatures draft={draft} data={data} errors={errors} onChange={updateDraft} />
+          )}
+          {screen === 5 && (
             <>
               {isEditMode && (
                 <p className="text-sm text-muted-foreground mb-4 p-3 rounded-lg border border-border">
@@ -381,7 +411,7 @@ export default function CreateCharacterPage() {
               <SetupScreen4 draft={draft} data={data} errors={errors} onChange={updateDraft} />
             </>
           )}
-          {screen === 5 && (
+          {screen === 6 && (
             <SetupScreen5 draft={draft} onChange={updateDraft} />
           )}
 

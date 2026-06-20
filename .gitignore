@@ -38,3 +38,6 @@ scraper/
 
 # Mobile UX screenshot artifacts (scripts/mobile-shots.mjs)
 mobile-shots/
+
+# Sync-verification screenshot artifacts (scripts/verify-sync.mjs)
+verify-shots/

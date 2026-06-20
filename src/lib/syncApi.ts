@@ -165,8 +165,10 @@ export async function pullCharacters(): Promise<SyncResult<SyncedCharacter[]>> {
 export function pushCharacter(
   payload: { id: string; createdAt: number; updatedAt: number; patch: Partial<NewCharacter> },
   keepalive = false,
-): Promise<SyncResult<unknown>> {
-  return request(`/api/characters/${encodeURIComponent(payload.id)}`, {
+): Promise<SyncResult<{ updatedAt?: number }>> {
+  // The server echoes the authoritative updated_at it stored (max(stored, ours))
+  // so the client can set its reconcile base to exactly that.
+  return request<{ updatedAt?: number }>(`/api/characters/${encodeURIComponent(payload.id)}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({

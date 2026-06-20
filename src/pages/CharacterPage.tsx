@@ -18,6 +18,7 @@ import { DiceRollModal } from '@/components/sheet/DiceRollModal'
 import { StepperField } from '@/components/sheet/StepperField'
 import { LevelUpDialog } from '@/components/sheet/LevelUpDialog'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
+import { FeaturesBlock } from '@/components/sheet/FeaturesBlock'
 import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
 import { useCharacterStore } from '@/store/characters'
 import { useSyncStore } from '@/store/sync'
@@ -28,7 +29,7 @@ import {
   slugToTitle, ABILITY_ORDER, ABILITY_LABELS, toSubraceSlug, ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
-import { ALL_LANGUAGES, toSkillName } from '@/lib/characterSetup'
+import { ALL_LANGUAGES, toSkillName, parseBackgroundSkills, backgroundGrantedSkills } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { ClassData, Race, Subrace, Background, EquipmentData, FeatData } from '@/types/data'
 import type { AbilityName, NewCharacter, SkillName } from '@/types/character'
@@ -399,6 +400,11 @@ function BackgroundPromptDialog({
   const [selectedLangs, setSelectedLangs] = useState<string[]>([])
   const langCount = background.language_choices
 
+  // Fixed skill grants + an optional "choose N" pick (e.g. Cloistered Scholar).
+  const parsedSkills = useMemo(() => parseBackgroundSkills(background.skill_proficiencies), [background])
+  const skillChoice = parsedSkills.choice
+  const [selectedSkills, setSelectedSkills] = useState<SkillName[]>([])
+
   function toggleLang(lang: string) {
     if (selectedLangs.includes(lang)) {
       setSelectedLangs(l => l.filter(x => x !== lang))
@@ -407,12 +413,19 @@ function BackgroundPromptDialog({
     }
   }
 
+  function toggleSkill(skill: SkillName) {
+    if (!skillChoice) return
+    if (selectedSkills.includes(skill)) {
+      setSelectedSkills(s => s.filter(x => x !== skill))
+    } else if (selectedSkills.length < skillChoice.count) {
+      setSelectedSkills(s => [...s, skill])
+    }
+  }
+
   function handleApply() {
     const profs: Partial<Record<SkillName, 'proficient'>> = {}
-    for (const display of background.skill_proficiencies) {
-      const key = toSkillName(display)
-      if (key) profs[key] = 'proficient'
-    }
+    for (const skill of parsedSkills.fixed) profs[skill] = 'proficient'
+    for (const skill of selectedSkills) profs[skill] = 'proficient'
     const langs = [...new Set([...currentLanguages, ...background.languages, ...selectedLangs])]
     onApply(profs, langs)
   }
@@ -427,12 +440,42 @@ function BackgroundPromptDialog({
         </DialogHeader>
 
         <div className="space-y-3 text-sm">
-          {background.skill_proficiencies.length > 0 && (
+          {parsedSkills.fixed.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-1">
                 Skill Proficiencies (auto-applied)
               </p>
-              <p className="text-xs">{background.skill_proficiencies.join(', ')}</p>
+              <p className="text-xs">{parsedSkills.fixed.map(s => SKILL_DISPLAY_MAP[s]).join(', ')}</p>
+            </div>
+          )}
+
+          {skillChoice && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">
+                Choose {skillChoice.count} skill{skillChoice.count > 1 ? 's' : ''} ({selectedSkills.length}/{skillChoice.count})
+              </p>
+              <div className="grid grid-cols-2 gap-1">
+                {skillChoice.options.map(skill => {
+                  const chosen = selectedSkills.includes(skill)
+                  const disabled = !chosen && selectedSkills.length >= skillChoice.count
+                  return (
+                    <button
+                      key={skill}
+                      onClick={() => toggleSkill(skill)}
+                      disabled={disabled}
+                      className="text-left text-xs px-2 py-1 rounded border transition-colors"
+                      style={{
+                        background: chosen ? 'var(--color-accent-gold)' : undefined,
+                        color: chosen ? '#000' : undefined,
+                        borderColor: 'var(--color-border-raw)',
+                        opacity: disabled ? 0.4 : 1,
+                      }}
+                    >
+                      {SKILL_DISPLAY_MAP[skill]}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           )}
 
@@ -489,7 +532,10 @@ function BackgroundPromptDialog({
           <Button variant="ghost" onClick={onSkip}>Skip</Button>
           <Button
             onClick={handleApply}
-            disabled={langCount > 0 && selectedLangs.length < langCount}
+            disabled={
+              (langCount > 0 && selectedLangs.length < langCount) ||
+              (!!skillChoice && selectedSkills.length < skillChoice.count)
+            }
           >
             Apply
           </Button>
@@ -667,9 +713,10 @@ export default function CharacterPage() {
         .filter((s): s is SkillName => s !== null),
     )
     const bgSkills = new Set(
-      (setupData?.backgrounds[character.background]?.skill_proficiencies ?? [])
-        .map(toSkillName)
-        .filter((s): s is SkillName => s !== null),
+      backgroundGrantedSkills(
+        setupData?.backgrounds[character.background]?.skill_proficiencies ?? [],
+        character.skillProficiencies,
+      ),
     )
     const keptSkills = Object.fromEntries(
       Object.entries(character.skillProficiencies).filter(
@@ -844,6 +891,7 @@ export default function CharacterPage() {
             classHitDice={classHitDice}
           />
           <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} derived={derived} onSave={save} />
+          <FeaturesBlock character={character} setupData={setupData} onSave={save} />
           <FeatsBlock character={character} derived={derived} onSave={save} />
           <EquipmentBlock character={character} derived={derived} onSave={save} catalog={equipmentCatalog} classRecord={classRecord} />
           {classRecord && (
@@ -998,6 +1046,7 @@ export default function CharacterPage() {
             classRecord={targetRecord}
             newLevel={levelUpTarget.newClassLevel}
             newTotalLevel={levelUpTarget.newTotalLevel}
+            classFeatures={setupData?.classFeatures ?? null}
             open
             onClose={() => setLevelUpTarget(null)}
             onApply={changes => {

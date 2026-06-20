@@ -3,13 +3,12 @@ import { insertCharacter } from '../storage/characterRepo'
 import { flush } from '../storage'
 import { normalizeCharacterPayload } from '../storage/normalizeStats'
 import { loadSetupData, loadFeatsData } from './data'
+import { validateCharacter } from '../../shared/characterValidation'
 import type { Character, NewCharacter } from '../types/character'
 
 // v1: abilities/speed/initiative stored with racial + feat bonuses baked in
 // v2: abilities are BASE scores + raceAsiChoices; bonuses derived at render
 const CHAR_EXPORT_VERSION = 2
-
-const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const
 
 interface CharacterExportFile {
   version: number
@@ -18,34 +17,17 @@ interface CharacterExportFile {
 }
 
 function validateCharacterPayload(c: unknown): asserts c is NewCharacter {
-  if (typeof c !== 'object' || c === null)
-    throw new Error('Character data is not an object.')
+  // Shared required-field gate (same contract the cloud sync uses). Throw on the
+  // first structural problem so the import dialog can show why.
+  const result = validateCharacter(c)
+  if (!result.ok) throw new Error(`Character data is invalid: ${result.reason}.`)
 
+  // Import-specific: a real exported character must have a non-empty name (the
+  // shared validator only requires the field be a string, since an empty name is
+  // valid-but-unwanted, not corruption).
   const char = c as Record<string, unknown>
-
   if (typeof char.name !== 'string' || !char.name.trim())
     throw new Error('Character is missing a name.')
-
-  if (typeof char.abilities !== 'object' || char.abilities === null)
-    throw new Error('Character is missing ability scores.')
-  const abilities = char.abilities as Record<string, unknown>
-  for (const key of ABILITY_KEYS) {
-    if (typeof abilities[key] !== 'number')
-      throw new Error(`Ability score "${key}" is missing or not a number.`)
-  }
-
-  if (!Array.isArray(char.spells))
-    throw new Error('Character spells field is missing or not an array.')
-  for (const s of char.spells as unknown[]) {
-    if (typeof (s as Record<string, unknown>).slug !== 'string')
-      throw new Error('Spell entry is missing a slug field.')
-  }
-
-  if (typeof char.maxHp !== 'number')
-    throw new Error('Character is missing maxHp.')
-
-  if (typeof char.level !== 'number' || char.level < 1)
-    throw new Error('Character level is missing or invalid.')
 }
 
 function todaySlug(): string {

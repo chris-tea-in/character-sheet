@@ -20,13 +20,29 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     .bind(email)
     .all<CharacterRow>()
 
-  const characters = (results ?? []).map(r => ({
-    id: r.id,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    deleted: Boolean(r.deleted),
-    data: JSON.parse(r.data),
-  }))
+  // Parse each row defensively: one corrupt blob must not throw the whole
+  // response and stall every other character's sync. A skipped row simply
+  // doesn't sync until it's fixed — absence is never read as a delete (those
+  // travel only as explicit tombstones), so skipping is safe.
+  const characters: Array<{
+    id: string; createdAt: number; updatedAt: number; deleted: boolean; data: unknown
+  }> = []
+  for (const r of results ?? []) {
+    let data: unknown
+    try {
+      data = JSON.parse(r.data)
+    } catch {
+      console.warn(`Skipping unparseable character row ${r.id}`)
+      continue
+    }
+    characters.push({
+      id: r.id,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      deleted: Boolean(r.deleted),
+      data,
+    })
+  }
 
   return json({ characters })
 }

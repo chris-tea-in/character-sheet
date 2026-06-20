@@ -1,7 +1,11 @@
 import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP, SKILL_DISPLAY_MAP, formatBonus } from './dice'
 import { ABILITY_FULL_TO_SHORT, getRacialBonuses } from './racialBonuses'
+import { applicableGroups } from './classFeatures'
 import type { Character, AbilityName, Abilities, SkillName, SkillProficiency, EquipmentItem } from '../types/character'
-import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem, ItemEffect } from '../types/data'
+import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem, ItemEffect, ClassFeatureData, FeatureEffect } from '../types/data'
+
+/** The weapon-conditional fighting-style effects (Archery to-hit, Dueling damage). */
+export type FeatureWeaponEffect = Extract<FeatureEffect, { type: 'weapon_attack' } | { type: 'weapon_damage' }>
 
 export interface WeaponBonus {
   toHit: string
@@ -47,6 +51,8 @@ export interface DerivedStats {
   // Damage resistances / immunities granted by active items — derived, read-only display
   resistances: string[]
   immunities: string[]
+  // Weapon-conditional fighting-style effects — applied per-weapon in computeWeaponBonus
+  featureWeaponEffects: FeatureWeaponEffect[]
 }
 
 // ── Feat effect registry ────────────────────────────────────────────────────
@@ -404,6 +410,7 @@ export function computeWeaponBonus(
   weaponProficiencies: string[],
   effectiveAbilities?: Abilities,
   itemDamageBonus = 0,
+  featureWeaponEffects: FeatureWeaponEffect[] = [],
 ): WeaponBonus {
   const abilities = effectiveAbilities ?? character.abilities
   const strMod = abilityModifier(abilities.str)
@@ -414,9 +421,11 @@ export function computeWeaponBonus(
   const abilityLabel = isFinesse ? (dexMod > strMod ? 'DEX' : 'STR') : isRanged ? 'DEX' : 'STR'
   const pb = isWeaponProficient(weapon, weaponProficiencies) ? proficiencyBonus(character.level) : 0
   const magicBonus = weapon.bonus ?? 0
-  const toHitModifier = mod + pb + magicBonus
+  // Fighting-style weapon bonuses (Archery to-hit, Dueling damage)
+  const featureBonus = computeFeatureWeaponBonus(weapon, featureWeaponEffects)
+  const toHitModifier = mod + pb + magicBonus + featureBonus.toHit
   // Flat item damage bonus adds to damage only, not to-hit
-  const damageBonus = mod + magicBonus + itemDamageBonus
+  const damageBonus = mod + magicBonus + itemDamageBonus + featureBonus.damage
   const dmgBonusStr = damageBonus !== 0 ? (damageBonus > 0 ? `+${damageBonus}` : `${damageBonus}`) : ''
 
   return {
@@ -606,22 +615,97 @@ export function summarizeItemEffects(effects: ItemEffect[] | undefined): string 
   return parts.join(' · ')
 }
 
+// ── Selected class-feature effects ────────────────────────────────────────────
+// Passive, app-knowable effects from chosen feature options (Fighting Style:
+// Defense → +1 AC while armored). Single render-time application point (INV-1),
+// parallel to computeActiveItemEffects. Counts/applicability are resolved by the
+// shared classFeatures helpers (owning-class level, not total level — INV-2).
+// Weapon-conditional effects (archery/dueling/great-weapon/two-weapon) are carried
+// in the data but NOT accumulated here yet — they need weapon context in
+// computeWeaponBonus (Phase C follow-up).
+
+interface FeatureEffectAccum {
+  acAlways: number    // unconditional AC bonus
+  acArmored: number   // applies only when body armor is worn (Defense)
+  acUnarmored: number // applies only when no body armor is worn
+  weaponEffects: FeatureWeaponEffect[] // per-weapon to-hit/damage (Archery, Dueling)
+}
+
+function computeFeatureEffects(
+  character: Character,
+  classFeatures?: ClassFeatureData | null,
+): FeatureEffectAccum {
+  const acc: FeatureEffectAccum = { acAlways: 0, acArmored: 0, acUnarmored: 0, weaponEffects: [] }
+  if (!classFeatures) return acc
+
+  for (const { group } of applicableGroups(character, classFeatures)) {
+    const selected = character.classFeatureChoices?.[group.key] ?? []
+    if (!selected.length) continue
+    const bySlug = new Map(group.options.map(o => [o.slug, o]))
+    for (const slug of selected) {
+      const opt = bySlug.get(slug)
+      for (const e of (opt?.effects ?? [])) {
+        if (e.type === 'ac') {
+          if (e.condition === 'armored') acc.acArmored += e.amount
+          else if (e.condition === 'unarmored') acc.acUnarmored += e.amount
+          else acc.acAlways += e.amount
+        } else if (e.type === 'weapon_attack' || e.type === 'weapon_damage') {
+          acc.weaponEffects.push(e)
+        }
+      }
+    }
+  }
+  return acc
+}
+
+/**
+ * Per-weapon to-hit / damage from the character's fighting-style weapon effects.
+ * Archery (+2 ranged to-hit), Dueling (+2 one-handed melee damage). The "no other
+ * weapon" clause of Dueling isn't app-knowable, so it is approximated as "melee
+ * weapon without the Two-Handed property" (same simplification policy as advantages).
+ */
+export function computeFeatureWeaponBonus(
+  weapon: WeaponItem,
+  effects: FeatureWeaponEffect[] = [],
+): { toHit: number; damage: number } {
+  if (!effects.length) return { toHit: 0, damage: 0 }
+  const isRanged = weapon.weapon_type.toLowerCase().includes('ranged')
+  const isTwoHanded = weapon.properties.some(p => p.toLowerCase().includes('two-handed'))
+  let toHit = 0
+  let damage = 0
+  for (const e of effects) {
+    const matchesClass = e.weaponClass === 'ranged' ? isRanged : !isRanged
+    if (!matchesClass) continue
+    if (e.type === 'weapon_attack') {
+      toHit += e.amount
+    } else {
+      if (e.handed === 'one-handed' && isTwoHanded) continue
+      if (e.handed === 'two-handed' && !isTwoHanded) continue
+      damage += e.amount
+    }
+  }
+  return { toHit, damage }
+}
+
 export interface DeriveContext {
   // All class records, ordered to match character.classes; [0] = primary
   classes?: (ClassData | null)[] | null
   race?: Race | null
   catalog?: { weapons?: WeaponItem[]; armor?: ArmorItem[]; wondrous_items?: WondrousItem[] } | null
   featData?: Record<string, FeatData> | null
+  // Selectable class-feature groups (public/data/class-features.json)
+  classFeatures?: ClassFeatureData | null
 }
 
 export function deriveCharacterStats(
   character: Character,
   ctx: DeriveContext = {},
 ): DerivedStats {
-  const { race, catalog, featData } = ctx
+  const { race, catalog, featData, classFeatures } = ctx
   const classRecords = (ctx.classes ?? []).filter((c): c is ClassData => c != null)
   const classData = ctx.classes?.[0] ?? null
   const pb = proficiencyBonus(character.level)
+  const featureFx = computeFeatureEffects(character, classFeatures)
 
   // ── Effective Abilities (base + racial ASIs + all feat ASIs) ─────────────
   const effectiveAbilities = { ...character.abilities }
@@ -828,6 +912,19 @@ export function deriveCharacterStats(
     effectiveAC = (effectiveAC ?? character.armorClass) + itemEffects.acBonus
   }
 
+  // Fighting-style AC: Defense (+1 while wearing armor) gates on body armor worn;
+  // an unarmored-conditioned bonus gates on no body armor; unconditional applies
+  // always. Mirrors the item-AC fallback to the manual armorClass.
+  if (featureFx.acAlways !== 0) {
+    effectiveAC = (effectiveAC ?? character.armorClass) + featureFx.acAlways
+  }
+  if (featureFx.acArmored !== 0 && hasBodyArmor) {
+    effectiveAC = (effectiveAC ?? character.armorClass) + featureFx.acArmored
+  }
+  if (featureFx.acUnarmored !== 0 && !hasBodyArmor) {
+    effectiveAC = (effectiveAC ?? character.armorClass) + featureFx.acUnarmored
+  }
+
   // ── Adjusted Max HP ───────────────────────────────────────────────────────
   let hpBonus = 0
   for (const slug of character.feats) {
@@ -875,5 +972,6 @@ export function deriveCharacterStats(
     itemGrantedLanguages: itemEffects.languages,
     resistances: itemEffects.resistances,
     immunities: itemEffects.immunities,
+    featureWeaponEffects: featureFx.weaponEffects,
   }
 }

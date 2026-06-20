@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { deriveCharacterStats } from '@/lib/characterStats'
 import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
 import type { CasterKind } from '@/lib/spellcasting'
-import { parseHitDie, slugToTitle, toSkillName } from '@/lib/characterSetup'
+import { parseHitDie, slugToTitle, backgroundGrantedSkills } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { ClassData, EquipmentData, FeatData } from '@/types/data'
 import type { Character, SkillName } from '@/types/character'
@@ -47,15 +47,17 @@ export function useDerivedSheet(character: Character, data: SheetReferenceData):
   const derived = useMemo(
     () => deriveCharacterStats(character, {
       classes: classRecords, race: raceData, catalog: equipmentCatalog, featData,
+      classFeatures: setupData?.classFeatures ?? null,
     }),
-    [character, classRecords, raceData, equipmentCatalog, featData],
+    [character, classRecords, raceData, equipmentCatalog, featData, setupData],
   )
 
   const backgroundSkills = useMemo((): SkillName[] => (
-    (setupData?.backgrounds[character.background]?.skill_proficiencies ?? [])
-      .map(toSkillName)
-      .filter((s): s is SkillName => s !== null)
-  ), [setupData, character.background])
+    backgroundGrantedSkills(
+      setupData?.backgrounds[character.background]?.skill_proficiencies ?? [],
+      character.skillProficiencies,
+    )
+  ), [setupData, character.background, character.skillProficiencies])
 
   const primaryClassLevel = character.classes?.length
     ? (character.classes[0]?.level ?? character.level)

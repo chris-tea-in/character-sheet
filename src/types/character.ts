@@ -109,6 +109,15 @@ export interface Character {
   }>  // per-feat player choices
   toolProficiencies: string[]  // tool names (free-form, from equipment catalog)
 
+  // Selected class/subclass feature options (maneuvers, fighting styles,
+  // invocations, …), keyed by feature-choice group key → chosen option slugs.
+  // Stores choices only; any passive effect derives at render time (INV-1).
+  classFeatureChoices: Record<string, string[]>
+  // Usage tracker for choice-attached resources (e.g. Battle Master Superiority
+  // Dice), keyed by group key → count spent. Not a stat effect — never enters
+  // deriveCharacterStats; parallels equipment chargesUsed / spellSlotsUsed.
+  featureResourcesUsed: Record<string, number>
+
   // Campaign association (player-owned, synced like any other field). null = not
   // in a campaign. Does NOT gate the main list — it only adds the character to a
   // campaign view. The server keeps a derived campaign_id column (set from this on
@@ -153,6 +162,8 @@ export function defaultCharacter(name: string): NewCharacter {
     feats: [],
     featChoices: {},
     toolProficiencies: [],
+    classFeatureChoices: {},
+    featureResourcesUsed: {},
     campaignId: null,
     disguiseClass: false,
     disguiseAs: '',

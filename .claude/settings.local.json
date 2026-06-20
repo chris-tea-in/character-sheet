@@ -4,7 +4,12 @@
       "Edit(c:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\**)",
       "Write(c:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\**)",
       "Bash(git push*)",
-      "Read(//c/Users/buyp1/.claude/**)"
+      "Read(//c/Users/buyp1/.claude/**)",
+      "Bash(node -e \"const c=require\\('./public/data/class-features.json'\\); console.log\\('groups:', Object.keys\\(c\\).length\\); console.log\\(Object.keys\\(c\\)\\); console.log\\('invocations:', c['warlock:invocations'].options.length, '| metamagic:', c['sorcerer:metamagic'].options.length\\)\")",
+      "Bash(npm run *)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }

@@ -122,6 +122,7 @@ function featToDetailItem(_key: string, feat: FeatData): DetailItem {
     subtitle: feat.prerequisites.length ? `Prerequisite: ${feat.prerequisites.join(', ')}` : undefined,
     description: feat.description,
     sections: [],
+    edition: feat.edition,
   }
 }
 
@@ -318,6 +319,11 @@ export function FeatsBlock({ character, derived, onSave }: Props) {
               >
                 {name}
               </button>
+              {feat?.edition && (
+                <span className="text-xs font-medium flex-none" style={{ color: 'var(--color-accent-gold)' }}>
+                  ({feat.edition})
+                </span>
+              )}
               <button
                 onClick={() => removeFeat(key)}
                 className="text-muted-foreground hover:text-foreground transition-colors text-xs flex-none px-1"

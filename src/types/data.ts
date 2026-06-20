@@ -322,4 +322,62 @@ export interface FeatData {
   prerequisites: string[]
   description: string
   effects?: FeatEffect[]
+  /** Rules edition the entry comes from. Absent = 2014/legacy (no marker shown);
+   * "2024" surfaces a "(2024)" tag in selection lists. */
+  edition?: '2014' | '2024'
 }
+
+// ── Selectable class features (maneuvers, fighting styles, invocations, …) ─────
+//
+// A data-driven "choice group" = one choosable class/subclass feature. Compiled
+// from data/class-features/*.json into public/data/class-features.json keyed by
+// group key. The framework reads these to render pickers and (for the few options
+// with passive stat impact) derive effects at render time — INV-1. Adding a class
+// is data-only. See FeaturesBlock + computeFeatureEffects.
+
+/**
+ * Passive, app-knowable stat effect carried by a chosen feature option. Applied
+ * exactly once at render time in deriveCharacterStats (INV-1). v1 implements the
+ * armored/unarmored `ac` effect (Fighting Style: Defense). The weapon-conditional
+ * shapes are authored in the data now but applied in a later pass through
+ * computeWeaponBonus — recorded + displayed in v1, not yet folded into rolls.
+ */
+export type FeatureEffect =
+  | { type: 'ac'; amount: number; condition?: 'armored' | 'unarmored' }
+  | { type: 'weapon_attack'; weaponClass: 'ranged' | 'melee'; amount: number }
+  | { type: 'weapon_damage'; weaponClass: 'ranged' | 'melee'; handed?: 'one-handed' | 'two-handed'; amount: number }
+
+export interface FeatureOption {
+  slug: string
+  name: string
+  description: string
+  prerequisites?: string[]
+  effects?: FeatureEffect[]
+}
+
+/** Cumulative count known once the owning class reaches `level`. */
+export interface FeatureKnownStep { level: number; count: number }
+/** Resource pool size once the owning class reaches `level`. */
+export interface FeatureResourceStep { level: number; n: number }
+
+/** A choice-attached usage resource (e.g. Battle Master Superiority Dice). */
+export interface FeatureResource {
+  name: string
+  die?: string                    // e.g. "d8" — optional (some resources are flat counts)
+  by: FeatureResourceStep[]
+}
+
+export interface FeatureChoiceGroup {
+  key: string
+  label: string
+  /** Granted by this class (and optionally only with this subclass). Counts scale
+   * with the OWNING class's level from character.classes[], never total level (INV-2). */
+  source: { classSlug: string; subclassSlug?: string | null }
+  known: FeatureKnownStep[]
+  allowReplace?: boolean
+  resource?: FeatureResource
+  options: FeatureOption[]         // pools (optionsRef in source) are resolved at build time
+}
+
+/** Compiled class-features.json — keyed by group key. */
+export type ClassFeatureData = Record<string, FeatureChoiceGroup>

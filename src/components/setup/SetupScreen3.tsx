@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { toSkillName, ALL_LANGUAGES, getRacialBonuses, ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
+import { toSkillName, parseBackgroundSkills, ALL_LANGUAGES, getRacialBonuses, ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
 import { SKILL_DISPLAY_MAP, abilityModifier } from '@/lib/dice'
 import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
 import { getSpellcastingInfo, getPreparedSpellCount } from '@/lib/spellcasting'
@@ -53,19 +53,20 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const cls = data.classes[draft.classSlug]
   const bg = data.backgrounds[draft.backgroundSlug]
 
-  // Skills already granted by background (read-only)
-  const bgSkills: SkillName[] = (bg?.skill_proficiencies ?? [])
-    .map((s) => toSkillName(s))
-    .filter(Boolean) as SkillName[]
+  // Background skills: fixed grants (read-only) + an optional "choose N" pick.
+  const bgParsed = useMemo(() => parseBackgroundSkills(bg?.skill_proficiencies ?? []), [bg])
+  const bgSkills = bgParsed.fixed
+  const bgChoice = bgParsed.choice
 
   // Skill choices from class — "any" means all 18 skills are valid (e.g. Bard).
-  // Background-granted skills are excluded: picking one would collapse to a
-  // single proficiency on save and waste a class pick (BUG-27).
+  // Background-granted skills (fixed + chosen) are excluded: picking one would
+  // collapse to a single proficiency on save and waste a class pick (BUG-27).
   const rawSkillOpts = cls?.skill_choices.options ?? []
+  const bgExcluded = new Set<SkillName>([...bgSkills, ...draft.backgroundSkillChoices])
   const skillOptions: SkillName[] = (rawSkillOpts.some(o => o.trim().toLowerCase() === 'any')
     ? (Object.keys(SKILL_DISPLAY_MAP) as SkillName[])
     : rawSkillOpts.map((o) => toSkillName(o)).filter(Boolean) as SkillName[]
-  ).filter(s => !bgSkills.includes(s))
+  ).filter(s => !bgExcluded.has(s))
   const skillCount = cls?.skill_choices.count ?? 0
 
   // Language choices from background
@@ -168,6 +169,16 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
     }
   }
 
+  function toggleBgSkill(skill: SkillName) {
+    if (!bgChoice) return
+    const current = draft.backgroundSkillChoices
+    if (current.includes(skill)) {
+      onChange({ backgroundSkillChoices: current.filter((s) => s !== skill) })
+    } else if (current.length < bgChoice.count) {
+      onChange({ backgroundSkillChoices: [...current, skill] })
+    }
+  }
+
   function toggleLanguage(lang: string) {
     const current = draft.languageProficiencies
     if (current.includes(lang)) {
@@ -234,6 +245,30 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
             {bgSkills.map((skill) => (
               <ToggleRow key={skill} label={SKILL_DISPLAY_MAP[skill]} checked disabled />
             ))}
+          </div>
+        </Field>
+      )}
+
+      {/* Background skill choice (e.g. Cloistered Scholar: choose 1 of 3) */}
+      {bgChoice && (
+        <Field label={`Background Skill — choose ${bgChoice.count}`}>
+          <p className="text-xs text-muted-foreground mb-2">
+            {draft.backgroundSkillChoices.length}/{bgChoice.count} selected
+          </p>
+          <div className="space-y-1">
+            {bgChoice.options.map((skill) => {
+              const isChosen = draft.backgroundSkillChoices.includes(skill)
+              const isMaxed = draft.backgroundSkillChoices.length >= bgChoice.count && !isChosen
+              return (
+                <ToggleRow
+                  key={skill}
+                  label={SKILL_DISPLAY_MAP[skill]}
+                  checked={isChosen}
+                  disabled={isMaxed}
+                  onClick={() => toggleBgSkill(skill)}
+                />
+              )
+            })}
           </div>
         </Field>
       )}

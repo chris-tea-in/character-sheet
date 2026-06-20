@@ -15,9 +15,10 @@ import {
   meetsFeatPrerequisites, type FeatPrereqContext,
 } from '@/lib/characterStats'
 import { loadFeatsData, loadSpellsData } from '@/lib/data'
+import { levelUpFeatureChoices, meetsFeatureOptionPrereqs, allSelectedOptionSlugs } from '@/lib/classFeatures'
 import type { SpellLevel } from '@/lib/spellcasting'
 import type { DieType } from '@/types/dice'
-import type { ClassData, SpellData, FeatData } from '@/types/data'
+import type { ClassData, SpellData, FeatData, ClassFeatureData, FeatureOption } from '@/types/data'
 import type { Abilities, AbilityName, SkillName, Character, NewCharacter } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import { cn } from '@/lib/utils'
@@ -29,9 +30,19 @@ interface Props {
   classRecord: ClassData
   newLevel: number       // new level for THIS class (used for feature/spell lookups)
   newTotalLevel?: number // new total character level (stored as character.level); defaults to newLevel
+  classFeatures?: ClassFeatureData | null  // selectable-feature groups (for new-pick prompts)
   open: boolean
   onClose: () => void
   onApply: (changes: Partial<NewCharacter>) => void
+}
+
+function featureOptionToDetail(opt: FeatureOption) {
+  return {
+    name: opt.name,
+    subtitle: opt.prerequisites?.length ? `Prerequisite: ${opt.prerequisites.join(', ')}` : undefined,
+    description: opt.description,
+    sections: [],
+  }
 }
 
 
@@ -49,7 +60,7 @@ function Section({ title, children, accent }: { title: string; children: React.R
   )
 }
 
-export function LevelUpDialog({ character, effectiveAbilities, classRecord, newLevel, newTotalLevel, open, onClose, onApply }: Props) {
+export function LevelUpDialog({ character, effectiveAbilities, classRecord, newLevel, newTotalLevel, classFeatures, open, onClose, onApply }: Props) {
   const storedLevel = newTotalLevel ?? newLevel
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
@@ -67,6 +78,9 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
   const [spellBrowseAll, setSpellBrowseAll] = useState(false)
   const [spellPickerOpen, setSpellPickerOpen] = useState(false)
   const [cantripPickerOpen, setCantripPickerOpen] = useState(false)
+  // Newly chosen feature options this level-up, keyed by group key
+  const [featurePicks, setFeaturePicks] = useState<Record<string, string[]>>({})
+  const [featurePickerKey, setFeaturePickerKey] = useState<string | null>(null)
 
   const hitDie = parseHitDie(classRecord.hit_die)
   const conMod = abilityModifier(effectiveAbilities.con)
@@ -81,6 +95,16 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
 
   // For multiclass characters use this class's own level, not the total character level
   const currentClassLevel = character.classes?.find(c => c.classSlug === classRecord.slug)?.level ?? character.level
+  const thisClassSubclass = character.classes?.find(c => c.classSlug === classRecord.slug)?.subclassSlug ?? character.subclass ?? null
+
+  // Feature-choice groups that gain new picks this level-up (owning class + subclass
+  // match). Old level is 0 when multiclassing INTO this class (not yet in classes[]),
+  // so a first-level feature (e.g. Fighting Style) still prompts.
+  const featureOldLevel = character.classes?.find(c => c.classSlug === classRecord.slug)?.level ?? 0
+  const featureGroups = useMemo(
+    () => levelUpFeatureChoices(classFeatures, classRecord.slug, thisClassSubclass, featureOldLevel, newLevel),
+    [classFeatures, classRecord.slug, thisClassSubclass, featureOldLevel, newLevel],
+  )
 
   const newSpellInfo = getSpellcastingInfo(classRecord, newLevel)
   const oldProfile = parseClassSlots(classRecord, currentClassLevel)
@@ -129,6 +153,8 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
     setFeatSkillChoices([])
     setFeatExpertiseChoice(null)
     setSpellBrowseAll(false)
+    setFeaturePicks({})
+    setFeaturePickerKey(null)
     loadSpellsData().then(setAllSpells).catch(() => {})
     loadFeatsData().then(setAllFeats).catch(() => {})
   }, [open])
@@ -224,6 +250,20 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
       }
     }
 
+    // Apply newly chosen feature options (maneuvers, invocations, …)
+    if (featureGroups.length) {
+      const merged = { ...character.classFeatureChoices }
+      let changed = false
+      for (const { group } of featureGroups) {
+        const picks = featurePicks[group.key] ?? []
+        if (picks.length) {
+          merged[group.key] = [...(merged[group.key] ?? []), ...picks]
+          changed = true
+        }
+      }
+      if (changed) changes.classFeatureChoices = merged
+    }
+
     // Reset used spell slots only when slots actually expanded
     const slotsExpanded =
       newProfile.kind !== 'none' && (
@@ -269,7 +309,10 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
           || (chosenFeatSkillCount > 0 && featSkillChoices.length < chosenFeatSkillCount)
           || (chosenFeatNeedsExpertise && featExpertiseChoice === null)
   )
-  const canApply = spellsStillNeeded <= 0 && cantripsStillNeeded <= 0 && !asiStillNeeded
+  const featuresStillNeeded = featureGroups.some(
+    ({ group, delta }) => (featurePicks[group.key]?.length ?? 0) < delta,
+  )
+  const canApply = spellsStillNeeded <= 0 && cantripsStillNeeded <= 0 && !asiStillNeeded && !featuresStillNeeded
 
   return (
     <>
@@ -627,6 +670,41 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
               </Section>
             )}
 
+            {/* New class-feature choices (maneuvers, invocations, metamagic, …) */}
+            {featureGroups.map(({ group, delta }) => {
+              const picks = featurePicks[group.key] ?? []
+              const optBySlug = new Map(group.options.map(o => [o.slug, o]))
+              const need = delta - picks.length
+              return (
+                <Section key={group.key} title={`${group.label} — choose ${delta}`} accent>
+                  <div className="space-y-2">
+                    <div className="flex gap-2 flex-wrap">
+                      {picks.map(slug => (
+                        <span
+                          key={slug}
+                          className="text-xs px-2 py-0.5 rounded-full cursor-pointer"
+                          style={{ background: 'var(--color-accent-gold)', color: '#000' }}
+                          onClick={() => setFeaturePicks(p => ({ ...p, [group.key]: (p[group.key] ?? []).filter(s => s !== slug) }))}
+                        >
+                          {optBySlug.get(slug)?.name ?? slug} ✕
+                        </span>
+                      ))}
+                    </div>
+                    {need > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setFeaturePickerKey(group.key)}
+                        className="text-xs h-7"
+                      >
+                        Choose {group.label.toLowerCase()}{need > 1 ? ` (${need} left)` : ''}
+                      </Button>
+                    )}
+                  </div>
+                </Section>
+              )
+            })}
+
           </div>
 
           <DialogFooter>
@@ -698,6 +776,50 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
           setFeatPickerOpen(false)
         }}
       />
+
+      {/* Feature picker (maneuvers, invocations, …) */}
+      {(() => {
+        const info = featurePickerKey ? featureGroups.find(g => g.group.key === featurePickerKey) : null
+        if (!info) return null
+        const taken = new Set([
+          ...(character.classFeatureChoices[info.group.key] ?? []),
+          ...(featurePicks[info.group.key] ?? []),
+        ])
+        const selectedOptionSlugs = allSelectedOptionSlugs(character.classFeatureChoices)
+        for (const arr of Object.values(featurePicks)) for (const s of arr) selectedOptionSlugs.add(s)
+        const prereqCtx = {
+          classLevel: newLevel,
+          selectedOptionSlugs,
+          knownSpellSlugs: new Set([
+            ...character.spells.map(s => s.slug.replace(/^spell:/, '')),
+            ...newCantrips,
+          ]),
+        }
+        const entries = info.group.options
+          .filter(o => !taken.has(o.slug))
+          .map(o => ({
+            slug: o.slug,
+            detail: featureOptionToDetail(o),
+            warning: meetsFeatureOptionPrereqs(o, prereqCtx) ? undefined : 'Req not met',
+          }))
+        return (
+          <SelectionList
+            entries={entries}
+            value=""
+            title={`Choose ${info.group.label}`}
+            open={featurePickerKey !== null}
+            multiSelect={info.delta - (featurePicks[info.group.key]?.length ?? 0) > 1}
+            onClose={() => setFeaturePickerKey(null)}
+            onSelect={slug => {
+              const cur = featurePicks[info.group.key] ?? []
+              if (!cur.includes(slug) && cur.length < info.delta) {
+                setFeaturePicks(p => ({ ...p, [info.group.key]: [...(p[info.group.key] ?? []), slug] }))
+              }
+              if (cur.length + 1 >= info.delta) setFeaturePickerKey(null)
+            }}
+          />
+        )
+      })()}
 
       {/* Feat detail popup */}
       {chosenFeat && chosenFeatData && (

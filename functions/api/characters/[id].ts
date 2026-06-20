@@ -2,6 +2,7 @@ import {
   getEmail, isCampaignDm, isCampaignMember,
   json, unauthorized, forbidden, type Env,
 } from '../../_lib/auth'
+import { validateCharacter } from '../../../shared/characterValidation'
 
 // PUT /api/characters/:id — field-scoped merge upsert.
 //
@@ -66,16 +67,38 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
       }
     }
 
-    const stored = JSON.parse(existing.data) as Record<string, unknown>
+    let stored: Record<string, unknown>
+    try {
+      stored = JSON.parse(existing.data) as Record<string, unknown>
+    } catch {
+      // The row already in D1 is corrupt JSON — we can't field-merge onto it.
+      // Reject rather than overwrite it with a partial patch; the client keeps
+      // its good local copy and retries.
+      return json({ error: 'Stored character data is unparseable' }, 400)
+    }
     const merged = { ...stored, ...incoming }
+
+    // Reject a structurally-corrupt MERGED result before it lands in D1. Validate
+    // the merge, never the raw patch — a field-scoped patch is legitimately partial.
+    const valid = validateCharacter(merged)
+    if (!valid.ok) return json({ error: `Rejected invalid character: ${valid.reason}` }, 400)
+
     const newUpdatedAt = Math.max(existing.updated_at, updatedAt)
 
     await env.DB
       .prepare('UPDATE characters SET data = ?, updated_at = ?, deleted = 0, campaign_id = ? WHERE id = ?')
       .bind(JSON.stringify(merged), newUpdatedAt, campaignCol, id)
       .run()
+
+    // Return the authoritative updated_at so the client can set its sync base to
+    // exactly what we stored (max(stored, incoming)), not just what it sent.
+    return json({ ok: true, updatedAt: newUpdatedAt })
   } else {
     // New row: the patch is the full character; the caller is the owner.
+    // Validate the full incoming blob before the first insert.
+    const valid = validateCharacter(incoming)
+    if (!valid.ok) return json({ error: `Rejected invalid character: ${valid.reason}` }, 400)
+
     const created = typeof createdAt === 'number' ? createdAt : updatedAt
     let campaignCol: string | null = null
     const cid = incoming.campaignId
@@ -87,9 +110,9 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
       .prepare('INSERT INTO characters (id, owner_email, data, created_at, updated_at, deleted, campaign_id) VALUES (?, ?, ?, ?, ?, 0, ?)')
       .bind(id, email, JSON.stringify(incoming), created, updatedAt, campaignCol)
       .run()
-  }
 
-  return json({ ok: true })
+    return json({ ok: true, updatedAt })
+  }
 }
 
 // DELETE /api/characters/:id — owner-only soft delete (tombstone). A hard delete

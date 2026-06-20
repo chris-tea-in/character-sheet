@@ -299,7 +299,7 @@ function WeaponRow({
   onChooseBase?: () => void
 }) {
   const { dispatch } = useRollDispatch(derived)
-  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus)
+  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects)
   // Rider damage of another type (Flame Tongue → +2d6 fire) applies only while the
   // weapon is active (equipped/attuned per its requirement); crit doubles it.
   const riderDamage = active

@@ -43,6 +43,8 @@ RENDER   CharacterPage ─▶ deriveCharacterStats(character,        ▼
 | — | `unarmedStrike` (die/type/atk/dmg) | active items' `unarmed` effects (Demon Armor → 1d8 slashing +1/+1); base is 1 + STR bludgeoning |
 | — | `resistances`, `immunities` (CombatBlock "Defenses" readout) | active items' `resistance`/`immunity` effects (Brooch of Shielding → force; Periapt of Proof Against Poison → poison); deduped, lowercased, read-only |
 | `equipment[].chargesUsed` (usage tracker) | — | NOT a stat effect: catalog `charges.max − chargesUsed` = remaining pips (Pearl of Power, Wand of Magic Missiles, Rod of the Pact Keeper); rendered/edited in EquipmentBlock, never touches `deriveCharacterStats` |
+| `classFeatureChoices` (group key → chosen option slugs) | `effectiveAC` (Fighting Style: Defense) | selected feature options' passive `effects` via `computeFeatureEffects` (render time, INV-1). `ac` folds into `effectiveAC`; weapon-conditional `weapon_attack`/`weapon_damage` ride on `derived.featureWeaponEffects` and apply per-weapon in `computeWeaponBonus` (Archery to-hit, Dueling damage). Applicability + known-count resolved by `src/lib/classFeatures.ts` from the OWNING class's level, not total (INV-2). **Three write surfaces, all using the same helpers:** the wizard's Class Features screen (`SetupScreenFeatures`, round-tripped via the draft), `LevelUpDialog` (prompts only the per-level delta via `levelUpFeatureChoices`), and the sheet's `FeaturesBlock` (edit anytime) |
+| `featureResourcesUsed` (group key → spent) | — | NOT a stat effect: choice-attached resource tracker (Battle Master Superiority Dice), parallels `spellSlotsUsed`/`chargesUsed`; rendered/edited in FeaturesBlock, never touches `deriveCharacterStats` |
 | `spellBonusModifier` (manual override, default 0); `equipment[].attuned`, `equipment[].equipped` | `spellAttackBonus`, `spellSaveDC`, `effectiveAC`, `effectiveAbilities`, `saveModifiers`, `skillModifiers`, `effectiveSpeed`, `effectiveInitiativeBonus`, `adjustedMaxHp`, `resistances`, `immunities` | first class record with `spellcasting.ability` + **active** items' `effects` (via `computeActiveItemEffects`) + manual override. An item is *active* when attune-required & `attuned`, OR non-attune & `equipped`. Magic-item `effects` (ac/save/ability/skill/speed/init/damage/max_hp/resistance/immunity/unarmored_ac) fold into the matching derived field (damage → `itemDamageBonus`; `max_hp` → `adjustedMaxHp`; `ac` with `condition:'unarmored'` and `unarmored_ac` apply only when no body armor); item ability changes are uncapped (replaced `wondrous_items.spell_focus`, 2026-06-14) |
 
 `DeriveContext`: `{ classes?: (ClassData|null)[], race?, catalog?: { weapons?, armor?, wondrous_items? }, featData? }` —
@@ -87,8 +89,10 @@ derivation (`computeActiveItemEffects`).
   migration MUST be appended at the END of the array (version = last + 1), never
   inserted by number — an out-of-order entry leaves `schema_version` at the last
   array element's version and re-runs the higher migration on next boot, crashing
-  on duplicate DDL. One BEGIN/COMMIT per migration. Latest is v10
-  (`hit_dice_used_by_class`). They run in `initDb()` before first render and must
+  on duplicate DDL. One BEGIN/COMMIT per migration. Latest is **v15**
+  (`class_feature_choices` + `feature_resources_used` columns for selectable class
+  features; v14 added `character_backups`; v13 added the `last_synced_updated_at`
+  reconcile-base column — see Cloud sync tier). They run in `initDb()` before first render and must
   also run on imported DB blobs (importExport.ts) before the blob is adopted.
 - Roll history is session-only (Zustand `useDiceStore`) — never persisted.
 - `storageError` covers IndexedDB flush failures AND SQL-write rejections: the
@@ -115,10 +119,29 @@ work (Phase 2) writes are a **field-scoped merge**, not whole-blob LWW. Wiring:
   `pushOne` falls back to the full character when no `pendingPatch` exists (boot
   "local is newer" push), so the boot path stays whole-document.
 - Boot (`main.tsx`) runs `runInitialSync()` AFTER first render: `getMe` →
-  `pullCharacters` → **whole-character LWW boot-merge** (`upsertSyncedCharacter` for
-  remote-newer, repo `deleteCharacter` for remote tombstones — NOT store.remove) →
-  `flush()` → `store.load()`. The merge granularity here is still whole-document
-  (the documented offline-divergence path). `useCampaignStore.load()` runs alongside.
+  `pullCharacters` → **3-way reconcile** (`mergeRemote`) → `flush()` → `store.load()`.
+  `useCampaignStore.load()` runs alongside. Cloud-sync-hardening (2026-06-19, branch
+  `feat/cloud-sync-hardening`) **replaced the whole-character LWW boot-merge** with a
+  per-row reconcile against a device-local **base** (`last_synced_updated_at` column,
+  migration v13 — NOT on the `Character`/`NewCharacter` type, never pushed; INV-4):
+  - The pure decider `src/store/reconcile.ts` (`reconcileDecision`) compares
+    base vs local.updatedAt vs remote.updatedAt → `adopt`/`push`/`conflict`/`delete`/
+    `resurrect`/`set-base`/`none`. `mergeRemote` maps each onto DB effects. **Base 0 is
+    the "never reconciled" sentinel** (fresh migration / new local row) → fall back to
+    LWW for that row so the first post-migration boot can't mass-fire conflicts.
+  - **Adopt-gate:** before overwriting local with remote, the shared
+    `validateCharacter` (`shared/characterValidation.ts`) gates the blob; a corrupt
+    remote is **rejected (local kept), base NOT advanced**, surfaced via a quarantine
+    banner — never adopted, even in the conflict branch.
+  - **Both-sides changed → `ConflictResolutionModal`** (forced choice, App-mounted;
+    campaign chars default to Keep cloud). A remote tombstone vs a local edit
+    **resurrects** (keeps + re-pushes local) rather than silently deleting.
+  - **Rollback:** `character_backups` (migration v14, local-only, never synced) is
+    snapshotted before any adopt-over-local / delete / keep-cloud; Restore UI lives in
+    `DataManagementDialog`.
+  - The base advances when a remote row is adopted (`upsertSyncedCharacter` takes it as
+    a 3rd arg) and on a push ack — the PUT now **echoes the server's authoritative
+    `updated_at`**, which the client stores as the base (`setSyncBase`).
 - `src/lib/syncApi.ts` classifies every response into good-read / auth-expired /
   offline; only a good read merges, so a truncated/non-JSON/redirect response can
   never be misread as data, and **absence is never a delete** (deletes travel only as

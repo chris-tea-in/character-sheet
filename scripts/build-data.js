@@ -107,6 +107,62 @@ function validateCharges(item, label) {
   if (c.regain !== undefined && typeof c.regain !== 'string') errors.push(`${label} (charges): "regain" must be a string`)
 }
 
+// ── FeatureEffect validation (mirrors FeatureEffect union in src/types/data.ts) ──
+function validateFeatureEffects(effects, label) {
+  if (effects === undefined) return
+  if (!Array.isArray(effects)) {
+    errors.push(`${label}: "effects" must be an array`)
+    return
+  }
+  effects.forEach((e, i) => {
+    const at = `${label}: effects[${i}]`
+    switch (e?.type) {
+      case 'ac':
+        if (!isNum(e.amount)) errors.push(`${at} (ac): "amount" must be a number`)
+        if (e.condition !== undefined && e.condition !== 'armored' && e.condition !== 'unarmored')
+          errors.push(`${at} (ac): invalid condition "${e.condition}"`)
+        break
+      case 'weapon_attack':
+        if (e.weaponClass !== 'ranged' && e.weaponClass !== 'melee')
+          errors.push(`${at} (weapon_attack): invalid weaponClass "${e.weaponClass}"`)
+        if (!isNum(e.amount)) errors.push(`${at} (weapon_attack): "amount" must be a number`)
+        break
+      case 'weapon_damage':
+        if (e.weaponClass !== 'ranged' && e.weaponClass !== 'melee')
+          errors.push(`${at} (weapon_damage): invalid weaponClass "${e.weaponClass}"`)
+        if (e.handed !== undefined && e.handed !== 'one-handed' && e.handed !== 'two-handed')
+          errors.push(`${at} (weapon_damage): invalid handed "${e.handed}"`)
+        if (!isNum(e.amount)) errors.push(`${at} (weapon_damage): "amount" must be a number`)
+        break
+      default:
+        errors.push(`${at}: unknown feature effect type "${e?.type}"`)
+    }
+  })
+}
+
+function validateFeatureOption(o, label) {
+  if (!o || typeof o !== 'object') {
+    errors.push(`${label}: option must be an object`)
+    return
+  }
+  for (const f of ['slug', 'name', 'description']) {
+    if (typeof o[f] !== 'string' || o[f].trim() === '')
+      errors.push(`${label}: "${f}" must be a non-empty string`)
+  }
+  if (o.prerequisites !== undefined && !Array.isArray(o.prerequisites))
+    errors.push(`${label}: "prerequisites" must be an array`)
+  validateFeatureEffects(o.effects, label)
+}
+
+function validateFeatureResource(r, label) {
+  if (typeof r.name !== 'string' || r.name.trim() === '')
+    errors.push(`${label} (resource): "name" must be a non-empty string`)
+  if (r.die !== undefined && (typeof r.die !== 'string' || !/^d\d+$/.test(r.die)))
+    errors.push(`${label} (resource): "die" must match dN (e.g. "d8")`)
+  if (!Array.isArray(r.by) || r.by.length === 0)
+    errors.push(`${label} (resource): "by" must be a non-empty array`)
+}
+
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
@@ -239,6 +295,69 @@ for (const f of readdirSync('data/equipment')) {
     warnings.push(`equipment/${f}: not in EQUIPMENT_CATEGORIES — ignored`)
 }
 
+// ── Selectable class features (maneuvers, fighting styles, invocations, …) ─────
+// Each non-pools file is a top-level array of feature-choice groups; pools.json is
+// an object of shared option pools that groups reference via "optionsRef". Output
+// is keyed by group key → group (with optionsRef resolved to inline options).
+const classFeatures = (() => {
+  const out = {}
+  const dir = 'data/class-features'
+  if (!existsSync(dir)) return out
+  const POOLS_FILE = 'pools.json'
+
+  let pools = {}
+  if (existsSync(join(dir, POOLS_FILE))) {
+    const raw = readJson(join(dir, POOLS_FILE))
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      pools = raw
+      for (const [poolName, opts] of Object.entries(pools)) {
+        const label = `class-features/${POOLS_FILE} (${poolName})`
+        if (!Array.isArray(opts)) { errors.push(`${label}: pool must be an array`); continue }
+        opts.forEach((o, i) => validateFeatureOption(o, `${label}[${i}]`))
+      }
+    } else {
+      errors.push(`class-features/${POOLS_FILE}: expected a top-level object of pools`)
+    }
+  }
+
+  for (const file of readdirSync(dir).sort()) {
+    if (!file.endsWith('.json') || file === POOLS_FILE) continue
+    const label = `class-features/${file}`
+    const groups = readJson(join(dir, file))
+    if (!groups) continue
+    if (!Array.isArray(groups)) { errors.push(`${label}: expected a top-level array of groups`); continue }
+    for (const [i, g] of groups.entries()) {
+      const glabel = `${label}[${i}] (${g.key ?? '?'})`
+      requireFields(g, ['key', 'label', 'source', 'known'], glabel)
+      if (g.source && typeof g.source.classSlug !== 'string')
+        errors.push(`${glabel}: source.classSlug must be a string`)
+      if (g.known !== undefined && (!Array.isArray(g.known) || g.known.length === 0))
+        errors.push(`${glabel}: "known" must be a non-empty array`)
+
+      let options = g.options
+      if (g.optionsRef) {
+        if (!pools[g.optionsRef]) {
+          errors.push(`${glabel}: optionsRef "${g.optionsRef}" not found in ${POOLS_FILE}`)
+          continue
+        }
+        options = pools[g.optionsRef]
+      }
+      if (!Array.isArray(options) || options.length === 0) {
+        errors.push(`${glabel}: needs "options" or a valid "optionsRef"`)
+        continue
+      }
+      options.forEach((o, j) => validateFeatureOption(o, `${glabel}.options[${j}]`))
+      if (g.resource) validateFeatureResource(g.resource, glabel)
+      if (g.key && out[g.key]) errors.push(`${glabel}: duplicate group key "${g.key}"`)
+
+      const { optionsRef, ...rest } = g
+      void optionsRef
+      if (g.key) out[g.key] = { ...rest, options }
+    }
+  }
+  return out
+})()
+
 const rules = readJson('data/rules.json')
 
 if (warnings.length) {
@@ -253,7 +372,7 @@ if (errors.length) {
 }
 
 mkdirSync('public/data', { recursive: true })
-const outputs = { races, spells, classes, subclasses, feats, backgrounds, equipment }
+const outputs = { races, spells, classes, subclasses, feats, backgrounds, equipment, 'class-features': classFeatures }
 for (const [name, data] of Object.entries(outputs)) {
   writeFileSync(`public/data/${name}.json`, JSON.stringify(data, null, 2))
 }
@@ -262,4 +381,5 @@ if (rules) writeFileSync('public/data/rules.json', JSON.stringify(rules, null, 2
 const entryCount = [races, spells, classes, subclasses, feats, backgrounds]
   .reduce((n, d) => n + Object.keys(d).length, 0)
 const equipmentCount = Object.values(equipment).reduce((n, arr) => n + arr.length, 0)
-console.log(`\n✓ Built ${entryCount} entries across 6 categories + ${equipmentCount} equipment items across ${Object.keys(equipment).length} equipment categories + rules`)
+const featureGroupCount = Object.keys(classFeatures).length
+console.log(`\n✓ Built ${entryCount} entries across 6 categories + ${equipmentCount} equipment items across ${Object.keys(equipment).length} equipment categories + ${featureGroupCount} class-feature groups + rules`)

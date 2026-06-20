@@ -8,6 +8,8 @@
     "dev": "node scripts/build-data.js && vite",
     "build": "node scripts/build-data.js && tsc -b && vite build",
     "typecheck:functions": "tsc -p functions/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview",
     "shots": "node scripts/mobile-shots.mjs"
   },
@@ -38,6 +40,7 @@
     "tailwindcss": "^4.3.0",
     "typescript": "~5.7.2",
     "vite": "^6.0.5",
-    "vite-plugin-pwa": "^0.21.0"
+    "vite-plugin-pwa": "^0.21.0",
+    "vitest": "^4.1.9"
   }
 }

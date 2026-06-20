@@ -48,14 +48,30 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     return forbidden('Not a member of this campaign')
   }
 
-  const characters = rows.map(r => ({
-    id: r.id,
-    ownerEmail: r.owner_email,
-    ownerUsername: r.owner_username ?? null,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    data: JSON.parse(r.data),
-  }))
+  // Parse each row defensively: one corrupt blob must not throw the whole
+  // campaign response and blank the DM's whole party view. A skipped row just
+  // doesn't appear until it's fixed.
+  const characters: Array<{
+    id: string; ownerEmail: string; ownerUsername: string | null
+    createdAt: number; updatedAt: number; data: unknown
+  }> = []
+  for (const r of rows) {
+    let data: unknown
+    try {
+      data = JSON.parse(r.data)
+    } catch {
+      console.warn(`Skipping unparseable campaign character row ${r.id}`)
+      continue
+    }
+    characters.push({
+      id: r.id,
+      ownerEmail: r.owner_email,
+      ownerUsername: r.owner_username ?? null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      data,
+    })
+  }
 
   return json({ characters })
 }

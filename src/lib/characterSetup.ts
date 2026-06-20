@@ -1,4 +1,4 @@
-import { abilityModifier, rollDie } from '@/lib/dice'
+import { abilityModifier, rollDie, SKILL_ABILITY_MAP } from '@/lib/dice'
 import { generateId } from '@/lib/uuid'
 import { computeFeatStatDelta, featHasChoiceAsi } from '@/lib/characterStats'
 import { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug } from '@/lib/racialBonuses'
@@ -141,6 +141,100 @@ const SKILL_NAME_MAP: Record<string, SkillName> = {
 
 export function toSkillName(display: string): SkillName | null {
   return SKILL_NAME_MAP[normalizeOptionName(display)] ?? null
+}
+
+// ---------------------------------------------------------------------------
+// Background skill proficiencies — fixed grants + choice prose
+// ---------------------------------------------------------------------------
+
+export interface BackgroundSkillChoice {
+  count: number
+  options: SkillName[]
+}
+
+export interface ParsedBackgroundSkills {
+  fixed: SkillName[]
+  choice: BackgroundSkillChoice | null
+}
+
+const ABILITY_DISPLAY_TO_SHORT: Record<string, AbilityName> = {
+  Strength: 'str', Dexterity: 'dex', Constitution: 'con',
+  Intelligence: 'int', Wisdom: 'wis', Charisma: 'cha',
+}
+
+/**
+ * A background's `skill_proficiencies` is a mix of plain skill names ("Insight")
+ * and choice prose: "Your choice from: Arcana, Nature, or Religion", "Your choice
+ * of two from: …", or ability-scoped "One Intelligence, Wisdom, or Charisma skill
+ * of your choice". `toSkillName` only handles the plain names, so the choice
+ * entries were silently dropped — the background granted nothing and offered no
+ * picker. This splits the list into fixed grants and a single combined choice
+ * (all choice clauses merged: counts sum, options union, fixed skills removed).
+ * Real data never mixes two *different* option lists in one background, so the
+ * single combined choice is exact for every current entry.
+ */
+export function parseBackgroundSkills(list: string[]): ParsedBackgroundSkills {
+  const fixed: SkillName[] = []
+  let totalCount = 0
+  const optionSet = new Set<SkillName>()
+
+  for (const raw of list) {
+    const direct = toSkillName(raw)
+    if (direct) {
+      fixed.push(direct)
+      continue
+    }
+    // Choice clause. "two"/"of two" → pick 2, otherwise 1.
+    totalCount += /\btwo\b/i.test(raw) ? 2 : 1
+    // Pull any explicit skill names out of the prose.
+    const named = (Object.keys(SKILL_NAME_MAP) as string[])
+      .filter(display => new RegExp(`\\b${display}\\b`, 'i').test(raw))
+      .map(display => SKILL_NAME_MAP[display])
+    if (named.length > 0) {
+      for (const s of named) optionSet.add(s)
+    } else {
+      // Ability-scoped ("One Int, Wis, or Cha skill of your choice") → every
+      // skill governed by a named ability.
+      const abilities = new Set(
+        (Object.keys(ABILITY_DISPLAY_TO_SHORT) as string[])
+          .filter(display => new RegExp(`\\b${display}\\b`, 'i').test(raw))
+          .map(display => ABILITY_DISPLAY_TO_SHORT[display]),
+      )
+      for (const skill of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) {
+        if (abilities.has(SKILL_ABILITY_MAP[skill])) optionSet.add(skill)
+      }
+    }
+  }
+
+  // A skill granted outright can't also be a choice option.
+  for (const s of fixed) optionSet.delete(s)
+
+  const choice = totalCount > 0 && optionSet.size > 0
+    ? { count: Math.min(totalCount, optionSet.size), options: [...optionSet] }
+    : null
+  return { fixed, choice }
+}
+
+/**
+ * The skills a background actually granted a character: fixed grants plus any
+ * choice-option skill the character is currently proficient in (choices are baked
+ * into `skillProficiencies`, indistinguishable from class/manual picks, so the
+ * option set is the best available signal — see codebase-invariants INV-9). Used
+ * to exclude background skills from the class skill cap and to keep them when the
+ * class changes.
+ */
+export function backgroundGrantedSkills(
+  list: string[],
+  skillProficiencies: Partial<Record<SkillName, SkillProficiency>>,
+): SkillName[] {
+  const parsed = parseBackgroundSkills(list)
+  const granted = new Set<SkillName>(parsed.fixed)
+  if (parsed.choice) {
+    for (const opt of parsed.choice.options) {
+      if (skillProficiencies[opt]) granted.add(opt)
+    }
+  }
+  return [...granted]
 }
 
 const ABILITY_FROM_DISPLAY: Record<string, AbilityName> = {
@@ -427,9 +521,15 @@ export interface SetupDraft {
   // Screen 3
   languageProficiencies: string[]
   skillProficiencies: SkillName[]
+  // Skills picked for a background's "choose N" skill grant (e.g. Cloistered
+  // Scholar). Baked into skillProficiencies by draftToNewCharacter, alongside
+  // the background's fixed skill grants.
+  backgroundSkillChoices: SkillName[]
   toolProficiencies: string[]
   cantripSlugs: string[]
   spellSlugs: string[]
+  // Class-feature screen — selected feature options, keyed by group key → slugs
+  classFeatureChoices: Record<string, string[]>
   // Screen 1 — class ASI/feat picks (one entry per ASI level at or below character level)
   levelAsiChoices: LevelAsiChoice[]
   // Feat ASI choices made during setup (keyed by feat slug)
@@ -469,9 +569,11 @@ export const INITIAL_DRAFT: SetupDraft = {
   appearance: '',
   languageProficiencies: [],
   skillProficiencies: [],
+  backgroundSkillChoices: [],
   toolProficiencies: [],
   cantripSlugs: [],
   spellSlugs: [],
+  classFeatureChoices: {},
   levelAsiChoices: [],
   setupFeatChoices: {},
   equipmentChoices: { optionPicks: {}, openPicks: {} },
@@ -630,9 +732,18 @@ export function draftToNewCharacter(
   for (const skill of draft.skillProficiencies) {
     skillProficiencies[skill] = 'proficient'
   }
-  for (const display of (bg?.skill_proficiencies ?? [])) {
-    const key = toSkillName(display)
-    if (key) skillProficiencies[key] = 'proficient'
+  // Background grants: fixed skills plus the player's picks for any "choose N"
+  // grant. Chosen skills are validated against the parsed option set so a stale
+  // pick (e.g. background changed after picking) can't leak through.
+  const parsedBgSkills = parseBackgroundSkills(bg?.skill_proficiencies ?? [])
+  for (const skill of parsedBgSkills.fixed) {
+    skillProficiencies[skill] = 'proficient'
+  }
+  if (parsedBgSkills.choice) {
+    const validOptions = new Set(parsedBgSkills.choice.options)
+    for (const skill of draft.backgroundSkillChoices) {
+      if (validOptions.has(skill)) skillProficiencies[skill] = 'proficient'
+    }
   }
 
   // Class-granted saves only — feat-granted saves (e.g. Resilient) are derived
@@ -685,6 +796,10 @@ export function draftToNewCharacter(
       .filter(c => c?.mode === 'feat' && c.featSlug)
       .map(c => c.featSlug),
     featChoices,
+    // Class-feature selections come from the wizard's Class Features screen;
+    // featureResourcesUsed is sheet-only usage state (preserved by the edit merge).
+    classFeatureChoices: draft.classFeatureChoices,
+    featureResourcesUsed: {},
     equipment: namesToEquipmentItems([
       ...resolveGrantItems(cls?.starting_equipment ?? [], draft.equipmentChoices),
       ...(bg?.starting_equipment ?? []),
@@ -755,9 +870,13 @@ export function characterToDraft(
       : '',
     languageProficiencies: character.languages,
     skillProficiencies: Object.keys(character.skillProficiencies) as SkillName[],
+    // Already-chosen background skills survive inside skillProficiencies above
+    // (re-baked by draftToNewCharacter); the picker just re-opens empty on edit.
+    backgroundSkillChoices: [],
     toolProficiencies: character.toolProficiencies ?? [],
     cantripSlugs,
     spellSlugs,
+    classFeatureChoices: { ...(character.classFeatureChoices ?? {}) },
     levelAsiChoices: [],
     setupFeatChoices: {},
     equipmentChoices: { optionPicks: {}, openPicks: {} },
