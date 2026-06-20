@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { loadFeatsData } from '@/lib/data'
+import { mergeCustomFeats } from '@/lib/customContent'
 import { computeFeatHpBonus, featHasChoiceAsi, featChoiceAsiOptions, hasFeatStatEffect } from '@/lib/characterStats'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
+import { CustomFeatDialog } from './CustomFeatDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { SKILL_ABILITY_MAP } from '@/lib/dice'
@@ -135,16 +137,24 @@ interface PendingChoices {
 }
 
 export function FeatsBlock({ character, derived, onSave }: Props) {
-  const [allFeats, setAllFeats] = useState<Record<string, FeatData>>({})
+  const [loadedFeats, setLoadedFeats] = useState<Record<string, FeatData>>({})
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [customOpen, setCustomOpen] = useState(false)
   const [viewingKey, setViewingKey] = useState<string | null>(null)
   const [pendingFeatSlug, setPendingFeatSlug] = useState<string | null>(null)
   const [pendingPhase, setPendingPhase] = useState<FeatPickPhase | null>(null)
   const [pendingChoices, setPendingChoices] = useState<PendingChoices>({})
 
   useEffect(() => {
-    loadFeatsData().then(setAllFeats).catch(() => {})
+    loadFeatsData().then(setLoadedFeats).catch(() => {})
   }, [])
+
+  // Homebrew feats live on the character; fold them into the catalog so they list,
+  // view, and derive (computeFeatStatDelta) exactly like built-in feats.
+  const allFeats = useMemo(
+    () => mergeCustomFeats(loadedFeats, character.customFeats) ?? loadedFeats,
+    [loadedFeats, character.customFeats],
+  )
 
   const selectedSet = useMemo(() => new Set(character.feats), [character.feats])
 
@@ -261,6 +271,17 @@ export function FeatsBlock({ character, derived, onSave }: Props) {
       feats: newFeats,
       featChoices: newFeatChoices,
       currentHp: Math.min(character.currentHp, newAdjustedMax),
+      // Drop the homebrew definition too when removing a custom feat (no-op for
+      // catalog feats, whose slugs never match a customFeats entry).
+      customFeats: (character.customFeats ?? []).filter(f => f.slug !== key),
+    })
+  }
+
+  // A homebrew feat: store the definition AND add its slug to feats[] in one write.
+  function createCustomFeat(feat: FeatData) {
+    onSave({
+      customFeats: [...(character.customFeats ?? []), feat],
+      feats: [...character.feats, feat.slug],
     })
   }
 
@@ -335,13 +356,22 @@ export function FeatsBlock({ character, derived, onSave }: Props) {
           )
         })}
 
-        <button
-          onClick={() => setPickerOpen(true)}
-          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
-          style={{ color: 'var(--color-accent-gold)' }}
-        >
-          + Add feat
-        </button>
+        <div className="flex divide-x divide-border">
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
+            style={{ color: 'var(--color-accent-gold)' }}
+          >
+            + Add feat
+          </button>
+          <button
+            onClick={() => setCustomOpen(true)}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
+            style={{ color: 'var(--color-accent-gold)' }}
+          >
+            + Custom
+          </button>
+        </div>
       </div>
 
       <SelectionList
@@ -358,6 +388,12 @@ export function FeatsBlock({ character, derived, onSave }: Props) {
         mode="view"
         open={viewingKey !== null}
         onClose={() => setViewingKey(null)}
+      />
+
+      <CustomFeatDialog
+        open={customOpen}
+        onClose={() => setCustomOpen(false)}
+        onCreate={createCustomFeat}
       />
 
       {/* ASI choice dialog */}

@@ -45,6 +45,8 @@ RENDER   CharacterPage ─▶ deriveCharacterStats(character,        ▼
 | `equipment[].chargesUsed` (usage tracker) | — | NOT a stat effect: catalog `charges.max − chargesUsed` = remaining pips (Pearl of Power, Wand of Magic Missiles, Rod of the Pact Keeper); rendered/edited in EquipmentBlock, never touches `deriveCharacterStats` |
 | `classFeatureChoices` (group key → chosen option slugs) | `effectiveAC` (Fighting Style: Defense) | selected feature options' passive `effects` via `computeFeatureEffects` (render time, INV-1). `ac` folds into `effectiveAC`; weapon-conditional `weapon_attack`/`weapon_damage` ride on `derived.featureWeaponEffects` and apply per-weapon in `computeWeaponBonus` (Archery to-hit, Dueling damage). Applicability + known-count resolved by `src/lib/classFeatures.ts` from the OWNING class's level, not total (INV-2). **Three write surfaces, all using the same helpers:** the wizard's Class Features screen (`SetupScreenFeatures`, round-tripped via the draft), `LevelUpDialog` (prompts only the per-level delta via `levelUpFeatureChoices`), and the sheet's `FeaturesBlock` (edit anytime) |
 | `featureResourcesUsed` (group key → spent) | — | NOT a stat effect: choice-attached resource tracker (Battle Master Superiority Dice), parallels `spellSlotsUsed`/`chargesUsed`; rendered/edited in FeaturesBlock, never touches `deriveCharacterStats` |
+| `customWeapons[]`, `customArmor[]` (homebrew catalog-shaped defs) | resolved via the merged catalog → `effectiveAC` (custom armor), weapon to-hit/damage (custom weapons) | per-character homebrew folded into `EquipmentData` by `mergeCustomEquipment` (`src/lib/customContent.ts`) at the SAME point for both the derive (`useDerivedSheet`) and the UI (`EquipmentBlock`), so a custom item resolves by name exactly like a catalog entry (INV-1). The "Custom" buttons store the def AND add an `equipment[]` instance referencing its name. Migration v18. Sheet-managed (edit merge preserves) |
+| `customFeats[]` (homebrew FeatData) | `effectiveAbilities` etc. via `computeFeatStatDelta` | per-character homebrew feats merged into the feat map by `mergeCustomFeats` (`src/lib/customContent.ts`) for both the derive (`useDerivedSheet`) and `FeatsBlock`'s list. ASI effect derives like a built-in feat's `effects`. Adding pushes the slug into `feats[]`; removing prunes both. Migration v18. Sheet-managed |
 | `spellBonusModifier` (manual override, default 0); `equipment[].attuned`, `equipment[].equipped` | `spellAttackBonus`, `spellSaveDC`, `effectiveAC`, `effectiveAbilities`, `saveModifiers`, `skillModifiers`, `effectiveSpeed`, `effectiveInitiativeBonus`, `adjustedMaxHp`, `resistances`, `immunities` | first class record with `spellcasting.ability` + **active** items' `effects` (via `computeActiveItemEffects`) + manual override. An item is *active* when attune-required & `attuned`, OR non-attune & `equipped`. Magic-item `effects` (ac/save/ability/skill/speed/init/damage/max_hp/resistance/immunity/unarmored_ac) fold into the matching derived field (damage → `itemDamageBonus`; `max_hp` → `adjustedMaxHp`; `ac` with `condition:'unarmored'` and `unarmored_ac` apply only when no body armor); item ability changes are uncapped (replaced `wondrous_items.spell_focus`, 2026-06-14) |
 
 `DeriveContext`: `{ classes?: (ClassData|null)[], race?, catalog?: { weapons?, armor?, wondrous_items? }, featData? }` —
@@ -89,10 +91,13 @@ derivation (`computeActiveItemEffects`).
   migration MUST be appended at the END of the array (version = last + 1), never
   inserted by number — an out-of-order entry leaves `schema_version` at the last
   array element's version and re-runs the higher migration on next boot, crashing
-  on duplicate DDL. One BEGIN/COMMIT per migration. Latest is **v15**
-  (`class_feature_choices` + `feature_resources_used` columns for selectable class
-  features; v14 added `character_backups`; v13 added the `last_synced_updated_at`
-  reconcile-base column — see Cloud sync tier). They run in `initDb()` before first render and must
+  on duplicate DDL. One BEGIN/COMMIT per migration. Latest is **v18**
+  (`custom_weapons` + `custom_armor` + `custom_feats` columns for per-character
+  homebrew content; v17 added per-spell damage columns; v16 added
+  `homebrew_all_weapons_proficient`; v15 added `class_feature_choices` +
+  `feature_resources_used` for selectable class features; v14 added
+  `character_backups`; v13 added the `last_synced_updated_at` reconcile-base column
+  — see Cloud sync tier). They run in `initDb()` before first render and must
   also run on imported DB blobs (importExport.ts) before the blob is adopted.
 - Roll history is session-only (Zustand `useDiceStore`) — never persisted.
 - `storageError` covers IndexedDB flush failures AND SQL-write rejections: the

@@ -1,10 +1,11 @@
 import { useDiceStore } from '../store/dice'
 import type { DerivedStats } from './characterStats'
-import type { RollKind } from '../types/dice'
+import type { RollKind, DamageSpec } from '../types/dice'
 
 export function useRollDispatch(derived: DerivedStats) {
   const roll = useDiceStore(s => s.roll)
   const openModal = useDiceStore(s => s.openModal)
+  const openDamage = useDiceStore(s => s.openDamage)
 
   function dispatch(kind: RollKind) {
     const entry = roll(kind, derived)
@@ -25,5 +26,10 @@ export function useRollDispatch(derived: DerivedStats) {
     }
   }
 
-  return { dispatch }
+  // Dmg button: open the damage-setup modal directly (no preceding hit roll).
+  function dispatchDamage(spec: DamageSpec) {
+    openDamage(spec)
+  }
+
+  return { dispatch, dispatchDamage }
 }

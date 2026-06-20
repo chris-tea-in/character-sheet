@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { deriveCharacterStats } from '@/lib/characterStats'
+import { mergeCustomEquipment, mergeCustomFeats } from '@/lib/customContent'
 import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
 import type { CasterKind } from '@/lib/spellcasting'
 import { parseHitDie, slugToTitle, backgroundGrantedSkills } from '@/lib/characterSetup'
@@ -44,12 +45,23 @@ export function useDerivedSheet(character: Character, data: SheetReferenceData):
       : [classRecord]
   ), [character.classes, setupData, classRecord])
 
+  // Fold per-character homebrew defs into the catalogs so custom-armor AC and
+  // custom-weapon/feat effects derive through the same path as built-ins (INV-1).
+  const mergedCatalog = useMemo(
+    () => mergeCustomEquipment(equipmentCatalog, character),
+    [equipmentCatalog, character.customWeapons, character.customArmor],
+  )
+  const mergedFeatData = useMemo(
+    () => mergeCustomFeats(featData, character.customFeats),
+    [featData, character.customFeats],
+  )
+
   const derived = useMemo(
     () => deriveCharacterStats(character, {
-      classes: classRecords, race: raceData, catalog: equipmentCatalog, featData,
+      classes: classRecords, race: raceData, catalog: mergedCatalog, featData: mergedFeatData,
       classFeatures: setupData?.classFeatures ?? null,
     }),
-    [character, classRecords, raceData, equipmentCatalog, featData, setupData],
+    [character, classRecords, raceData, mergedCatalog, mergedFeatData, setupData],
   )
 
   const backgroundSkills = useMemo((): SkillName[] => (

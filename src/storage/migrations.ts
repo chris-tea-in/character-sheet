@@ -207,4 +207,36 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN feature_resources_used TEXT NOT NULL DEFAULT '{}'`)
     },
   },
+  {
+    version: 16,
+    up: (db) => {
+      // Homebrew override: add the proficiency bonus to EVERY weapon attack
+      // regardless of weapon proficiency. 0 = off (RAW). Read at render time in
+      // computeWeaponBonus; synced like any other character field.
+      db.run(`ALTER TABLE characters ADD COLUMN homebrew_all_weapons_proficient INTEGER NOT NULL DEFAULT 0`)
+    },
+  },
+  {
+    version: 17,
+    up: (db) => {
+      // Player-entered spell damage (catalog spells carry none) so the Dmg button
+      // can roll it. Nullable — most spells leave it unset. damage_per_level drives
+      // upcast scaling for leveled spells; cantrips scale by character level.
+      db.run(`ALTER TABLE character_spells ADD COLUMN damage_dice TEXT`)
+      db.run(`ALTER TABLE character_spells ADD COLUMN damage_type TEXT`)
+      db.run(`ALTER TABLE character_spells ADD COLUMN damage_per_level TEXT`)
+    },
+  },
+  {
+    version: 18,
+    up: (db) => {
+      // Homebrew custom content authored per-character: catalog-shaped weapon/armor/
+      // feat definitions. Merged into the equipment catalog / feat data at render
+      // time (lib/customContent) so their stats derive like built-in entries (INV-1).
+      // Choices/definitions only; synced via the data blob like any other field.
+      db.run(`ALTER TABLE characters ADD COLUMN custom_weapons TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`ALTER TABLE characters ADD COLUMN custom_armor TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`ALTER TABLE characters ADD COLUMN custom_feats TEXT NOT NULL DEFAULT '[]'`)
+    },
+  },
 ]

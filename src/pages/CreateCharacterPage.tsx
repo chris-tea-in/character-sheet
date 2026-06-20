@@ -280,6 +280,11 @@ export default function CreateCharacterPage() {
           // Resource usage (Superiority Dice spent) is sheet-only — preserve it.
           classFeatureChoices: newCharData.classFeatureChoices,
           featureResourcesUsed: existing.featureResourcesUsed,
+          // Homebrew custom content is authored on the sheet, not the wizard —
+          // preserve it or a bare merge would wipe it (INV-4).
+          customWeapons: existing.customWeapons,
+          customArmor: existing.customArmor,
+          customFeats: existing.customFeats,
           toolProficiencies: newCharData.toolProficiencies,
           // Preserve campaign membership — the wizard can't represent it, so a
           // bare merge would silently drop the character from its campaign (INV-4)

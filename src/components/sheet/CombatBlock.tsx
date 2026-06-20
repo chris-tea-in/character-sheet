@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { abilityModifier } from '@/lib/dice'
 import { StepperField } from './StepperField'
+import { ValueAdjustModal } from './ValueAdjustModal'
 import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, NewCharacter } from '@/types/character'
 import type { DieType } from '@/types/dice'
@@ -51,6 +53,7 @@ function HpSection({
   onSave: (changes: Partial<NewCharacter>) => void
 }) {
   const { currentHp, maxHp, tempHp } = character
+  const [adjustOpen, setAdjustOpen] = useState(false)
 
   function changeHp(delta: number) {
     const newHp = Math.min(adjustedMaxHp, Math.max(-99, currentHp + delta))
@@ -101,6 +104,13 @@ function HpSection({
               +
             </button>
           </div>
+          <button
+            onClick={() => setAdjustOpen(true)}
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5"
+            title="Enter an amount to add or subtract"
+          >
+            <Pencil className="h-2.5 w-2.5" /> adjust by amount
+          </button>
           {hpColor && (
             <span className="text-xs" style={{ color: hpColor }}>
               {currentHp <= 0 ? 'Unconscious' : 'Bloodied'}
@@ -143,6 +153,13 @@ function HpSection({
           />
         </div>
       </div>
+
+      <ValueAdjustModal
+        open={adjustOpen}
+        label="HP"
+        onClose={() => setAdjustOpen(false)}
+        onApply={delta => changeHp(delta)}
+      />
     </div>
   )
 }

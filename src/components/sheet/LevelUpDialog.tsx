@@ -675,9 +675,16 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
               const picks = featurePicks[group.key] ?? []
               const optBySlug = new Map(group.options.map(o => [o.slug, o]))
               const need = delta - picks.length
+              const atCap = picks.length >= delta
+              const overCap = picks.length > delta
               return (
                 <Section key={group.key} title={`${group.label} — choose ${delta}`} accent>
                   <div className="space-y-2">
+                    {overCap && (
+                      <p className="text-[11px]" style={{ color: 'var(--color-accent-red)' }}>
+                        ⚠ Over the {delta} this level allows (homebrew).
+                      </p>
+                    )}
                     <div className="flex gap-2 flex-wrap">
                       {picks.map(slug => (
                         <span
@@ -690,16 +697,18 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
                         </span>
                       ))}
                     </div>
-                    {need > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setFeaturePickerKey(group.key)}
-                        className="text-xs h-7"
-                      >
-                        Choose {group.label.toLowerCase()}{need > 1 ? ` (${need} left)` : ''}
-                      </Button>
-                    )}
+                    {/* Soft cap (homebrew): adding past the level's delta is allowed, just flagged. */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFeaturePickerKey(group.key)}
+                      className="text-xs h-7"
+                      style={atCap ? { color: 'var(--color-accent-red)', borderColor: 'var(--color-accent-red)' } : undefined}
+                    >
+                      {atCap
+                        ? `Add ${group.label.toLowerCase()} (over limit)`
+                        : `Choose ${group.label.toLowerCase()}${need > 1 ? ` (${need} left)` : ''}`}
+                    </Button>
                   </div>
                 </Section>
               )
@@ -812,7 +821,10 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
             onClose={() => setFeaturePickerKey(null)}
             onSelect={slug => {
               const cur = featurePicks[info.group.key] ?? []
-              if (!cur.includes(slug) && cur.length < info.delta) {
+              // Soft cap: adding past the level's delta is allowed (homebrew); the
+              // group render flags it. Close once at/over the delta so each extra
+              // pick is a deliberate reopen.
+              if (!cur.includes(slug)) {
                 setFeaturePicks(p => ({ ...p, [info.group.key]: [...(p[info.group.key] ?? []), slug] }))
               }
               if (cur.length + 1 >= info.delta) setFeaturePickerKey(null)

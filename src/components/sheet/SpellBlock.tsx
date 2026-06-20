@@ -12,6 +12,8 @@ import { ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
 import { loadSpellsData } from '@/lib/data'
 import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
 import { RollButton } from '@/components/sheet/RollButton'
+import { parseSpellDamage } from '@/lib/spellDamage'
+import type { ParsedSpellDamage } from '@/lib/spellDamage'
 import type { ClassData, SpellData } from '@/types/data'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
@@ -59,20 +61,31 @@ function SpellRow({
   spell,
   charSpell,
   isPreparedCaster,
+  catalogDamage,
   onTogglePrepared,
   onRemove,
-  onRoll,
+  onHit,
+  onDamage,
+  onSetDamage,
 }: {
   spell: SpellData | undefined
   charSpell: CharacterSpell
   isPreparedCaster: boolean
+  catalogDamage: ParsedSpellDamage | null
   onTogglePrepared: () => void
   onRemove: () => void
-  onRoll: () => void
+  onHit: () => void
+  onDamage: () => void
+  onSetDamage: (patch: Partial<CharacterSpell>) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const level = spell?.level ?? 0
   const levelLabel = level === 0 ? 'Cantrip' : `Lv ${level}`
+  const dmgInputClass = 'w-16 bg-[var(--color-surface-2)] border border-border rounded px-1.5 py-0.5 text-xs text-foreground'
+  // The Dmg button works from a per-character override OR the auto-detected catalog
+  // damage; only when neither exists does it fall back to opening the editor.
+  const hasDamage = !!(charSpell.damageDice || catalogDamage?.dice)
+  const usingCatalog = !charSpell.damageDice && !!catalogDamage?.dice
 
   return (
     <div className="border-b border-border last:border-0">
@@ -106,7 +119,15 @@ function SpellRow({
           </div>
         )}
 
-        <RollButton onClick={onRoll} />
+        <div className="flex items-center gap-1 flex-none">
+          <RollButton label="Hit" onClick={onHit} />
+          <RollButton
+            label="Dmg"
+            tone="gold"
+            title={hasDamage ? undefined : 'No damage detected — set it in the spell details'}
+            onClick={() => (hasDamage ? onDamage() : setExpanded(true))}
+          />
+        </div>
 
         {spell && (
           <button
@@ -139,6 +160,48 @@ function SpellRow({
           {spell.at_higher_levels && (
             <p className="italic">{spell.at_higher_levels}</p>
           )}
+
+          {/* Damage for the Dmg button. Auto-detected from the spell text (shown as
+              the placeholder); type a value only to override it. */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="font-semibold text-foreground">Damage:</span>
+            <input
+              key={`dice-${charSpell.slug}`}
+              defaultValue={charSpell.damageDice ?? ''}
+              onBlur={e => onSetDamage({ damageDice: e.target.value.trim() || undefined })}
+              placeholder={catalogDamage?.dice ?? '8d6'}
+              className={dmgInputClass}
+            />
+            <input
+              key={`type-${charSpell.slug}`}
+              defaultValue={charSpell.damageType ?? ''}
+              onBlur={e => onSetDamage({ damageType: e.target.value.trim() || undefined })}
+              placeholder={catalogDamage?.type ?? 'fire'}
+              className={dmgInputClass}
+            />
+            {level > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">+ per slot above {level}:</span>
+                <input
+                  key={`per-${charSpell.slug}`}
+                  defaultValue={charSpell.damagePerLevel ?? ''}
+                  onBlur={e => onSetDamage({ damagePerLevel: e.target.value.trim() || undefined })}
+                  placeholder={catalogDamage?.perLevel ?? '1d6'}
+                  className="w-14 bg-[var(--color-surface-2)] border border-border rounded px-1.5 py-0.5 text-xs text-foreground"
+                />
+              </span>
+            )}
+          </div>
+          {usingCatalog && (
+            <p className="text-[11px] italic">
+              Auto-detected: {catalogDamage!.dice}{catalogDamage!.type ? ` ${catalogDamage!.type}` : ''}
+              {catalogDamage!.perLevel ? ` (+${catalogDamage!.perLevel}/slot)` : ''}. Type above to override.
+            </p>
+          )}
+          {level === 0 && hasDamage && (
+            <p className="text-[11px] italic">Cantrip damage scales automatically at levels 5 / 11 / 17.</p>
+          )}
+
           <div className="flex justify-end pt-1">
             <button
               onClick={onRemove}
@@ -159,7 +222,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
   const [bonusEditorOpen, setBonusEditorOpen] = useState(false)
-  const { dispatch } = useRollDispatch(derived)
+  const { dispatch, dispatchDamage } = useRollDispatch(derived)
 
   useEffect(() => {
     loadSpellsData().then(setAllSpells).catch(() => {})
@@ -225,6 +288,14 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
 
   function removeSpell(key: string) {
     onSave({ spells: character.spells.filter(s => normalizeSlug(s.slug) !== key) })
+  }
+
+  function updateSpellDamage(key: string, patch: Partial<CharacterSpell>) {
+    onSave({
+      spells: character.spells.map(s =>
+        normalizeSlug(s.slug) === key ? { ...s, ...patch } : s,
+      ),
+    })
   }
 
   function togglePrepared(key: string) {
@@ -438,19 +509,39 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                   >
                     {level === 0 ? 'Cantrips' : `${ORDINALS[level]} Level`}
                   </p>
-                  {spells.map(cs => (
-                    <SpellRow
-                      key={cs.slug}
-                      charSpell={cs}
-                      spell={allSpells[normalizeSlug(cs.slug)]}
-                      isPreparedCaster={isPreparedCaster}
-                      onTogglePrepared={() => togglePrepared(normalizeSlug(cs.slug))}
-                      onRemove={() => removeSpell(normalizeSlug(cs.slug))}
-                      onRoll={() => dispatch(
-                        { type: 'attack', label: allSpells[normalizeSlug(cs.slug)]?.name ?? normalizeSlug(cs.slug), modifier: spellAttackMod },
-                      )}
-                    />
-                  ))}
+                  {spells.map(cs => {
+                    const sp = allSpells[normalizeSlug(cs.slug)]
+                    const spellLevel = sp?.level ?? 0
+                    const label = sp?.name ?? normalizeSlug(cs.slug)
+                    // Per-character override wins; otherwise fall back to the damage
+                    // auto-detected from the spell's text.
+                    const catalog = sp ? parseSpellDamage(sp) : null
+                    const dmgDice = cs.damageDice ?? catalog?.dice ?? ''
+                    const dmgType = cs.damageType ?? catalog?.type ?? undefined
+                    const dmgPerLevel = cs.damagePerLevel ?? catalog?.perLevel ?? undefined
+                    return (
+                      <SpellRow
+                        key={cs.slug}
+                        charSpell={cs}
+                        spell={sp}
+                        isPreparedCaster={isPreparedCaster}
+                        catalogDamage={catalog}
+                        onTogglePrepared={() => togglePrepared(normalizeSlug(cs.slug))}
+                        onRemove={() => removeSpell(normalizeSlug(cs.slug))}
+                        onHit={() => dispatch({ type: 'attack', label, modifier: spellAttackMod })}
+                        onDamage={() => dispatchDamage({
+                          label,
+                          baseDice: dmgDice,
+                          damageBonus: 0,
+                          damageType: dmgType,
+                          scaling: spellLevel === 0
+                            ? { kind: 'cantrip', characterLevel: character.level }
+                            : { kind: 'leveled', baseLevel: spellLevel, perLevel: dmgPerLevel, maxLevel: 9 },
+                        })}
+                        onSetDamage={patch => updateSpellDamage(normalizeSlug(cs.slug), patch)}
+                      />
+                    )
+                  })}
                 </div>
               )
             })}

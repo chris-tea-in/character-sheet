@@ -58,6 +58,7 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     speed: row['speed'] as number,
     initiativeBonus: (row['initiative_bonus'] as number) ?? 0,
     spellBonusModifier: (row['spell_bonus_modifier'] as number) ?? 0,
+    homebrewAllWeaponsProficient: Boolean(row['homebrew_all_weapons_proficient']),
     deathSaves: JSON.parse(row['death_saves'] as string),
     hitDiceUsed: row['hit_dice_used'] as number,
     hitDiceUsedByClass: JSON.parse(row['hit_dice_used_by_class'] as string ?? '{}'),
@@ -78,6 +79,9 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     toolProficiencies: JSON.parse(row['tool_proficiencies'] as string ?? '[]'),
     classFeatureChoices: JSON.parse(row['class_feature_choices'] as string ?? '{}'),
     featureResourcesUsed: JSON.parse(row['feature_resources_used'] as string ?? '{}'),
+    customWeapons: JSON.parse(row['custom_weapons'] as string ?? '[]'),
+    customArmor: JSON.parse(row['custom_armor'] as string ?? '[]'),
+    customFeats: JSON.parse(row['custom_feats'] as string ?? '[]'),
     campaignId: (row['campaign_id'] as string | null) ?? null,
     disguiseClass: Boolean(row['disguise_class']),
     disguiseAs: (row['disguise_as'] as string | null) ?? '',
@@ -91,13 +95,18 @@ function loadSpellsFor(db: Database, characterIds: string[]): Map<string, Charac
   if (!characterIds.length) return map
   const placeholders = characterIds.map(() => '?').join(',')
   const rows = query(db,
-    `SELECT character_id, spell_slug, prepared FROM character_spells WHERE character_id IN (${placeholders})`,
+    `SELECT character_id, spell_slug, prepared, damage_dice, damage_type, damage_per_level
+       FROM character_spells WHERE character_id IN (${placeholders})`,
     characterIds,
   )
   for (const row of rows) {
     const id = row['character_id'] as string
     if (!map.has(id)) map.set(id, [])
-    map.get(id)!.push({ slug: row['spell_slug'] as string, prepared: Boolean(row['prepared']) })
+    const spell: CharacterSpell = { slug: row['spell_slug'] as string, prepared: Boolean(row['prepared']) }
+    if (row['damage_dice'] != null) spell.damageDice = row['damage_dice'] as string
+    if (row['damage_type'] != null) spell.damageType = row['damage_type'] as string
+    if (row['damage_per_level'] != null) spell.damagePerLevel = row['damage_per_level'] as string
+    map.get(id)!.push(spell)
   }
   return map
 }
@@ -106,8 +115,13 @@ function syncSpells(db: Database, characterId: string, spells: CharacterSpell[])
   db.run('DELETE FROM character_spells WHERE character_id = ?', [characterId])
   for (const spell of spells) {
     db.run(
-      'INSERT INTO character_spells (character_id, spell_slug, prepared) VALUES (?, ?, ?)',
-      [characterId, spell.slug, spell.prepared ? 1 : 0],
+      `INSERT INTO character_spells
+         (character_id, spell_slug, prepared, damage_dice, damage_type, damage_per_level)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        characterId, spell.slug, spell.prepared ? 1 : 0,
+        spell.damageDice ?? null, spell.damageType ?? null, spell.damagePerLevel ?? null,
+      ],
     )
   }
 }
@@ -141,14 +155,14 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         id, name, race_slug, subrace, class_slug, subclass, background_slug,
         level, xp, progression_type, alignment, languages, backstory,
         abilities, max_hp, current_hp, temp_hp,
-        armor_class, speed, initiative_bonus, spell_bonus_modifier, death_saves, hit_dice_used, inspiration,
+        armor_class, speed, initiative_bonus, spell_bonus_modifier, homebrew_all_weapons_proficient, death_saves, hit_dice_used, inspiration,
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, feats, feat_choices, tool_proficiencies,
-        class_feature_choices, feature_resources_used, classes,
+        class_feature_choices, feature_resources_used, custom_weapons, custom_armor, custom_feats, classes,
         race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race ?? '', data.subrace ?? null, data.class ?? '', data.subclass ?? null, data.background ?? '',
@@ -157,6 +171,7 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         JSON.stringify(data.abilities),
         data.maxHp, data.currentHp ?? data.maxHp, data.tempHp ?? 0,
         data.armorClass ?? 10, data.speed ?? 30, data.initiativeBonus ?? 0, data.spellBonusModifier ?? 0,
+        data.homebrewAllWeaponsProficient ? 1 : 0,
         JSON.stringify(data.deathSaves ?? { successes: 0, failures: 0 }),
         data.hitDiceUsed ?? 0, data.inspiration ? 1 : 0,
         JSON.stringify(data.skillProficiencies ?? {}),
@@ -170,6 +185,9 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         JSON.stringify(data.toolProficiencies ?? []),
         JSON.stringify(data.classFeatureChoices ?? {}),
         JSON.stringify(data.featureResourcesUsed ?? {}),
+        JSON.stringify(data.customWeapons ?? []),
+        JSON.stringify(data.customArmor ?? []),
+        JSON.stringify(data.customFeats ?? []),
         JSON.stringify(data.classes ?? []),
         JSON.stringify(data.raceAsiChoices ?? []),
         JSON.stringify(data.hitDiceUsedByClass ?? {}),
@@ -208,11 +226,11 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         name=?, race_slug=?, subrace=?, class_slug=?, subclass=?, background_slug=?,
         level=?, xp=?, progression_type=?, alignment=?, languages=?, backstory=?,
         abilities=?, max_hp=?, current_hp=?, temp_hp=?,
-        armor_class=?, speed=?, initiative_bonus=?, spell_bonus_modifier=?, death_saves=?, hit_dice_used=?, hit_dice_used_by_class=?, inspiration=?,
+        armor_class=?, speed=?, initiative_bonus=?, spell_bonus_modifier=?, homebrew_all_weapons_proficient=?, death_saves=?, hit_dice_used=?, hit_dice_used_by_class=?, inspiration=?,
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
         equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?,
-        class_feature_choices=?, feature_resources_used=?, classes=?,
+        class_feature_choices=?, feature_resources_used=?, custom_weapons=?, custom_armor=?, custom_feats=?, classes=?,
         race_asi_choices=?, campaign_id=?, disguise_class=?, disguise_as=?, updated_at=?
       WHERE id=?`,
       [
@@ -222,6 +240,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         JSON.stringify(merged.abilities),
         merged.maxHp, merged.currentHp, merged.tempHp,
         merged.armorClass, merged.speed, merged.initiativeBonus ?? 0, merged.spellBonusModifier ?? 0,
+        merged.homebrewAllWeaponsProficient ? 1 : 0,
         JSON.stringify(merged.deathSaves),
         merged.hitDiceUsed, JSON.stringify(merged.hitDiceUsedByClass ?? {}), merged.inspiration ? 1 : 0,
         JSON.stringify(merged.skillProficiencies),
@@ -235,6 +254,9 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         JSON.stringify(merged.toolProficiencies ?? []),
         JSON.stringify(merged.classFeatureChoices ?? {}),
         JSON.stringify(merged.featureResourcesUsed ?? {}),
+        JSON.stringify(merged.customWeapons ?? []),
+        JSON.stringify(merged.customArmor ?? []),
+        JSON.stringify(merged.customFeats ?? []),
         JSON.stringify(merged.classes ?? []),
         JSON.stringify(merged.raceAsiChoices ?? []),
         merged.campaignId ?? null,
@@ -280,15 +302,15 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         id, name, race_slug, subrace, class_slug, subclass, background_slug,
         level, xp, progression_type, alignment, languages, backstory,
         abilities, max_hp, current_hp, temp_hp,
-        armor_class, speed, initiative_bonus, spell_bonus_modifier, death_saves, hit_dice_used, inspiration,
+        armor_class, speed, initiative_bonus, spell_bonus_modifier, homebrew_all_weapons_proficient, death_saves, hit_dice_used, inspiration,
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, feats, feat_choices, tool_proficiencies,
-        class_feature_choices, feature_resources_used, classes,
+        class_feature_choices, feature_resources_used, custom_weapons, custom_armor, custom_feats, classes,
         race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at,
         last_synced_updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )
       ON CONFLICT(id) DO UPDATE SET
         name=excluded.name, race_slug=excluded.race_slug, subrace=excluded.subrace,
@@ -297,7 +319,8 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         languages=excluded.languages, backstory=excluded.backstory, abilities=excluded.abilities,
         max_hp=excluded.max_hp, current_hp=excluded.current_hp, temp_hp=excluded.temp_hp,
         armor_class=excluded.armor_class, speed=excluded.speed, initiative_bonus=excluded.initiative_bonus,
-        spell_bonus_modifier=excluded.spell_bonus_modifier, death_saves=excluded.death_saves,
+        spell_bonus_modifier=excluded.spell_bonus_modifier,
+        homebrew_all_weapons_proficient=excluded.homebrew_all_weapons_proficient, death_saves=excluded.death_saves,
         hit_dice_used=excluded.hit_dice_used, inspiration=excluded.inspiration,
         skill_proficiencies=excluded.skill_proficiencies, saving_throw_proficiencies=excluded.saving_throw_proficiencies,
         spell_slots_used=excluded.spell_slots_used, personality_traits=excluded.personality_traits,
@@ -305,6 +328,7 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         equipment=excluded.equipment, currency=excluded.currency, feats=excluded.feats,
         feat_choices=excluded.feat_choices, tool_proficiencies=excluded.tool_proficiencies,
         class_feature_choices=excluded.class_feature_choices, feature_resources_used=excluded.feature_resources_used,
+        custom_weapons=excluded.custom_weapons, custom_armor=excluded.custom_armor, custom_feats=excluded.custom_feats,
         classes=excluded.classes,
         race_asi_choices=excluded.race_asi_choices, hit_dice_used_by_class=excluded.hit_dice_used_by_class,
         campaign_id=excluded.campaign_id,
@@ -318,6 +342,7 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         JSON.stringify(full.abilities),
         full.maxHp, full.currentHp ?? full.maxHp, full.tempHp ?? 0,
         full.armorClass ?? 10, full.speed ?? 30, full.initiativeBonus ?? 0, full.spellBonusModifier ?? 0,
+        full.homebrewAllWeaponsProficient ? 1 : 0,
         JSON.stringify(full.deathSaves ?? { successes: 0, failures: 0 }),
         full.hitDiceUsed ?? 0, full.inspiration ? 1 : 0,
         JSON.stringify(full.skillProficiencies ?? {}),
@@ -331,6 +356,9 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         JSON.stringify(full.toolProficiencies ?? []),
         JSON.stringify(full.classFeatureChoices ?? {}),
         JSON.stringify(full.featureResourcesUsed ?? {}),
+        JSON.stringify(full.customWeapons ?? []),
+        JSON.stringify(full.customArmor ?? []),
+        JSON.stringify(full.customFeats ?? []),
         JSON.stringify(full.classes ?? []),
         JSON.stringify(full.raceAsiChoices ?? []),
         JSON.stringify(full.hitDiceUsedByClass ?? {}),

@@ -1,3 +1,5 @@
+import type { WeaponItem, ArmorItem, FeatData } from './data'
+
 export type AbilityName = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha'
 
 export interface ClassEntry {
@@ -47,6 +49,13 @@ export interface EquipmentItem {
 export interface CharacterSpell {
   slug: string
   prepared: boolean
+  // Player-entered damage (the spell catalog carries none) so the Dmg button can
+  // roll it. `damageDice` is the dice at the spell's own level (e.g. "8d6");
+  // `damagePerLevel` adds dice per slot level above base for upcasting (leveled
+  // spells); cantrips auto-scale by character level and ignore `damagePerLevel`.
+  damageDice?: string
+  damageType?: string
+  damagePerLevel?: string
 }
 
 export interface Character {
@@ -78,6 +87,10 @@ export interface Character {
   speed: number
   initiativeBonus: number
   spellBonusModifier: number
+  // Homebrew override: when true, the proficiency bonus is added to EVERY weapon
+  // attack regardless of class/race weapon proficiency. Read at render time in
+  // computeWeaponBonus (the single weapon-proficiency application point).
+  homebrewAllWeaponsProficient: boolean
 
   deathSaves: DeathSaves
   hitDiceUsed: number
@@ -118,6 +131,15 @@ export interface Character {
   // deriveCharacterStats; parallels equipment chargesUsed / spellSlotsUsed.
   featureResourcesUsed: Record<string, number>
 
+  // Homebrew custom content — catalog-shaped definitions authored on this
+  // character (distinct from equipment[] instances and feats[] slug refs). Merged
+  // into the equipment catalog / feat data at render time (see lib/customContent)
+  // so AC, weapon bonuses, and feat ASIs derive identically to built-in entries
+  // (INV-1). Sheet-managed, not wizard-managed; ride the synced data blob.
+  customWeapons: WeaponItem[]
+  customArmor: ArmorItem[]
+  customFeats: FeatData[]
+
   // Campaign association (player-owned, synced like any other field). null = not
   // in a campaign. Does NOT gate the main list — it only adds the character to a
   // campaign view. The server keeps a derived campaign_id column (set from this on
@@ -151,6 +173,7 @@ export function defaultCharacter(name: string): NewCharacter {
     raceAsiChoices: [],
     maxHp: 0, currentHp: 0, tempHp: 0,
     armorClass: 10, speed: 30, initiativeBonus: 0, spellBonusModifier: 0,
+    homebrewAllWeaponsProficient: false,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0, hitDiceUsedByClass: {}, inspiration: false,
     skillProficiencies: {},
@@ -164,6 +187,9 @@ export function defaultCharacter(name: string): NewCharacter {
     toolProficiencies: [],
     classFeatureChoices: {},
     featureResourcesUsed: {},
+    customWeapons: [],
+    customArmor: [],
+    customFeats: [],
     campaignId: null,
     disguiseClass: false,
     disguiseAs: '',

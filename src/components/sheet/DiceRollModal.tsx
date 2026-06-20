@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { rollDie } from '@/lib/dice'
+import { computeDamageGroups, groupsToText } from '@/lib/damage'
 import { useDiceStore } from '@/store/dice'
 import type { DieType } from '@/types/dice'
 
@@ -228,6 +229,82 @@ function DamageBody() {
   )
 }
 
+// ── Damage setup (Dmg button: pick upcast level + crit, then roll) ─────────────
+
+function StepButton({ onClick, disabled, children }: { onClick: () => void; disabled: boolean; children: string }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="w-7 h-7 rounded border border-border text-lg leading-none font-bold hover:bg-secondary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+    >
+      {children}
+    </button>
+  )
+}
+
+function DamageSetup() {
+  const modal = useDiceStore(s => s.modal)!
+  const setCastLevel = useDiceStore(s => s.setCastLevel)
+  const rollModalDamage = useDiceStore(s => s.rollModalDamage)
+  const closeModal = useDiceStore(s => s.closeModal)
+  const spec = modal.damageSpec!
+
+  const leveled = spec.scaling?.kind === 'leveled' ? spec.scaling : null
+  const showStepper = !!leveled?.perLevel
+  const baseLevel = leveled?.baseLevel ?? 1
+  const maxLevel = leveled?.maxLevel ?? 9
+  const castLevel = modal.castLevel ?? baseLevel
+
+  const groups = computeDamageGroups(spec.baseDice, spec.scaling, castLevel)
+  const diceText = groupsToText(groups)
+  const bonus = spec.damageBonus
+  const bonusText = bonus !== 0 ? (bonus > 0 ? ` + ${bonus}` : ` − ${Math.abs(bonus)}`) : ''
+  const riderText = (spec.extraDamage ?? []).map(e => `+${e.dice} ${e.damageType}`).join(' ')
+
+  return (
+    <div className="flex flex-col items-center gap-4 py-2">
+      <p className="text-sm text-muted-foreground">
+        {spec.label} <span className="text-xs">(damage)</span>
+      </p>
+
+      {showStepper && (
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground uppercase tracking-wide">Cast at level</span>
+          <div className="flex items-center gap-2">
+            <StepButton onClick={() => setCastLevel(Math.max(baseLevel, castLevel - 1))} disabled={castLevel <= baseLevel}>−</StepButton>
+            <span className="text-lg font-bold tabular-nums w-6 text-center">{castLevel}</span>
+            <StepButton onClick={() => setCastLevel(Math.min(maxLevel, castLevel + 1))} disabled={castLevel >= maxLevel}>+</StepButton>
+          </div>
+        </div>
+      )}
+
+      <p className="text-2xl font-black tabular-nums">
+        {groups.length ? `${diceText}${bonusText}` : `${bonus}`}
+      </p>
+      {(spec.damageType || riderText) && (
+        <p className="text-xs text-muted-foreground capitalize">
+          {spec.damageType}{riderText ? ` ${riderText}` : ''}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <Button onClick={() => rollModalDamage(false)}>Roll Damage</Button>
+        <Button
+          variant="outline"
+          onClick={() => rollModalDamage(true)}
+          title="Roll with doubled dice (critical hit)"
+        >
+          Crit (2×)
+        </Button>
+      </div>
+      <button onClick={closeModal} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+        Cancel
+      </button>
+    </div>
+  )
+}
+
 // ── Shell ────────────────────────────────────────────────────────────────────
 
 export function DiceRollModal() {
@@ -237,6 +314,8 @@ export function DiceRollModal() {
   if (!modal) return null
 
   const title = modal.phase === 'damage' ? 'Damage Roll' : 'Roll Result'
+  // A damage phase with no rolls yet (and a spec) is the Dmg-button setup state.
+  const damageSetup = modal.phase === 'damage' && modal.damageRolls === undefined && !!modal.damageSpec
 
   return (
     <Dialog open onOpenChange={open => { if (!open) closeModal() }}>
@@ -246,7 +325,7 @@ export function DiceRollModal() {
         </DialogHeader>
         {modal.phase === 'result' && <ResultBody />}
         {modal.phase === 'hit' && <HitBody />}
-        {modal.phase === 'damage' && <DamageBody />}
+        {modal.phase === 'damage' && (damageSetup ? <DamageSetup /> : <DamageBody />)}
       </DialogContent>
     </Dialog>
   )

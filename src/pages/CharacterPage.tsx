@@ -32,7 +32,8 @@ import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { ALL_LANGUAGES, toSkillName, parseBackgroundSkills, backgroundGrantedSkills } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { ClassData, Race, Subrace, Background, EquipmentData, FeatData } from '@/types/data'
-import type { AbilityName, NewCharacter, SkillName } from '@/types/character'
+import { defaultCharacter } from '@/types/character'
+import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
 import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
 
@@ -41,6 +42,12 @@ type IdentityList = 'class' | 'subclass' | 'race' | 'subrace' | 'background' | '
 function classSavesToAbilities(saves: string[]): AbilityName[] {
   return saves.map(s => ABILITY_FULL_TO_SHORT[s.toLowerCase()]).filter(Boolean) as AbilityName[]
 }
+
+// Stable stand-in used only while the store is still loading (first render after a
+// hard refresh, before App's load() effect runs). Lets every hook below run
+// unconditionally — the real "not found" UI is gated at the JSX return, after all
+// hooks — so the character can go undefined→defined without breaking hook order.
+const EMPTY_CHARACTER: Character = { ...defaultCharacter(''), id: '', createdAt: 0, updatedAt: 0 }
 
 // ── Race change prompt ────────────────────────────────────────────────────────
 
@@ -610,22 +617,19 @@ export default function CharacterPage() {
     }
   }, [campaignId, pullLatest])
 
-  if (!character) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center p-6">
-        <div className="text-center space-y-3">
-          <p className="text-muted-foreground">Character not found.</p>
-          <Button variant="outline" onClick={() => navigate('/')}>Go back</Button>
-        </div>
-      </div>
-    )
-  }
+  // Rules of hooks: every hook below must run on every render, so we must NOT
+  // early-return while `character` is still undefined. The store loads in an App
+  // effect, so the first render after a hard refresh has no character yet —
+  // returning here then taking the hooks on the next (loaded) render would change
+  // the hook count and crash. Derive against a stable empty stand-in until the
+  // real record arrives; the "not found" UI is gated at the JSX return, below.
+  const char = character ?? EMPTY_CHARACTER
 
   function save(changes: Partial<NewCharacter>) {
     update(id!, changes)
   }
 
-  const currentRaceData = character.race ? (setupData?.races[character.race] ?? null) : null
+  const currentRaceData = char.race ? (setupData?.races[char.race] ?? null) : null
 
   // All render-time character stats derive through the shared hook so the owner
   // sheet and the campaign (DM) sheet can never drift (see useDerivedSheet).
@@ -636,28 +640,28 @@ export default function CharacterPage() {
   const {
     classRecords, derived, backgroundSkills, primaryClassLevel,
     multiclassSlotProfile, multiclassCasterKind, classHitDice,
-  } = useDerivedSheet(character, sheetData)
+  } = useDerivedSheet(char, sheetData)
 
   // Build class display string:
   //   single class → "Fighter" (header appends level separately)
   //   multiclass   → "Fighter 3 / Wizard 2" (levels embedded, header omits total)
   const displayClass = useMemo(() => {
-    const classes = character.classes ?? []
+    const classes = char.classes ?? []
     if (classes.length > 1) {
       return classes.map(c => `${slugToTitle(c.classSlug)} ${c.level}`).join(' / ')
     }
-    return character.class ? slugToTitle(character.class) : null
-  }, [character.classes, character.class])
+    return char.class ? slugToTitle(char.class) : null
+  }, [char.classes, char.class])
 
-  const displayRace = character.race
-    ? (setupData?.races[character.race]?.name ?? slugToTitle(character.race))
+  const displayRace = char.race
+    ? (setupData?.races[char.race]?.name ?? slugToTitle(char.race))
     : null
 
   const displaySubrace = useMemo(() => {
-    if (!character.subrace || !currentRaceData) return null
-    const sub = currentRaceData.subraces.find(s => toSubraceSlug(s.name) === character.subrace)
-    return sub?.name ?? slugToTitle(character.subrace)
-  }, [character.subrace, currentRaceData])
+    if (!char.subrace || !currentRaceData) return null
+    const sub = currentRaceData.subraces.find(s => toSubraceSlug(s.name) === char.subrace)
+    return sub?.name ?? slugToTitle(char.subrace)
+  }, [char.subrace, currentRaceData])
 
   const subraceEntries: SelectionEntry[] = useMemo(() => {
     if (!currentRaceData) return []
@@ -668,11 +672,11 @@ export default function CharacterPage() {
   }, [currentRaceData])
 
   const subclassEntries: SelectionEntry[] = useMemo(() => {
-    if (!setupData || !character.class) return []
+    if (!setupData || !char.class) return []
     return Object.values(setupData.subclasses)
-      .filter(s => s.classSlug === character.class && character.level >= s.choiceLevel)
+      .filter(s => s.classSlug === char.class && char.level >= s.choiceLevel)
       .map(s => ({ slug: s.subclassSlug, detail: subclassToDetailItem(s) }))
-  }, [setupData, character.class, character.level])
+  }, [setupData, char.class, char.level])
 
   const raceEntries: SelectionEntry[] = useMemo(() => {
     if (!setupData) return []
@@ -700,6 +704,19 @@ export default function CharacterPage() {
     'Lawful Neutral', 'True Neutral', 'Chaotic Neutral',
     'Lawful Evil', 'Neutral Evil', 'Chaotic Evil',
   ].map(a => ({ slug: a, detail: { name: a, sections: [] } }))
+
+  // All hooks have run; now it's safe to gate the render. `character` is non-null
+  // from here down (handlers + JSX), so the rest can use it directly.
+  if (!character) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center p-6">
+        <div className="text-center space-y-3">
+          <p className="text-muted-foreground">Character not found.</p>
+          <Button variant="outline" onClick={() => navigate('/')}>Go back</Button>
+        </div>
+      </div>
+    )
+  }
 
   function handleClassSelect(slug: string) {
     if (!character) return

@@ -419,7 +419,11 @@ export function computeWeaponBonus(
   const isRanged = weapon.weapon_type.toLowerCase().includes('ranged')
   const mod = isFinesse ? Math.max(strMod, dexMod) : isRanged ? dexMod : strMod
   const abilityLabel = isFinesse ? (dexMod > strMod ? 'DEX' : 'STR') : isRanged ? 'DEX' : 'STR'
-  const pb = isWeaponProficient(weapon, weaponProficiencies) ? proficiencyBonus(character.level) : 0
+  // Homebrew: `homebrewAllWeaponsProficient` forces the proficiency bonus onto
+  // every weapon regardless of class/race proficiency (single application point).
+  const pb = (character.homebrewAllWeaponsProficient || isWeaponProficient(weapon, weaponProficiencies))
+    ? proficiencyBonus(character.level)
+    : 0
   const magicBonus = weapon.bonus ?? 0
   // Fighting-style weapon bonuses (Archery to-hit, Dueling damage)
   const featureBonus = computeFeatureWeaponBonus(weapon, featureWeaponEffects)

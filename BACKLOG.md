@@ -1,5 +1,25 @@
 # D&D Character Sheet — Bug & Refactor Backlog
 
+## Homebrew Custom Content + Quick-Adjust + Soft-Lock (2026-06-20)
+
+Shipped this session: a shared **"type a value → Add/Subtract"** module used for HP and
+currency (replaces the place-value currency modal — supersedes the Distributed-App Feedback
+item #3 below); **per-character custom weapons / armor / feats** (migration **v18**;
+render-time catalog/feat merge in [src/lib/customContent.ts](src/lib/customContent.ts) so
+custom items derive like built-ins; create dialogs + "Custom" buttons in Equipment/Feats);
+and **soft-lock parity** for class-feature counts in the wizard + level-up dialog (the sheet
+already allowed it). Also fixed a **pre-existing `CharacterPage` reload crash** (early return
+before hooks — hard-refreshing a sheet URL showed a blank page).
+
+Deferred (not requested today — captured for later):
+
+| # | Item | Status |
+|---|---|---|
+| C1 | **Fighting-style combat math** — **Great Weapon Fighting** (reroll 1s/2s on damage, likely threaded through [DiceRollModal.tsx](src/components/sheet/DiceRollModal.tsx)) and **Two-Weapon Fighting** (offhand ability mod to damage). Archery/Dueling already ride `featureWeaponEffects`; GWF/TWF are authored in the fighting-styles data but intentionally not auto-applied. | Deferred |
+| C2 | **Class-feature data — subclass long tail.** The data-driven framework supports every class and the headline choices are authored; the remaining minor one-off subclass picks are data-only additions to `data/class-features/*.json`. | Deferred |
+
+---
+
 ## Cloud Sync Hardening — Conflict Handling & Corruption Defense (2026-06-18)
 
 Follow-on to the distributed-app feedback. Two gaps in the local↔cloud merge: (1) a corrupt

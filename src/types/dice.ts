@@ -21,7 +21,25 @@ export type RollKind =
   | { type: 'save';   ability: AbilityName; advantage?: boolean }
   | { type: 'ability'; ability: AbilityName; advantage?: boolean }
   | { type: 'attack'; label: string; modifier: number; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[] }
+  | { type: 'damage'; label: string }
   | { type: 'heal';   label: string; die: DieType; modifier: number }
+
+// How a damage roll scales. `cantrip` adds a base die at character levels 5/11/17;
+// `leveled` adds `perLevel` dice per slot level cast above the spell's base level.
+export type DamageScaling =
+  | { kind: 'cantrip'; characterLevel: number }
+  | { kind: 'leveled'; baseLevel: number; perLevel?: string; maxLevel: number }
+
+// Everything a Dmg button needs to roll (and re-roll as a crit / at a higher slot).
+// `baseDice` may be '' for flat-only damage (e.g. Unarmed Strike = 1 + STR).
+export interface DamageSpec {
+  label: string
+  baseDice: string
+  damageBonus: number
+  damageType?: string
+  extraDamage?: ExtraDamage[]
+  scaling?: DamageScaling
+}
 
 export interface RollResult {
   natural:  number   // the kept die (max when advantage)

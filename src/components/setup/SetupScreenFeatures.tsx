@@ -100,6 +100,7 @@ export function SetupScreenFeatures({ draft, data, onChange }: Props) {
         const selected = draft.classFeatureChoices[group.key] ?? []
         const optBySlug = new Map(group.options.map(o => [o.slug, o]))
         const atCap = selected.length >= known
+        const overCap = selected.length > known
         const remaining = known - selected.length
 
         return (
@@ -108,11 +109,20 @@ export function SetupScreenFeatures({ draft, data, onChange }: Props) {
               <span className="text-sm font-semibold">{group.label}</span>
               <span
                 className="text-xs"
-                style={{ color: atCap ? 'var(--color-text-muted)' : 'var(--color-accent-gold)' }}
+                style={{ color: overCap ? 'var(--color-accent-red)' : atCap ? 'var(--color-text-muted)' : 'var(--color-accent-gold)' }}
               >
                 {selected.length}/{known} chosen
               </span>
             </div>
+
+            {overCap && (
+              <p
+                className="px-4 py-1.5 text-[11px] border-b border-border"
+                style={{ color: 'var(--color-accent-red)' }}
+              >
+                ⚠ Over the normal limit of {known} for this level (homebrew).
+              </p>
+            )}
 
             <div className="divide-y divide-border">
               {selected.map(slug => {
@@ -136,15 +146,15 @@ export function SetupScreenFeatures({ draft, data, onChange }: Props) {
                 )
               })}
 
-              {!atCap && (
-                <button
-                  onClick={() => setPickerKey(group.key)}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
-                  style={{ color: 'var(--color-accent-gold)' }}
-                >
-                  + Choose {group.label.toLowerCase()} ({remaining} left)
-                </button>
-              )}
+              {/* Soft cap (homebrew): choosing past `known` is allowed, just flagged. */}
+              <button
+                onClick={() => setPickerKey(group.key)}
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
+                style={{ color: atCap ? 'var(--color-accent-red)' : 'var(--color-accent-gold)' }}
+                title={atCap ? `This class normally chooses ${known}. Adding more exceeds the standard ruleset (homebrew) — allowed, not blocked.` : undefined}
+              >
+                + {atCap ? `Add ${group.label.toLowerCase()} (over limit)` : `Choose ${group.label.toLowerCase()} (${remaining} left)`}
+              </button>
             </div>
           </div>
         )

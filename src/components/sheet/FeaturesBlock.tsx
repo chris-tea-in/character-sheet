@@ -158,6 +158,15 @@ export function FeaturesBlock({ character, setupData, onSave }: Props) {
               </span>
             </div>
 
+            {overCap && (
+              <p
+                className="px-4 py-1.5 text-[11px] border-b border-border"
+                style={{ color: 'var(--color-accent-red)' }}
+              >
+                ⚠ Over the normal limit of {known} for this level (homebrew).
+              </p>
+            )}
+
             <div className="divide-y divide-border">
               {selected.length === 0 && (
                 <p className="px-4 py-2.5 text-sm text-muted-foreground italic">None selected</p>
@@ -183,15 +192,16 @@ export function FeaturesBlock({ character, setupData, onSave }: Props) {
                 )
               })}
 
-              {!atCap && (
-                <button
-                  onClick={() => setPickerGroupKey(group.key)}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
-                  style={{ color: 'var(--color-accent-gold)' }}
-                >
-                  + Add {group.label.toLowerCase()}
-                </button>
-              )}
+              {/* Soft cap (homebrew): adding past `known` is always allowed, just
+                  flagged. Hard-locking here would block legitimate homebrew. */}
+              <button
+                onClick={() => setPickerGroupKey(group.key)}
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-secondary/30 transition-colors"
+                style={{ color: atCap ? 'var(--color-accent-red)' : 'var(--color-accent-gold)' }}
+                title={atCap ? `This class normally knows ${known}. Adding more exceeds the standard ruleset (homebrew) — allowed, not blocked.` : undefined}
+              >
+                + Add {group.label.toLowerCase()}{atCap ? ' (over limit)' : ''}
+              </button>
             </div>
 
             {/* Choice-attached resource tracker (e.g. Superiority Dice) */}

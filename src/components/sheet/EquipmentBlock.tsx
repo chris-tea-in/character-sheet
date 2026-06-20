@@ -6,8 +6,10 @@ import { InfoPopup } from '@/components/InfoPopup'
 import { StepperField } from './StepperField'
 import { EditableField } from './EditableField'
 import { ToolsSection } from './ToolsSection'
-import { CurrencyAdjustModal } from './CurrencyAdjustModal'
+import { ValueAdjustModal } from './ValueAdjustModal'
+import { CustomItemDialog } from './CustomItemDialog'
 import { generateId } from '@/lib/uuid'
+import { mergeCustomEquipment } from '@/lib/customContent'
 import { computeWeaponBonus, summarizeItemEffects, isVariableBaseArmor } from '@/lib/characterStats'
 import { abilityModifier } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
@@ -234,7 +236,7 @@ function ChargesTracker({
 // (every creature is proficient), damage = 1 + STR mod bludgeoning. Derived at
 // render time so it tracks ability items, racial ASIs, etc.
 function UnarmedRow({ derived }: { derived: DerivedStats }) {
-  const { dispatch } = useRollDispatch(derived)
+  const { dispatch, dispatchDamage } = useRollDispatch(derived)
   const strMod = abilityModifier(derived.effectiveAbilities.str)
   const override = derived.unarmedStrike
 
@@ -263,9 +265,17 @@ function UnarmedRow({ derived }: { derived: DerivedStats }) {
           </span>
           <span className="text-muted-foreground">{damageDisplay}</span>
         </div>
-        <RollButton
-          onClick={() => dispatch({ type: 'attack', label: 'Unarmed Strike', modifier: toHitModifier, damageDice, damageBonus, damageType })}
-        />
+        <div className="flex items-center gap-1 flex-none">
+          <RollButton
+            label="Hit"
+            onClick={() => dispatch({ type: 'attack', label: 'Unarmed Strike', modifier: toHitModifier })}
+          />
+          <RollButton
+            label="Dmg"
+            tone="gold"
+            onClick={() => dispatchDamage({ label: 'Unarmed Strike', baseDice: damageDice, damageBonus, damageType })}
+          />
+        </div>
       </div>
     </div>
   )
@@ -298,7 +308,7 @@ function WeaponRow({
   variableBase?: boolean
   onChooseBase?: () => void
 }) {
-  const { dispatch } = useRollDispatch(derived)
+  const { dispatch, dispatchDamage } = useRollDispatch(derived)
   const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects)
   // Rider damage of another type (Flame Tongue → +2d6 fire) applies only while the
   // weapon is active (equipped/attuned per its requirement); crit doubles it.
@@ -348,9 +358,17 @@ function WeaponRow({
           </span>
           <span className="text-muted-foreground">{displayDamage}</span>
         </div>
-        <RollButton
-          onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage })}
-        />
+        <div className="flex items-center gap-1 flex-none">
+          <RollButton
+            label="Hit"
+            onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier })}
+          />
+          <RollButton
+            label="Dmg"
+            tone="gold"
+            onClick={() => dispatchDamage({ label: item.name, baseDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage })}
+          />
+        </div>
       </div>
 
       {expanded && (
@@ -862,12 +880,22 @@ function buildGearEntries(gear: AdventuringGearItem[]): SelectionEntry[] {
   }))
 }
 
-export function EquipmentBlock({ character, derived, onSave, catalog, classRecord }: Props) {
+export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalog, classRecord }: Props) {
   const [weaponPickerOpen, setWeaponPickerOpen] = useState(false)
   const [armorPickerOpen, setArmorPickerOpen] = useState(false)
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
-  // Currency whose place-value fine-tune modal is open (null = closed).
+  // Custom weapon/armor creation dialog (null = closed).
+  const [customDialog, setCustomDialog] = useState<'weapon' | 'armor' | null>(null)
+  // Currency whose add/subtract modal is open (null = closed).
   const [currencyModal, setCurrencyModal] = useState<keyof Currency | null>(null)
+
+  // Catalog with this character's homebrew weapons/armor folded in, so they
+  // resolve by name in every row + picker exactly like built-ins (same merge the
+  // derive layer uses — see lib/customContent).
+  const catalog = useMemo(
+    () => mergeCustomEquipment(baseCatalog, character),
+    [baseCatalog, character.customWeapons, character.customArmor],
+  )
   // Variable-base ("any sword/any armor") item whose base picker is open, and the
   // item being prompted to pick a base after activation. Lifted here so the equip
   // flow and the in-row "Change" control share one picker.
@@ -993,6 +1021,16 @@ export function EquipmentBlock({ character, derived, onSave, catalog, classRecor
   }
   function addCustomItem() {
     onSave({ equipment: [...character.equipment, { id: generateId(), name: 'New item', quantity: 1 }] })
+  }
+  // A homebrew weapon/armor: store the definition (so its stats resolve by name via
+  // the merged catalog) AND drop a loadout instance referencing it in one write.
+  function createCustomDef(def: WeaponItem | ArmorItem) {
+    const isWeapon = def.category === 'weapon'
+    const changes: Partial<NewCharacter> = isWeapon
+      ? { customWeapons: [...(character.customWeapons ?? []), def as WeaponItem] }
+      : { customArmor: [...(character.customArmor ?? []), def as ArmorItem] }
+    changes.equipment = [...character.equipment, { id: generateId(), name: def.name, quantity: 1 }]
+    onSave(changes)
   }
   function setCurrency(key: keyof Currency, value: number) {
     onSave({ currency: { ...character.currency, [key]: value } })
@@ -1209,22 +1247,47 @@ export function EquipmentBlock({ character, derived, onSave, catalog, classRecor
 
       {/* Weapons */}
       <div className="rounded-lg border border-border bg-card p-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-          Weapons
-        </p>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Weapons
+          </p>
+          <label
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none"
+            title="Homebrew: add your proficiency bonus to every weapon's attack roll, even weapons your class isn't proficient with."
+          >
+            <input
+              type="checkbox"
+              checked={character.homebrewAllWeaponsProficient}
+              onChange={() => onSave({ homebrewAllWeaponsProficient: !character.homebrewAllWeaponsProficient })}
+              className="h-3.5 w-3.5 accent-[var(--color-accent-gold)] cursor-pointer"
+            />
+            Homebrew: all proficient
+          </label>
+        </div>
         <div>
           <UnarmedRow derived={derived} />
           {weaponItems.map(renderRow)}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setWeaponPickerOpen(true)}
-          className="text-muted-foreground hover:text-foreground mt-2"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Weapon
-        </Button>
+        <div className="flex gap-2 mt-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setWeaponPickerOpen(true)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Weapon
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCustomDialog('weapon')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Custom
+          </Button>
+        </div>
       </div>
 
       {/* Armor */}
@@ -1237,15 +1300,26 @@ export function EquipmentBlock({ character, derived, onSave, catalog, classRecor
         ) : (
           <div>{armorItems.map(renderRow)}</div>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setArmorPickerOpen(true)}
-          className="text-muted-foreground hover:text-foreground mt-2"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Armor
-        </Button>
+        <div className="flex gap-2 mt-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setArmorPickerOpen(true)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Armor
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCustomDialog('armor')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Custom
+          </Button>
+        </div>
       </div>
 
       {/* Items */}
@@ -1324,12 +1398,20 @@ export function EquipmentBlock({ character, derived, onSave, catalog, classRecor
         </div>
       </div>
 
-      <CurrencyAdjustModal
+      <ValueAdjustModal
         open={currencyModal !== null}
         label={currencyModal ? (CURRENCY_KEYS.find(c => c.key === currencyModal)?.label ?? '') : ''}
-        value={currencyModal ? character.currency[currencyModal] : 0}
         onClose={() => setCurrencyModal(null)}
-        onSave={v => { if (currencyModal) setCurrency(currencyModal, v); setCurrencyModal(null) }}
+        onApply={delta => {
+          if (currencyModal) setCurrency(currencyModal, Math.max(0, character.currency[currencyModal] + delta))
+        }}
+      />
+
+      <CustomItemDialog
+        open={customDialog !== null}
+        kind={customDialog ?? 'weapon'}
+        onClose={() => setCustomDialog(null)}
+        onCreate={createCustomDef}
       />
 
       <SelectionList

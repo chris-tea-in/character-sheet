@@ -308,7 +308,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     {formatBonus(bonus)}
                   </span>
                   <RollButton
-                    onClick={() => dispatch({ type: 'save', ability, advantage: hasAdv })}
+                    onClick={() => dispatch({ type: 'save', ability, advantage: hasAdv || undefined })}
                     advantage={hasAdv}
                   />
                 </div>
@@ -370,7 +370,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     {formatBonus(bonus)}
                   </span>
                   <RollButton
-                    onClick={() => dispatch({ type: 'skill', skill, advantage: hasAdv })}
+                    onClick={() => dispatch({ type: 'skill', skill, advantage: hasAdv || undefined })}
                     advantage={hasAdv}
                   />
                 </div>

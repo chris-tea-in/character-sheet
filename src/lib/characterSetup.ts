@@ -776,6 +776,7 @@ export function draftToNewCharacter(
     speed: subraceData?.speed ?? race?.base.speed ?? 30,
     initiativeBonus: 0,
     spellBonusModifier: 0,
+    homebrewAllWeaponsProficient: false,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0,
     hitDiceUsedByClass: {},
@@ -800,6 +801,11 @@ export function draftToNewCharacter(
     // featureResourcesUsed is sheet-only usage state (preserved by the edit merge).
     classFeatureChoices: draft.classFeatureChoices,
     featureResourcesUsed: {},
+    // Homebrew custom content is sheet-only (authored on the sheet, preserved by the
+    // edit merge); the wizard never creates it, so emit empties here.
+    customWeapons: [],
+    customArmor: [],
+    customFeats: [],
     equipment: namesToEquipmentItems([
       ...resolveGrantItems(cls?.starting_equipment ?? [], draft.equipmentChoices),
       ...(bg?.starting_equipment ?? []),

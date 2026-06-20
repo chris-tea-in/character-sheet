@@ -274,6 +274,26 @@ display templates must null-guard. Validator required-fields are the contract
 
 ---
 
+## INV-11 — Roll advantage is a tristate, never a raw boolean — ENFORCED
+
+`RollKind.advantage` is `true | false | undefined`: `true` = advantage,
+**`false` = disadvantage**, `undefined`/absent = normal roll (`useDiceStore.roll`
+reads `kind.advantage === false` as disadvantage). A dispatch site that only has a
+"has advantage" boolean must pass `hasAdv || undefined`, NOT the bare boolean —
+`advantage: hasAdv` sends `advantage: false` for every non-advantaged roll, which
+the store rolls at **disadvantage**. Symptom: every skill and save rolls at
+disadvantage except the one stat that has advantage.
+
+- Fixed (2026-06-19): the save + skill `RollButton`s in `ProficienciesBlock`
+  passed `advantage: hasAdv`; corrected to `advantage: hasAdv || undefined`.
+  Ability checks were already correct (they omit the field entirely). The
+  `advantage={hasAdv}` *display* prop on `RollButton` is a separate concern and is
+  fine as a bare boolean — only the dispatched `RollKind` carries the tristate.
+- Recipe: `rg -n "advantage: " src/components` — every dispatched value must be a
+  literal `true` or `|| undefined`-guarded; a bare boolean variable is the bug.
+
+---
+
 ## RAW assertions (check against any game-mechanics code)
 
 All of these are now ENFORCED in code (fixed 2026-06-13 unless noted); keep them
