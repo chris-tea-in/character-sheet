@@ -401,6 +401,20 @@ export function setSyncBase(db: Database, id: string, lastSyncedUpdatedAt: numbe
   db.run('UPDATE characters SET last_synced_updated_at = ? WHERE id = ?', [lastSyncedUpdatedAt, id])
 }
 
+/**
+ * Mark a character fully synced to the server's authoritative `updated_at`: set
+ * BOTH the row's `updated_at` and its reconcile base to that value. Called after a
+ * push is acked so `base == updated_at` holds even when the server clamped a
+ * skewed client clock to its own — otherwise the next reconcile would read the row
+ * as perpetually "locally changed" and re-push it on every boot. Only used on the
+ * clean-ack path (no newer edit landed mid-flight); the mid-flight path advances
+ * the base alone via setSyncBase and keeps the newer local updated_at.
+ */
+export function markSynced(db: Database, id: string, serverUpdatedAt: number): void {
+  db.run('UPDATE characters SET updated_at = ?, last_synced_updated_at = ? WHERE id = ?',
+    [serverUpdatedAt, serverUpdatedAt, id])
+}
+
 // ── Local rollback snapshots (H7) ──────────────────────────────────────────────
 
 export interface CharacterBackup {

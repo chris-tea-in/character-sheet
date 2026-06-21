@@ -4,7 +4,7 @@ import { normalizeNewCharacter } from '../types/character'
 import { getDb, flush } from '../storage'
 import {
   listCharacters, upsertSyncedCharacter, deleteCharacter,
-  getSyncBases, setSyncBase, insertBackup,
+  getSyncBases, setSyncBase, markSynced, insertBackup,
 } from '../storage/characterRepo'
 import { useCharacterStore } from './characters'
 import { reconcileDecision } from './reconcile'
@@ -76,17 +76,23 @@ async function pushOne(id: string, keepalive = false) {
     keepalive,
   )
   if (res.ok) {
-    // Advance the reconcile base to the server's authoritative updated_at (which
-    // may be max(stored, ours) under a concurrent write). Fall back to what we
-    // sent if an older server didn't echo it.
+    // The server echoes the authoritative updated_at it stored — which is its own
+    // clock (clamped, max(stored, …)), NOT necessarily what we sent. Fall back to
+    // what we sent if an older server didn't echo it.
     const serverUpdatedAt = typeof res.data?.updatedAt === 'number' ? res.data.updatedAt : snapshot.updatedAt
+    // Clean ack = no newer edit landed mid-flight.
+    const clean = dirty.get(id)?.updatedAt === snapshot.updatedAt
     try {
-      setSyncBase(getDb(), id, serverUpdatedAt)
+      // On a clean ack, align the LOCAL row's updated_at to the server's value too,
+      // so base == local.updatedAt holds; otherwise a clamped/skewed client would
+      // read the row as "locally changed" forever and re-push on every reconcile.
+      // Mid-flight: advance only the base — the newer local updated_at must win and
+      // gets re-pushed by the queued patch.
+      if (clean) markSynced(getDb(), id, serverUpdatedAt)
+      else setSyncBase(getDb(), id, serverUpdatedAt)
       void flush()
     } catch { /* base bookkeeping is best-effort; a real DB failure surfaces via storageError */ }
-    // Only clear if a newer edit didn't land mid-flight (then re-push the newer one,
-    // which carries the patch accumulated since this push started).
-    if (dirty.get(id)?.updatedAt === snapshot.updatedAt) {
+    if (clean) {
       dirty.delete(id)
       pendingPatch.delete(id)
     }

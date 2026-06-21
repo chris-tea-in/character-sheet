@@ -9,7 +9,7 @@ import {
   upsertSyncedCharacter,
 } from './characterRepo'
 import { defaultCharacter } from '../types/character'
-import type { Character } from '../types/character'
+import type { Character, NewCharacter } from '../types/character'
 
 // Boots a real sql.js database with every migration applied. This is the only
 // place the positional INSERT/UPDATE/upsert SQL in characterRepo is exercised
@@ -92,5 +92,108 @@ describe('characterRepo round-trip', () => {
     const read = getCharacter(db, 'sync-1')
     expect(read!.homebrewAllWeaponsProficient).toBe(true)
     expect(read!.name).toBe('Synced')
+  })
+})
+
+// ── Column-parity guard ────────────────────────────────────────────────────────
+//
+// Every Character field is hand-aligned across FOUR positional SQL lists
+// (insertCharacter, updateCharacter, and upsertSyncedCharacter's INSERT + its
+// ON CONFLICT clause). Drop a field from any one list and it SILENTLY reverts to
+// its column default on the next write — no type error, no runtime error, just a
+// lost edit on sync/reload. This test sets EVERY field to a distinctive,
+// non-default value and round-trips it through all three write paths; a dropped
+// column makes the deepEqual fail and names the field. (legacy class/subclass/level
+// are deliberately kept consistent with classes[] because update/upsert re-derive
+// them from classes[0] — INV-3.)
+
+/** A NewCharacter with every field set to a distinctive non-default value. */
+function fullCharacter(): NewCharacter {
+  return {
+    name: 'Parity Hero',
+    race: 'elf',
+    subrace: 'high-elf',
+    class: 'wizard',
+    subclass: 'evocation',
+    background: 'sage',
+    level: 5,
+    classes: [{ classSlug: 'wizard', subclassSlug: 'evocation', level: 5 }],
+    xp: 6500,
+    progressionType: 'xp',
+    alignment: 'chaotic-good',
+    languages: ['common', 'elvish'],
+    backstory: 'Raised in a hidden tower.',
+    abilities: { str: 8, dex: 14, con: 12, int: 18, wis: 10, cha: 13 },
+    raceAsiChoices: ['int', 'dex'],
+    maxHp: 32,
+    currentHp: 28,
+    tempHp: 5,
+    armorClass: 15,
+    speed: 35,
+    initiativeBonus: 2,
+    spellBonusModifier: 1,
+    homebrewAllWeaponsProficient: true,
+    deathSaves: { successes: 1, failures: 2 },
+    hitDiceUsed: 3,
+    hitDiceUsedByClass: { wizard: 3 },
+    inspiration: true,
+    skillProficiencies: { arcana: 'expertise', history: 'proficient' },
+    savingThrowProficiencies: ['int', 'wis'],
+    spells: [{ slug: 'fireball', prepared: true, damageDice: '8d6', damageType: 'fire', damagePerLevel: '1d6' }],
+    spellSlotsUsed: { 1: 2, 3: 1 },
+    personalityTraits: 'Endlessly curious.',
+    ideals: 'Knowledge above all.',
+    bonds: 'My tower and its library.',
+    flaws: 'Arrogant about my intellect.',
+    notes: 'Owes a favor to the archmage.',
+    equipment: [{ id: 'eq-1', name: 'Spellbook', quantity: 1, equipped: true, notes: 'leather-bound' }],
+    currency: { cp: 1, sp: 2, ep: 3, gp: 4, pp: 5 },
+    feats: ['skilled'],
+    featChoices: { skilled: { skillChoices: ['arcana', 'history', 'nature'] } },
+    toolProficiencies: ["Alchemist's Supplies"],
+    classFeatureChoices: { 'wizard:arcane-tradition': ['evocation'] },
+    featureResourcesUsed: { 'wizard:arcane-recovery': 1 },
+    customWeapons: [{
+      name: 'Custom Blade', category: 'weapon', weapon_type: 'Martial Melee',
+      damage_dice: '1d8', damage_type: 'slashing', properties: ['Finesse'], bonus: 1,
+    }],
+    customArmor: [{
+      name: 'Custom Plate', category: 'armor', armor_type: 'Heavy',
+      ac_formula: '18', stealth_disadvantage: true, strength_requirement: 15,
+    }],
+    customFeats: [{ name: 'Custom Feat', slug: 'custom-feat', prerequisites: [], description: 'Grants a thing.' }],
+    campaignId: 'camp-123',
+    disguiseClass: true,
+    disguiseAs: 'bard',
+  }
+}
+
+/** Strip the id/timestamps so the persisted payload can be compared field-for-field. */
+function asNew(c: Character): NewCharacter {
+  const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = c
+  return rest
+}
+
+describe('characterRepo — full column parity (all 4 positional SQL lists)', () => {
+  it('insertCharacter persists every field', () => {
+    const db = freshDb()
+    const expected = fullCharacter()
+    const inserted = insertCharacter(db, expected)
+    expect(asNew(getCharacter(db, inserted.id)!)).toEqual(expected)
+  })
+
+  it('updateCharacter persists every field', () => {
+    const db = freshDb()
+    const expected = fullCharacter()
+    const inserted = insertCharacter(db, defaultCharacter('Stub'))
+    updateCharacter(db, inserted.id, expected)
+    expect(asNew(getCharacter(db, inserted.id)!)).toEqual(expected)
+  })
+
+  it('upsertSyncedCharacter persists every field', () => {
+    const db = freshDb()
+    const expected = fullCharacter()
+    upsertSyncedCharacter(db, { ...expected, id: 'parity-1', createdAt: 1, updatedAt: 2 }, 2)
+    expect(asNew(getCharacter(db, 'parity-1')!)).toEqual(expected)
   })
 })

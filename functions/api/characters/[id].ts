@@ -4,6 +4,17 @@ import {
 } from '../../_lib/auth'
 import { validateCharacter } from '../../../shared/characterValidation'
 
+// Ordering is server-authoritative: the stored updated_at (the last-write-wins key
+// the whole sync reconcile turns on) is derived from OUR clock, not trusted from
+// the client. We still accept the client's updatedAt but cap how far it may run
+// ahead of us, so a skewed or hostile client can't pin its version forever with a
+// far-future timestamp. A sane client clock is within the window and passes
+// through unchanged (no behavior change for normal use). The client mirrors the
+// echoed value back into BOTH its local updated_at and its reconcile base, so the
+// "base == local.updatedAt after a sync" invariant holds even when we clamp.
+const MAX_CLOCK_SKEW_MS = 5 * 60_000
+const clampToServerClock = (t: number): number => Math.min(t, Date.now() + MAX_CLOCK_SKEW_MS)
+
 // PUT /api/characters/:id — field-scoped merge upsert.
 //
 //   Body: { createdAt?, updatedAt, patch } where `patch` is a partial set of
@@ -83,7 +94,7 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
     const valid = validateCharacter(merged)
     if (!valid.ok) return json({ error: `Rejected invalid character: ${valid.reason}` }, 400)
 
-    const newUpdatedAt = Math.max(existing.updated_at, updatedAt)
+    const newUpdatedAt = Math.max(existing.updated_at, clampToServerClock(updatedAt))
 
     await env.DB
       .prepare('UPDATE characters SET data = ?, updated_at = ?, deleted = 0, campaign_id = ? WHERE id = ?')
@@ -99,7 +110,8 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
     const valid = validateCharacter(incoming)
     if (!valid.ok) return json({ error: `Rejected invalid character: ${valid.reason}` }, 400)
 
-    const created = typeof createdAt === 'number' ? createdAt : updatedAt
+    const stamp = clampToServerClock(updatedAt)
+    const created = typeof createdAt === 'number' ? clampToServerClock(createdAt) : stamp
     let campaignCol: string | null = null
     const cid = incoming.campaignId
     if (typeof cid === 'string' && cid) {
@@ -108,10 +120,10 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
     }
     await env.DB
       .prepare('INSERT INTO characters (id, owner_email, data, created_at, updated_at, deleted, campaign_id) VALUES (?, ?, ?, ?, ?, 0, ?)')
-      .bind(id, email, JSON.stringify(incoming), created, updatedAt, campaignCol)
+      .bind(id, email, JSON.stringify(incoming), created, stamp, campaignCol)
       .run()
 
-    return json({ ok: true, updatedAt })
+    return json({ ok: true, updatedAt: stamp })
   }
 }
 

@@ -10,6 +10,10 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['shared/**/*.test.ts', 'src/**/*.test.ts'],
+    include: ['shared/**/*.test.ts', 'src/**/*.test.ts', 'functions/**/*.test.ts'],
+    // Booting Miniflare (a real local D1 in workerd) for the backend authority
+    // tests costs a few seconds; give the suite headroom over the 5s default.
+    testTimeout: 20_000,
+    hookTimeout: 30_000,
   },
 })
