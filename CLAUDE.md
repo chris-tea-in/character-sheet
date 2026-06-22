@@ -14,9 +14,21 @@
 
 ## Git Workflow
 
-- **Never push directly to `main`.** All work happens on a feature branch.
-- Create a new branch for every step or discrete piece of work: `git checkout -b step/3-tailwind-shadcn` (or `fix/`, `feat/`, etc.).
-- Open a PR to merge into `main` when the work is complete and tested.
+- **Every implementation lands on a feature branch first.** Create a new branch for
+  each step or discrete piece of work (`git checkout -b feat/...`, `fix/`, `step/`,
+  etc.) and push it there as work completes. A feature-branch push is the default
+  endpoint for any task.
+- **`main` is the last step and is gated on the user — every time.** Do NOT push to
+  `main`, force-push it, or merge into it without the user's explicit go-ahead **in
+  that same turn**. Promoting to `main` is always a separate, explicitly-approved
+  action, never the automatic continuation of finishing the work.
+- Prefer a PR (or an explicit merge the user approves) over a direct push when
+  integrating into `main`.
+
+  > The old hard block (a `deny` rule + PreToolUse hook in `.claude/settings.json`)
+  > was removed 2026-06-21 at the user's request; this per-turn-approval discipline
+  > replaces it. Treat the rule above as binding even though nothing now enforces it
+  > mechanically.
 
 ## Commands
 
@@ -459,10 +471,10 @@ Current entry counts in `data/` (as of 2026-06-12):
 | classes | 14 | 12 SRD + `artificer` + `blood-hunter` |
 | feats | 105 | |
 | races | 46 | One file per race; subrace variants inside each file |
-| spells | 567 | 81 carry annotated class refs the app can't match; 21 unselectable by any class (BUG-48) |
+| spells | 567 | class refs normalized to bare slugs; 0 unselectable (BUG-48 fixed, verified 2026-06-21) |
 | subclasses | 122 | Includes Artificer + Blood Hunter subclasses |
 | equipment/weapons | 198 | Simple & Martial + magic weapons; 88 entries have null `damage_dice`/`damage_type` |
-| equipment/armor | 82 | 14 mundane + magic armors; 20 have `ac_formula` shapes `parseArmorAC` can't parse (BUG-49) |
+| equipment/armor | 82 | 14 mundane + magic armors; `ac_formula` normalized, 0 unparseable (BUG-49 fixed 2026-06-21) |
 | equipment/adventuring_gear | 99 | Packs, containers, clothing, focuses, usables |
 | equipment/trinkets | 100 | PHB d100 table |
 | equipment/firearms | 13 | Renaissance, Modern, Futuristic |

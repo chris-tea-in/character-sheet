@@ -197,37 +197,13 @@
       "Bash(node -e \"const c=require\\('./public/data/classes.json'\\); for\\(const cl of ['paladin','ranger']\\){const x=c[cl]; const lvls=Object.entries\\(x.levels\\).filter\\(\\([l,d]\\)=>d.features.some\\(f=>/fighting style/i.test\\(f\\)\\)\\).map\\(\\([l]\\)=>l\\); console.log\\(cl,'fighting style at levels:', lvls\\)}\")",
       "Bash(node -e \"const c=require\\('./public/data/subclasses.json'\\); const ch=c['fighter:champion']; console.log\\(Object.entries\\(ch.features\\).map\\(\\([l,e]\\)=>l+': '+e.map\\(f=>f.name\\).join\\(', '\\)\\).join\\(' | '\\)\\)\")"
     ],
-    "deny": [
-      "Bash(git push origin main*)",
-      "Bash(git push origin master*)",
-      "Bash(git push -u origin main*)",
-      "Bash(git push -u origin master*)",
-      "Bash(git push --force origin main*)",
-      "Bash(git push origin HEAD:main*)",
-      "Bash(git push origin HEAD:master*)"
-    ],
+    "deny": [],
     "additionalDirectories": [
       "C:\\Users\\buyp1\\.claude\\skill-observations",
       "C:\\Users\\buyp1\\Workspace\\dnd-character-sheet\\data\\equipment",
       "C:\\Users\\buyp1\\AppData\\Local\\Temp",
       "C:\\Users\\buyp1\\.claude\\plans",
       "\\tmp"
-    ]
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const c=(JSON.parse(s).tool_input.command||'');if(/\\b(main|master)\\b/i.test(c)){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:'Push to main/master is blocked. Push to the feature branch and open a PR.'}}))}})\"",
-            "if": "Bash(git push*)",
-            "shell": "bash",
-            "statusMessage": "Checking push target is not main/master"
-          }
-        ]
-      }
     ]
   }
 }
