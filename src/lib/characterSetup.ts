@@ -2,6 +2,7 @@ import { abilityModifier, rollDie, SKILL_ABILITY_MAP } from '@/lib/dice'
 import { generateId } from '@/lib/uuid'
 import { computeFeatStatDelta, featHasChoiceAsi } from '@/lib/characterStats'
 import { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug } from '@/lib/racialBonuses'
+import { getSpellcastingInfo, isSpellbookCaster } from '@/lib/spellcasting'
 
 // Re-exported so existing importers keep working after the move to racialBonuses.ts
 export { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug }
@@ -758,6 +759,14 @@ export function draftToNewCharacter(
   const raceLanguages = race?.base.languages ?? []
   const languages = [...new Set([...raceLanguages, ...draft.languageProficiencies])]
 
+  // Prepared flag per caster type: Wizard (spellbook) prepares the chosen subset;
+  // other prepared casters (cleric/druid/paladin/artificer) prepare their whole
+  // list, so every selected spell is prepared; known/pact casters don't prepare.
+  const casterKind = cls ? getSpellcastingInfo(cls, draft.level).casterKind : 'none'
+  const spellbook = casterKind === 'prepared' && isSpellbookCaster(draft.classSlug)
+  const isSpellPrepared = (slug: string): boolean =>
+    casterKind === 'prepared' ? (spellbook ? draft.preparedSlugs.includes(slug) : true) : false
+
   return {
     name: draft.name,
     race: draft.raceSlug,
@@ -790,7 +799,7 @@ export function draftToNewCharacter(
     savingThrowProficiencies,
     spells: [
       ...draft.cantripSlugs.map(slug => ({ slug, prepared: false })),
-      ...draft.spellSlugs.map(slug => ({ slug, prepared: draft.preparedSlugs.includes(slug) })),
+      ...draft.spellSlugs.map(slug => ({ slug, prepared: isSpellPrepared(slug) })),
     ],
     spellSlotsUsed: {},
     personalityTraits: draft.personalityTraits,

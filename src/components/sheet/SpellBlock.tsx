@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { InfoPopup } from '@/components/InfoPopup'
 import { StepperField } from './StepperField'
-import { getSpellcastingInfo, getPreparedSpellCount, PACT_SLOT_KEY } from '@/lib/spellcasting'
+import { getSpellcastingInfo, getPreparedSpellCount, isSpellbookCaster, PACT_SLOT_KEY } from '@/lib/spellcasting'
 import type { SpellcastingProfile, CasterKind, SpellLevel } from '@/lib/spellcasting'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { abilityModifier } from '@/lib/dice'
@@ -71,7 +71,8 @@ function SlotPips({
 function SpellRow({
   spell,
   charSpell,
-  isPreparedCaster,
+  showPreparedToggle,
+  homebrew,
   catalogDamage,
   catalogHeal,
   onTogglePrepared,
@@ -83,7 +84,8 @@ function SpellRow({
 }: {
   spell: SpellData | undefined
   charSpell: CharacterSpell
-  isPreparedCaster: boolean
+  showPreparedToggle: boolean
+  homebrew?: boolean   // spell level is above your slot levels — allowed, flagged
   catalogDamage: ParsedSpellDamage | null
   catalogHeal: ParsedSpellHeal | null
   onTogglePrepared: () => void
@@ -121,7 +123,17 @@ function SpellRow({
           {spell?.name ?? normalizeSlug(charSpell.slug)}
         </button>
 
-        {spell && level > 0 && isPreparedCaster && (
+        {homebrew && (
+          <span
+            className="text-[9px] uppercase tracking-wide flex-none"
+            style={{ color: 'var(--color-accent-red)' }}
+            title="Above your spell-slot levels — kept as homebrew"
+          >
+            homebrew
+          </span>
+        )}
+
+        {spell && level > 0 && showPreparedToggle && (
           <div className="flex flex-col items-center gap-0.5 flex-none">
             <button
               onClick={onTogglePrepared}
@@ -265,7 +277,16 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
 
   const casterKind = overrideCasterKind ?? rawCasterKind
   const isPreparedCaster = casterKind === 'prepared'
+  // Wizard prepares a subset of its spellbook (show the Prepared toggle). Other
+  // prepared casters prepare their whole list, so every spell is prepared (no toggle).
+  const isSpellbook = isPreparedCaster && isSpellbookCaster(classRecord.slug)
   const spellAttackMod = derived.spellAttackBonus
+  // Highest level you have slots for — spells above it are castable only as homebrew
+  // (RAW: "of a level for which you have spell slots"). Flagged, never blocked.
+  const maxSlotLevel =
+    profile.kind === 'slots' || profile.kind === 'slots+pact'
+      ? Math.max(0, ...Object.keys(profile.slotsByLevel).map(Number))
+      : profile.kind === 'pact' ? profile.slotLevel : 0
 
   // Normalized set of slugs the character already knows (strips legacy "spell:" prefix)
   const alreadyKnown = useMemo(
@@ -288,6 +309,8 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
       ],
     },
     group: spellGroup(s.level),
+    // Soft cap: spells above your slot levels still appear, flagged as homebrew.
+    ...(s.level > maxSlotLevel ? { warning: 'homebrew' } : {}),
   })
 
   const classSpellEntries: SelectionEntry[] = useMemo(() =>
@@ -295,13 +318,13 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
       .filter(([key]) => !alreadyKnown.has(key))
       .filter(([, s]) => s.classes.includes(classRecord.slug))
       .map(toEntry),
-  [spellMap, alreadyKnown, classRecord.slug])
+  [spellMap, alreadyKnown, classRecord.slug, maxSlotLevel])
 
   const allSpellEntries: SelectionEntry[] = useMemo(() =>
     Object.entries(spellMap)
       .filter(([key]) => !alreadyKnown.has(key))
       .map(toEntry),
-  [spellMap, alreadyKnown])
+  [spellMap, alreadyKnown, maxSlotLevel])
 
   const spellTabs: TabConfig[] = useMemo(() => [
     { label: classRecord.name, entries: classSpellEntries, groupOrder: LEVEL_GROUP_ORDER },
@@ -313,7 +336,10 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   }
 
   function addSpell(key: string) {
-    onSave({ spells: [...character.spells, { slug: key, prepared: false }] })
+    // Single-model prepared casters (cleric/druid/paladin/artificer) prepare their
+    // whole list, so a newly added spell is prepared immediately. Wizard (spellbook)
+    // and known casters add unprepared.
+    onSave({ spells: [...character.spells, { slug: key, prepared: isPreparedCaster && !isSpellbook }] })
     setSpellListOpen(false)
   }
 
@@ -321,7 +347,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   // merged spell map) AND add the known-spell instance, with optional damage on
   // the instance (#6a). One write.
   function createCustomSpell(spell: SpellData, damage: CustomSpellDamage | null) {
-    const instance: CharacterSpell = { slug: spell.slug, prepared: false }
+    const instance: CharacterSpell = { slug: spell.slug, prepared: isPreparedCaster && !isSpellbook }
     if (damage) { instance.damageDice = damage.dice; if (damage.type) instance.damageType = damage.type }
     onSave({
       customSpells: [...(character.customSpells ?? []), spell],
@@ -373,8 +399,9 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   const castingMod = castingShort ? abilityModifier(derived.effectiveAbilities[castingShort]) : 0
   const cantripsSelected = (spellsByLevel.get(0) ?? []).length
   const spellsSelected = character.spells.length - cantripsSelected
-  // Prepared casters: the limit applies to how many are PREPARED, not how many are
-  // selected (selection is uncapped). Count only leveled, prepared spells.
+  // Prepared = leveled spells with the prepared flag set. Every prepared caster has
+  // the toggle on the sheet; single-model casters' spells default to prepared on add,
+  // so this still reads as their whole list until they unprepare something.
   const preparedCount = character.spells.filter(s => {
     const sp = spellMap[normalizeSlug(s.slug)]
     return (sp?.level ?? 0) > 0 && s.prepared
@@ -388,12 +415,6 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   // Either way the limit is a soft homebrew cap — going over just flags red.
   const spellCountShown = isPreparedCaster ? preparedCount : spellsSelected
   const overLimit = spellLimit > 0 && spellCountShown > spellLimit
-  const indicatorSlots: Partial<Record<number, number>> =
-    profile.kind === 'slots' || profile.kind === 'slots+pact'
-      ? profile.slotsByLevel
-      : profile.kind === 'pact'
-        ? { [profile.slotLevel]: profile.slotCount }
-        : {}
 
   return (
     <section className="space-y-3">
@@ -543,24 +564,6 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
             </span>
           </p>
         )}
-        {Object.keys(indicatorSlots).length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {Object.entries(indicatorSlots)
-              .sort(([a], [b]) => Number(a) - Number(b))
-              .map(([lvl, cap]) => {
-                const used = (spellsByLevel.get(Number(lvl)) ?? []).length
-                return (
-                  <span
-                    key={lvl}
-                    className="text-[11px]"
-                    style={{ color: 'var(--color-text-muted)', opacity: used >= (cap ?? 0) ? 0.45 : 1 }}
-                  >
-                    {ORDINALS[Number(lvl)]}: {used}/{cap}
-                  </span>
-                )
-              })}
-          </div>
-        )}
 
         {character.spells.length === 0 ? (
           <p className="text-sm text-muted-foreground">No spells added yet.</p>
@@ -593,7 +596,8 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                         key={cs.slug}
                         charSpell={cs}
                         spell={sp}
-                        isPreparedCaster={isPreparedCaster}
+                        showPreparedToggle={isPreparedCaster}
+                        homebrew={spellLevel > maxSlotLevel}
                         catalogDamage={catalog}
                         catalogHeal={heal}
                         onTogglePrepared={() => togglePrepared(normalizeSlug(cs.slug))}

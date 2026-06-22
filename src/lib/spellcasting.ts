@@ -205,6 +205,14 @@ export function computeMulticlassSlots(
 // full prepared casters use their full level.
 const HALF_PREPARED_SLUGS = ['paladin', 'artificer']
 
+// Among prepared casters, only the Wizard keeps a spellbook (knows many spells,
+// prepares a subset → two layers: a spell list + a prepared toggle). Cleric,
+// Druid, Paladin, and Artificer prepare directly from their whole class list, so
+// their spell list IS their prepared list — one layer, no toggle.
+export function isSpellbookCaster(classSlug: string): boolean {
+  return classSlug === 'wizard'
+}
+
 // Prepared-caster preparation limit (PHB). Full casters (cleric, druid, wizard):
 // ability mod + class level. Half casters (paladin, artificer): ability mod +
 // floor(level / 2). Always at least 1.

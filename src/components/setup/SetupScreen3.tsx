@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { toSkillName, parseBackgroundSkills, ALL_LANGUAGES, getRacialBonuses, ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
 import { SKILL_DISPLAY_MAP, abilityModifier } from '@/lib/dice'
-import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
-import { getSpellcastingInfo, getPreparedSpellCount } from '@/lib/spellcasting'
+import { LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
+import { getSpellcastingInfo, getPreparedSpellCount, isSpellbookCaster } from '@/lib/spellcasting'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import type { SetupDraft } from '@/lib/characterSetup'
@@ -83,6 +83,9 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const isCaster = !!spellInfo && spellInfo.profile.kind !== 'none'
   const isKnown = spellInfo?.casterKind === 'known' || spellInfo?.casterKind === 'pact'
   const isPrepared = spellInfo?.casterKind === 'prepared'
+  // Wizard = spellbook (select many, prepare a subset via the toggle). Other
+  // prepared casters prepare straight from the class list (list == prepared).
+  const isSpellbook = isPrepared && isSpellbookCaster(draft.classSlug)
 
   // Prepared casters can prepare (casting-ability mod + level) spells; compute the
   // effective casting modifier the same way SetupScreen1 does (base + racial ASI).
@@ -106,22 +109,6 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   }, [spellInfo])
 
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
-
-  const slotsByLevel = useMemo((): Record<number, number> => {
-    if (!spellInfo) return {}
-    if (spellInfo.profile.kind === 'slots') return spellInfo.profile.slotsByLevel as Record<number, number>
-    if (spellInfo.profile.kind === 'pact') return { [spellInfo.profile.slotLevel]: spellInfo.profile.slotCount }
-    return {}
-  }, [spellInfo])
-
-  const selectedSpellLevelCounts = useMemo(() => {
-    const counts: Record<number, number> = {}
-    for (const key of draft.spellSlugs) {
-      const level = allSpells[key]?.level
-      if (level !== undefined) counts[level] = (counts[level] ?? 0) + 1
-    }
-    return counts
-  }, [draft.spellSlugs, allSpells])
   const [customLangInput, setCustomLangInput] = useState('')
   const [pickerMode, setPickerMode] = useState<'cantrip' | 'spell' | null>(null)
   const [browseAll, setBrowseAll] = useState(false)
@@ -150,14 +137,18 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
   const spellEntries: SelectionEntry[] = useMemo(() =>
     Object.entries(allSpells)
       .filter(([key, s]) => {
-        // Spells known/prepared are NOT capped per level by slot counts (BUG-24);
-        // only the spell's level must be castable (a slot of that level exists)
-        if (s.level === 0 || s.level > maxSpellLevel) return false
+        if (s.level === 0) return false
         if (selectedSet.has(key)) return false
         if (!browseAll && !classMatches(s.classes, draft.classSlug)) return false
         return true
       })
-      .map(([key, s]) => toSpellEntry(key, s)),
+      // Soft cap: spells above your highest slot level still appear, but are
+      // flagged — preparing one is homebrew (RAW: must be a level you have slots for).
+      .map(([key, s]) => {
+        const entry = toSpellEntry(key, s)
+        if (s.level > maxSpellLevel) entry.warning = 'homebrew'
+        return entry
+      }),
   [allSpells, selectedSet, browseAll, draft.classSlug, maxSpellLevel])
 
   function toggleSkill(skill: SkillName) {
@@ -415,29 +406,12 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
             {draft.spellSlugs.length > spellInfo.spellsKnown ? ' (homebrew)' : ''}
             {maxSpellLevel > 0 && ` · up to level ${maxSpellLevel} spells`}
           </p>
-          {Object.keys(slotsByLevel).length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {Object.entries(slotsByLevel)
-                .sort(([a], [b]) => Number(a) - Number(b))
-                .map(([lvl, cap]) => {
-                  const used = selectedSpellLevelCounts[Number(lvl)] ?? 0
-                  return (
-                    <span
-                      key={lvl}
-                      className="text-[11px]"
-                      style={{ color: used >= cap ? 'var(--color-text-muted)' : 'var(--color-text-muted)', opacity: used >= cap ? 0.45 : 1 }}
-                    >
-                      {ORDINALS[Number(lvl)]}: {used}/{cap}
-                    </span>
-                  )
-                })}
-            </div>
-          )}
           <div className="space-y-1">
             {draft.spellSlugs.map(key => (
               <SelectedSpellRow
                 key={key}
                 label={allSpells[key]?.name ?? key}
+                homebrew={(allSpells[key]?.level ?? 0) > maxSpellLevel}
                 onView={() => setViewingSpell(key)}
                 onRemove={() => onChange({ spellSlugs: draft.spellSlugs.filter(s => s !== key) })}
               />
@@ -465,23 +439,17 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
         </Field>
       )}
 
-      {isCaster && isPrepared && spellInfo && (
-        <Field label={`Spells — choose ${preparedLimit}`}>
+      {/* Wizard — spellbook: add freely, then mark a subset Prepared (soft cap). */}
+      {isCaster && isPrepared && isSpellbook && spellInfo && (
+        <Field label="Spellbook">
           <p className="text-xs text-muted-foreground mb-2">
-            Choose your spells like any caster, then tap <span className="font-semibold">Prepared</span> on
-            the ones ready to cast. Both can be changed later; going over a limit is allowed (homebrew).
+            Add spells to your spellbook, then tap <span className="font-semibold">Prepared</span> on the
+            ones ready to cast. You can re-prepare after each long rest.
           </p>
-          {/* Selection behaves like a known caster — soft-capped at the allotment. */}
-          <p
-            className="text-xs mb-1"
-            style={{ color: draft.spellSlugs.length > preparedLimit ? 'var(--color-accent-red)' : 'var(--color-text-muted)' }}
-          >
-            {draft.spellSlugs.length}/{preparedLimit} selected
-            {draft.spellSlugs.length > preparedLimit ? ' (homebrew)' : ''}
+          <p className="text-xs text-muted-foreground mb-1">
+            {draft.spellSlugs.length} in spellbook
             {maxSpellLevel > 0 && ` · up to level ${maxSpellLevel} spells`}
           </p>
-          {/* The Prepared toggle is a visual highlight, soft-gated to the same
-              allotment; it never changes which spells are selected. */}
           <p
             className="text-xs mb-2"
             style={{ color: draft.preparedSlugs.length > preparedLimit ? 'var(--color-accent-red)' : 'var(--color-text-muted)' }}
@@ -489,29 +457,12 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
             {draft.preparedSlugs.length}/{preparedLimit} prepared
             {draft.preparedSlugs.length > preparedLimit ? ' (homebrew)' : ''}
           </p>
-          {Object.keys(slotsByLevel).length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {Object.entries(slotsByLevel)
-                .sort(([a], [b]) => Number(a) - Number(b))
-                .map(([lvl, cap]) => {
-                  const used = selectedSpellLevelCounts[Number(lvl)] ?? 0
-                  return (
-                    <span
-                      key={lvl}
-                      className="text-[11px]"
-                      style={{ color: 'var(--color-text-muted)', opacity: used >= cap ? 0.45 : 1 }}
-                    >
-                      {ORDINALS[Number(lvl)]}: {used}/{cap}
-                    </span>
-                  )
-                })}
-            </div>
-          )}
           <div className="space-y-1">
             {draft.spellSlugs.map(key => (
               <SelectedSpellRow
                 key={key}
                 label={allSpells[key]?.name ?? key}
+                homebrew={(allSpells[key]?.level ?? 0) > maxSpellLevel}
                 prepared={draft.preparedSlugs.includes(key)}
                 onTogglePrepared={() => onChange({
                   preparedSlugs: draft.preparedSlugs.includes(key)
@@ -526,21 +477,52 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
               />
             ))}
           </div>
-          {/* Selection is uncapped — the per-level pips above are informational
-              (BUG-24); only the prepared COUNT is limited (softly). */}
           <div className="mt-2 space-y-1">
-            <button
-              onClick={() => setPickerMode('spell')}
-              className="text-sm hover:opacity-75"
-              style={{ color: 'var(--color-accent-gold)' }}
-            >
-              + Choose spell
+            <button onClick={() => setPickerMode('spell')} className="text-sm hover:opacity-75" style={{ color: 'var(--color-accent-gold)' }}>
+              + Add to spellbook
             </button>
             <div>
-              <button
-                onClick={() => setBrowseAll(b => !b)}
-                className="text-[11px] text-muted-foreground hover:text-foreground underline"
-              >
+              <button onClick={() => setBrowseAll(b => !b)} className="text-[11px] text-muted-foreground hover:text-foreground underline">
+                {browseAll ? 'Show class spells only' : 'Browse all classes'}
+              </button>
+            </div>
+          </div>
+        </Field>
+      )}
+
+      {/* Cleric/Druid/Paladin/Artificer — prepare straight from the class list:
+          the list IS the prepared list (no separate spellbook, no toggle). */}
+      {isCaster && isPrepared && !isSpellbook && spellInfo && (
+        <Field label={`Prepared Spells — choose ${preparedLimit}`}>
+          <p className="text-xs text-muted-foreground mb-2">
+            Prepare spells from your class list — any combination of levels you have spell slots for.
+            You can change these after a long rest; going over the limit is allowed (homebrew).
+          </p>
+          <p
+            className="text-xs mb-2"
+            style={{ color: draft.spellSlugs.length > preparedLimit ? 'var(--color-accent-red)' : 'var(--color-text-muted)' }}
+          >
+            {draft.spellSlugs.length}/{preparedLimit} prepared
+            {draft.spellSlugs.length > preparedLimit ? ' (homebrew)' : ''}
+            {maxSpellLevel > 0 && ` · up to level ${maxSpellLevel} spells`}
+          </p>
+          <div className="space-y-1">
+            {draft.spellSlugs.map(key => (
+              <SelectedSpellRow
+                key={key}
+                label={allSpells[key]?.name ?? key}
+                homebrew={(allSpells[key]?.level ?? 0) > maxSpellLevel}
+                onView={() => setViewingSpell(key)}
+                onRemove={() => onChange({ spellSlugs: draft.spellSlugs.filter(s => s !== key) })}
+              />
+            ))}
+          </div>
+          <div className="mt-2 space-y-1">
+            <button onClick={() => setPickerMode('spell')} className="text-sm hover:opacity-75" style={{ color: 'var(--color-accent-gold)' }}>
+              + Prepare spell
+            </button>
+            <div>
+              <button onClick={() => setBrowseAll(b => !b)} className="text-[11px] text-muted-foreground hover:text-foreground underline">
                 {browseAll ? 'Show class spells only' : 'Browse all classes'}
               </button>
             </div>
@@ -579,7 +561,9 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
           // auto-close again past the limit, since length === limit is only hit once).
           const newSpells = [...draft.spellSlugs, key]
           onChange({ spellSlugs: newSpells })
-          const limit = isPrepared ? preparedLimit : (spellInfo?.spellsKnown ?? 0)
+          // Wizard spellbook is uncapped (no auto-close). Others close at the
+          // allotment (prepared limit / spells known) but reopen for homebrew.
+          const limit = isSpellbook ? 0 : (isPrepared ? preparedLimit : (spellInfo?.spellsKnown ?? 0))
           if (limit && newSpells.length === limit) setPickerMode(null)
         }}
         groupOrder={LEVEL_GROUP_ORDER}
@@ -638,6 +622,7 @@ function SelectedSpellRow({
   onRemove,
   prepared,
   onTogglePrepared,
+  homebrew,
 }: {
   label: string
   onView: () => void
@@ -645,6 +630,8 @@ function SelectedSpellRow({
   // Prepared casters only: present → show a Prepared toggle (selection vs preparation)
   prepared?: boolean
   onTogglePrepared?: () => void
+  // Spell is above your highest slot level — allowed, but flagged (homebrew).
+  homebrew?: boolean
 }) {
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-secondary">
@@ -660,6 +647,15 @@ function SelectedSpellRow({
       >
         {label}
       </button>
+      {homebrew && (
+        <span
+          className="text-[9px] uppercase tracking-wide flex-none"
+          style={{ color: 'var(--color-accent-red)' }}
+          title="Above your spell-slot levels — kept as homebrew"
+        >
+          homebrew
+        </span>
+      )}
       {onTogglePrepared && (
         <button
           onClick={onTogglePrepared}
