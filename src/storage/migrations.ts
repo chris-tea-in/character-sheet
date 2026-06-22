@@ -239,4 +239,16 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN custom_feats TEXT NOT NULL DEFAULT '[]'`)
     },
   },
+  {
+    version: 19,
+    up: (db) => {
+      // More homebrew custom content (same render-time-merge pattern as v18):
+      // wondrous/generic items, spells, tools, and races. Definitions only; merged
+      // into the catalog / spell map / race lookup at render time (lib/customContent).
+      db.run(`ALTER TABLE characters ADD COLUMN custom_items TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`ALTER TABLE characters ADD COLUMN custom_spells TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`ALTER TABLE characters ADD COLUMN custom_tools TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`ALTER TABLE characters ADD COLUMN custom_races TEXT NOT NULL DEFAULT '[]'`)
+    },
+  },
 ]

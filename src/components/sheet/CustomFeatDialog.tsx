@@ -17,7 +17,10 @@ const ABILITIES: { value: AbilityName; label: string }[] = [
 ]
 
 const fieldClass =
-  'w-full bg-transparent border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-ring'
+  'w-full bg-[var(--color-surface-2)] text-foreground border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-ring'
+// Selects also need color-scheme:dark so the native option list renders dark
+// (transparent/light dropdowns were unreadable on the dark theme — #4).
+const selectClass = `${fieldClass} [color-scheme:dark]`
 
 /**
  * Create a homebrew feat: name + description, plus an optional ability-score
@@ -93,7 +96,7 @@ export function CustomFeatDialog({
               <select
                 value={ability}
                 onChange={e => setAbility(e.target.value as AbilityName | 'none')}
-                className={fieldClass}
+                className={selectClass}
               >
                 <option value="none">None</option>
                 {ABILITIES.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
@@ -102,7 +105,7 @@ export function CustomFeatDialog({
                 value={amount}
                 onChange={e => setAmount(Number(e.target.value))}
                 disabled={ability === 'none'}
-                className={`${fieldClass} w-20 disabled:opacity-40`}
+                className={`${selectClass} w-20 disabled:opacity-40`}
               >
                 <option value={1}>+1</option>
                 <option value={2}>+2</option>

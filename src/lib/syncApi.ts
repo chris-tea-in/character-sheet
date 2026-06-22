@@ -1,4 +1,5 @@
 import type { NewCharacter } from '../types/character'
+import type { WeaponItem, ArmorItem, WondrousItem } from '../types/data'
 
 // Thin same-origin fetch wrapper around the cloud-storage API. Identity is
 // solved by Cloudflare Access (the Access cookie rides along on same-origin
@@ -246,6 +247,43 @@ export function removeMember(id: string, email: string): Promise<SyncResult<unkn
 export function removeCampaignCharacter(campaignId: string, charId: string): Promise<SyncResult<unknown>> {
   return request(
     `/api/campaigns/${encodeURIComponent(campaignId)}/characters/${encodeURIComponent(charId)}`,
+    { method: 'DELETE' },
+  )
+}
+
+// ── DM-created shared homebrew items (#12, campaign-scoped) ─────────────────────
+
+export interface CampaignItem {
+  id: string
+  category: 'weapon' | 'armor' | 'shield' | 'wondrous_item'
+  data: WeaponItem | ArmorItem | WondrousItem
+  createdBy: string
+  updatedAt: number
+}
+
+/** Any member: the campaign's shared item catalog (merged into the member's own catalog client-side). */
+export async function campaignItems(id: string): Promise<SyncResult<CampaignItem[]>> {
+  const res = await request<{ items: CampaignItem[] }>(`/api/campaigns/${encodeURIComponent(id)}/items`)
+  return res.ok ? { ok: true, data: res.data.items } : res
+}
+
+/** DM only: add a catalog-shaped item to the campaign. */
+export function createCampaignItem(
+  id: string,
+  category: CampaignItem['category'],
+  data: CampaignItem['data'],
+): Promise<SyncResult<CampaignItem>> {
+  return request<CampaignItem>(`/api/campaigns/${encodeURIComponent(id)}/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ category, data }),
+  })
+}
+
+/** DM only: soft-delete a campaign item. */
+export function deleteCampaignItem(id: string, itemId: string): Promise<SyncResult<unknown>> {
+  return request(
+    `/api/campaigns/${encodeURIComponent(id)}/items?itemId=${encodeURIComponent(itemId)}`,
     { method: 'DELETE' },
   )
 }

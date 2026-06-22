@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { deriveCharacterStats } from '@/lib/characterStats'
-import { mergeCustomEquipment, mergeCustomFeats } from '@/lib/customContent'
+import { mergeCustomEquipment, mergeCustomFeats, resolveRace } from '@/lib/customContent'
 import { computeMulticlassSlots, getSpellcastingInfo } from '@/lib/spellcasting'
 import type { CasterKind } from '@/lib/spellcasting'
 import { parseHitDie, slugToTitle, backgroundGrantedSkills } from '@/lib/characterSetup'
@@ -37,7 +37,8 @@ export function useDerivedSheet(character: Character, data: SheetReferenceData):
   const { setupData, equipmentCatalog, featData } = data
 
   const classRecord = character.class ? (setupData?.classes[character.class] ?? null) : null
-  const raceData = character.race ? (setupData?.races[character.race] ?? null) : null
+  // Custom-first so a homebrew/edited race (character.customRaces) drives ASI/speed
+  const raceData = resolveRace(character.race, setupData?.races, character.customRaces)
 
   const classRecords = useMemo(() => (
     character.classes?.length
@@ -49,7 +50,7 @@ export function useDerivedSheet(character: Character, data: SheetReferenceData):
   // custom-weapon/feat effects derive through the same path as built-ins (INV-1).
   const mergedCatalog = useMemo(
     () => mergeCustomEquipment(equipmentCatalog, character),
-    [equipmentCatalog, character.customWeapons, character.customArmor],
+    [equipmentCatalog, character.customWeapons, character.customArmor, character.customItems, character.customTools],
   )
   const mergedFeatData = useMemo(
     () => mergeCustomFeats(featData, character.customFeats),

@@ -137,11 +137,14 @@ export const useDiceStore = create<DiceState>()((set) => ({
       return { damageType: ed.damageType, rolls: r.rolls, total: r.total }
     })
     const grand = mainTotal + extraResults.reduce((a, e) => a + e.total, 0)
+    const isHeal = spec.mode === 'heal'
     const entry: RollEntry = {
       id: generateId(),
       kind: { type: 'damage', label: spec.label },
       result: { natural: grand, modifier: 0, total: grand },
-      label: `${spec.label} damage = ${grand}${crit ? ' (crit)' : ''}`,
+      label: isHeal
+        ? `${spec.label} healing = ${grand} HP`
+        : `${spec.label} damage = ${grand}${crit ? ' (crit)' : ''}`,
       timestamp: Date.now(),
     }
     return {

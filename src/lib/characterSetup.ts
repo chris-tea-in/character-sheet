@@ -528,6 +528,10 @@ export interface SetupDraft {
   toolProficiencies: string[]
   cantripSlugs: string[]
   spellSlugs: string[]
+  // Prepared casters only: which of the selected spellSlugs are currently prepared.
+  // Selection (spellSlugs) is uncapped; the prepared COUNT is soft-capped at the
+  // prep limit (homebrew-overridable). Empty/ignored for known & pact casters.
+  preparedSlugs: string[]
   // Class-feature screen — selected feature options, keyed by group key → slugs
   classFeatureChoices: Record<string, string[]>
   // Screen 1 — class ASI/feat picks (one entry per ASI level at or below character level)
@@ -573,6 +577,7 @@ export const INITIAL_DRAFT: SetupDraft = {
   toolProficiencies: [],
   cantripSlugs: [],
   spellSlugs: [],
+  preparedSlugs: [],
   classFeatureChoices: {},
   levelAsiChoices: [],
   setupFeatChoices: {},
@@ -785,7 +790,7 @@ export function draftToNewCharacter(
     savingThrowProficiencies,
     spells: [
       ...draft.cantripSlugs.map(slug => ({ slug, prepared: false })),
-      ...draft.spellSlugs.map(slug => ({ slug, prepared: false })),
+      ...draft.spellSlugs.map(slug => ({ slug, prepared: draft.preparedSlugs.includes(slug) })),
     ],
     spellSlotsUsed: {},
     personalityTraits: draft.personalityTraits,
@@ -806,6 +811,10 @@ export function draftToNewCharacter(
     customWeapons: [],
     customArmor: [],
     customFeats: [],
+    customItems: [],
+    customSpells: [],
+    customTools: [],
+    customRaces: [],
     equipment: namesToEquipmentItems([
       ...resolveGrantItems(cls?.starting_equipment ?? [], draft.equipmentChoices),
       ...(bg?.starting_equipment ?? []),
@@ -841,13 +850,15 @@ export function characterToDraft(
   // Split spells into cantrips vs leveled using spell data when available
   const cantripSlugs: string[] = []
   const spellSlugs: string[] = []
+  const preparedSlugs: string[] = []
   for (const s of character.spells) {
     const key = s.slug.replace(/^spell:/, '')
-    if (spellData) {
-      if ((spellData[key]?.level ?? 1) === 0) cantripSlugs.push(key)
-      else spellSlugs.push(key)
+    const isCantrip = !!spellData && (spellData[key]?.level ?? 1) === 0
+    if (isCantrip) {
+      cantripSlugs.push(key)
     } else {
       spellSlugs.push(key)
+      if (s.prepared) preparedSlugs.push(key)
     }
   }
 
@@ -882,6 +893,7 @@ export function characterToDraft(
     toolProficiencies: character.toolProficiencies ?? [],
     cantripSlugs,
     spellSlugs,
+    preparedSlugs,
     classFeatureChoices: { ...(character.classFeatureChoices ?? {}) },
     levelAsiChoices: [],
     setupFeatChoices: {},

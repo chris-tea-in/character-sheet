@@ -130,6 +130,10 @@ export default function CreateCharacterPage() {
   const [submitting, setSubmitting] = useState(false)
   const [draftReady, setDraftReady] = useState(!isEditMode)
   const [doneConfirmOpen, setDoneConfirmOpen] = useState(false)
+  // Soft-lock: incomplete/non-standard choices no longer block navigation. When
+  // validateScreen flags issues, this holds them for the "proceed anyway" prompt
+  // (homebrew) instead of hard-blocking Next/Create.
+  const [proceedDialog, setProceedDialog] = useState<{ issues: string[]; action: 'next' | 'finish' } | null>(null)
 
   useEffect(() => {
     window.scrollTo({ top: 0 })
@@ -166,15 +170,37 @@ export default function CreateCharacterPage() {
     setErrors([])
   }
 
+  function advanceScreen() {
+    setErrors([])
+    setScreen((s) => s + 1)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   function handleNext() {
     const errs = validateScreen(screen, draft, data, allFeats, isEditMode)
     if (errs.length) {
+      // Soft-lock: surface the issues (banner + prompt) but let the player
+      // proceed anyway (homebrew) rather than blocking the step.
       setErrors(errs)
+      setProceedDialog({ issues: errs, action: 'next' })
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
     setErrors([])
     setScreen((s) => s + 1)
+  }
+
+  // "Proceed anyway" from the soft-lock prompt — advance or finish despite the
+  // flagged issues. Name remains the one hard requirement (enforced in handleFinish).
+  function proceedAnyway() {
+    if (!proceedDialog) return
+    const { action } = proceedDialog
+    setProceedDialog(null)
+    if (action === 'next') {
+      advanceScreen()
+    } else {
+      handleFinish(true)
+    }
   }
 
   function handleBack() {
@@ -199,7 +225,9 @@ export default function CreateCharacterPage() {
     if (!skipValidation) {
       const errs = validateScreen(screen, draft, data, allFeats, isEditMode)
       if (errs.length) {
+        // Soft-lock: prompt to proceed anyway (homebrew) instead of blocking.
         setErrors(errs)
+        setProceedDialog({ issues: errs, action: 'finish' })
         return
       }
     }
@@ -285,6 +313,10 @@ export default function CreateCharacterPage() {
           customWeapons: existing.customWeapons,
           customArmor: existing.customArmor,
           customFeats: existing.customFeats,
+          customItems: existing.customItems,
+          customSpells: existing.customSpells,
+          customTools: existing.customTools,
+          customRaces: existing.customRaces,
           toolProficiencies: newCharData.toolProficiencies,
           // Preserve campaign membership — the wizard can't represent it, so a
           // bare merge would silently drop the character from its campaign (INV-4)
@@ -431,6 +463,37 @@ export default function CreateCharacterPage() {
           )}
         </div>
       </main>
+
+      {/* Soft-lock: proceed-anyway prompt for incomplete/non-standard choices */}
+      <Dialog open={!!proceedDialog} onOpenChange={(o) => !o && setProceedDialog(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Proceed with unfinished choices?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This step has incomplete or non-standard choices. You can go back and change them,
+            or proceed anyway (homebrew).
+          </p>
+          <ul
+            className="space-y-1 rounded-md border p-3"
+            style={{ borderColor: 'var(--color-accent-red)' }}
+          >
+            {proceedDialog?.issues.map((e, i) => (
+              <li key={i} className="text-xs" style={{ color: 'var(--color-accent-red)' }}>
+                {e}
+              </li>
+            ))}
+          </ul>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="ghost" onClick={() => setProceedDialog(null)}>
+              Go back &amp; change it
+            </Button>
+            <Button onClick={proceedAnyway} disabled={submitting}>
+              {submitting ? 'Saving…' : 'Proceed anyway'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Done confirmation — save or discard edits */}
       <Dialog open={doneConfirmOpen} onOpenChange={setDoneConfirmOpen}>

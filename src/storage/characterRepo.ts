@@ -82,6 +82,10 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     customWeapons: JSON.parse(row['custom_weapons'] as string ?? '[]'),
     customArmor: JSON.parse(row['custom_armor'] as string ?? '[]'),
     customFeats: JSON.parse(row['custom_feats'] as string ?? '[]'),
+    customItems: JSON.parse(row['custom_items'] as string ?? '[]'),
+    customSpells: JSON.parse(row['custom_spells'] as string ?? '[]'),
+    customTools: JSON.parse(row['custom_tools'] as string ?? '[]'),
+    customRaces: JSON.parse(row['custom_races'] as string ?? '[]'),
     campaignId: (row['campaign_id'] as string | null) ?? null,
     disguiseClass: Boolean(row['disguise_class']),
     disguiseAs: (row['disguise_as'] as string | null) ?? '',
@@ -159,10 +163,11 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, feats, feat_choices, tool_proficiencies,
-        class_feature_choices, feature_resources_used, custom_weapons, custom_armor, custom_feats, classes,
+        class_feature_choices, feature_resources_used, custom_weapons, custom_armor, custom_feats,
+        custom_items, custom_spells, custom_tools, custom_races, classes,
         race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race ?? '', data.subrace ?? null, data.class ?? '', data.subclass ?? null, data.background ?? '',
@@ -188,6 +193,10 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         JSON.stringify(data.customWeapons ?? []),
         JSON.stringify(data.customArmor ?? []),
         JSON.stringify(data.customFeats ?? []),
+        JSON.stringify(data.customItems ?? []),
+        JSON.stringify(data.customSpells ?? []),
+        JSON.stringify(data.customTools ?? []),
+        JSON.stringify(data.customRaces ?? []),
         JSON.stringify(data.classes ?? []),
         JSON.stringify(data.raceAsiChoices ?? []),
         JSON.stringify(data.hitDiceUsedByClass ?? {}),
@@ -230,7 +239,8 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         skill_proficiencies=?, saving_throw_proficiencies=?, spell_slots_used=?,
         personality_traits=?, ideals=?, bonds=?, flaws=?, notes=?,
         equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?,
-        class_feature_choices=?, feature_resources_used=?, custom_weapons=?, custom_armor=?, custom_feats=?, classes=?,
+        class_feature_choices=?, feature_resources_used=?, custom_weapons=?, custom_armor=?, custom_feats=?,
+        custom_items=?, custom_spells=?, custom_tools=?, custom_races=?, classes=?,
         race_asi_choices=?, campaign_id=?, disguise_class=?, disguise_as=?, updated_at=?
       WHERE id=?`,
       [
@@ -257,6 +267,10 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         JSON.stringify(merged.customWeapons ?? []),
         JSON.stringify(merged.customArmor ?? []),
         JSON.stringify(merged.customFeats ?? []),
+        JSON.stringify(merged.customItems ?? []),
+        JSON.stringify(merged.customSpells ?? []),
+        JSON.stringify(merged.customTools ?? []),
+        JSON.stringify(merged.customRaces ?? []),
         JSON.stringify(merged.classes ?? []),
         JSON.stringify(merged.raceAsiChoices ?? []),
         merged.campaignId ?? null,
@@ -306,11 +320,12 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         skill_proficiencies, saving_throw_proficiencies, spell_slots_used,
         personality_traits, ideals, bonds, flaws, notes,
         equipment, currency, feats, feat_choices, tool_proficiencies,
-        class_feature_choices, feature_resources_used, custom_weapons, custom_armor, custom_feats, classes,
+        class_feature_choices, feature_resources_used, custom_weapons, custom_armor, custom_feats,
+        custom_items, custom_spells, custom_tools, custom_races, classes,
         race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at,
         last_synced_updated_at
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )
       ON CONFLICT(id) DO UPDATE SET
         name=excluded.name, race_slug=excluded.race_slug, subrace=excluded.subrace,
@@ -329,6 +344,7 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         feat_choices=excluded.feat_choices, tool_proficiencies=excluded.tool_proficiencies,
         class_feature_choices=excluded.class_feature_choices, feature_resources_used=excluded.feature_resources_used,
         custom_weapons=excluded.custom_weapons, custom_armor=excluded.custom_armor, custom_feats=excluded.custom_feats,
+        custom_items=excluded.custom_items, custom_spells=excluded.custom_spells, custom_tools=excluded.custom_tools, custom_races=excluded.custom_races,
         classes=excluded.classes,
         race_asi_choices=excluded.race_asi_choices, hit_dice_used_by_class=excluded.hit_dice_used_by_class,
         campaign_id=excluded.campaign_id,
@@ -359,6 +375,10 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         JSON.stringify(full.customWeapons ?? []),
         JSON.stringify(full.customArmor ?? []),
         JSON.stringify(full.customFeats ?? []),
+        JSON.stringify(full.customItems ?? []),
+        JSON.stringify(full.customSpells ?? []),
+        JSON.stringify(full.customTools ?? []),
+        JSON.stringify(full.customRaces ?? []),
         JSON.stringify(full.classes ?? []),
         JSON.stringify(full.raceAsiChoices ?? []),
         JSON.stringify(full.hitDiceUsedByClass ?? {}),

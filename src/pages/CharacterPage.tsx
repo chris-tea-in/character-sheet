@@ -17,6 +17,11 @@ import { DiceTray } from '@/components/sheet/DiceTray'
 import { DiceRollModal } from '@/components/sheet/DiceRollModal'
 import { StepperField } from '@/components/sheet/StepperField'
 import { LevelUpDialog } from '@/components/sheet/LevelUpDialog'
+import { levelForXp, xpToNext } from '@/lib/xp'
+import { resolveRace, mergeCampaignEquipment } from '@/lib/customContent'
+import { CustomRaceDialog } from '@/components/sheet/CustomRaceDialog'
+import { campaignItems as fetchCampaignItems } from '@/lib/syncApi'
+import type { CampaignItem } from '@/lib/syncApi'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { FeaturesBlock } from '@/components/sheet/FeaturesBlock'
 import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
@@ -570,6 +575,7 @@ export default function CharacterPage() {
   const [subracePrompt, setSubracePrompt] = useState<Subrace | null>(null)
   const [classPrompt, setClassPrompt] = useState<ClassData | null>(null)
   const [backgroundPrompt, setBackgroundPrompt] = useState<Background | null>(null)
+  const [raceDialog, setRaceDialog] = useState<{ mode: 'new' | 'edit'; base: Race | null } | null>(null)
   const [levelUpTarget, setLevelUpTarget] = useState<{
     classIdx: number
     newClassLevel: number
@@ -617,6 +623,16 @@ export default function CharacterPage() {
     }
   }, [campaignId, pullLatest])
 
+  // DM-created shared items for this character's campaign (#12). Fetched fresh when
+  // the campaign changes; merged into the catalog so they appear in the pickers.
+  const [campaignItems, setCampaignItems] = useState<CampaignItem[]>([])
+  useEffect(() => {
+    if (!campaignId) { setCampaignItems([]); return }
+    let cancelled = false
+    fetchCampaignItems(campaignId).then(res => { if (!cancelled && res.ok) setCampaignItems(res.data) })
+    return () => { cancelled = true }
+  }, [campaignId])
+
   // Rules of hooks: every hook below must run on every render, so we must NOT
   // early-return while `character` is still undefined. The store loads in an App
   // effect, so the first render after a hard refresh has no character yet —
@@ -629,13 +645,21 @@ export default function CharacterPage() {
     update(id!, changes)
   }
 
-  const currentRaceData = char.race ? (setupData?.races[char.race] ?? null) : null
+  const currentRaceData = resolveRace(char.race, setupData?.races, char.customRaces)
+
+  // Fold the campaign's DM-created items into the catalog before it reaches both
+  // the derive hook and the EquipmentBlock pickers (merge order: base → campaign →
+  // per-character custom, which the inner mergeCustomEquipment applies).
+  const sheetCatalog = useMemo(
+    () => mergeCampaignEquipment(equipmentCatalog, campaignItems),
+    [equipmentCatalog, campaignItems],
+  )
 
   // All render-time character stats derive through the shared hook so the owner
   // sheet and the campaign (DM) sheet can never drift (see useDerivedSheet).
   const sheetData = useMemo(
-    () => ({ setupData, equipmentCatalog, featData }),
-    [setupData, equipmentCatalog, featData],
+    () => ({ setupData, equipmentCatalog: sheetCatalog, featData }),
+    [setupData, sheetCatalog, featData],
   )
   const {
     classRecords, derived, backgroundSkills, primaryClassLevel,
@@ -654,7 +678,7 @@ export default function CharacterPage() {
   }, [char.classes, char.class])
 
   const displayRace = char.race
-    ? (setupData?.races[char.race]?.name ?? slugToTitle(char.race))
+    ? (currentRaceData?.name ?? slugToTitle(char.race))
     : null
 
   const displaySubrace = useMemo(() => {
@@ -680,10 +704,14 @@ export default function CharacterPage() {
 
   const raceEntries: SelectionEntry[] = useMemo(() => {
     if (!setupData) return []
-    return Object.values(setupData.races).map(r => ({
+    const builtIn = Object.values(setupData.races).map(r => ({
       slug: r.slug, detail: raceToDetailItem(r), group: RACE_TIER_MAP[r.slug] ?? 'Common',
     }))
-  }, [setupData])
+    const custom = (char.customRaces ?? []).map(r => ({
+      slug: r.slug, detail: raceToDetailItem(r), group: 'Homebrew',
+    }))
+    return [...builtIn, ...custom]
+  }, [setupData, char.customRaces])
 
   const classEntries: SelectionEntry[] = useMemo(() => {
     if (!setupData) return []
@@ -766,7 +794,7 @@ export default function CharacterPage() {
 
   function handleRaceSelect(slug: string) {
     if (!character) return
-    const race = setupData?.races[slug]
+    const race = resolveRace(slug, setupData?.races, character.customRaces)
     // Racial bonuses are derived from base scores at render time — switching
     // race only swaps the slug, resets recorded picks, and sets the base speed
     save({
@@ -809,6 +837,28 @@ export default function CharacterPage() {
     if (!character) return
     save({ raceAsiChoices: asiChoices })
     setRacePrompt(null)
+  }
+
+  // Apply a homebrew race (created or edited via CustomRaceDialog). 'new' selects
+  // it as the character's race; 'edit' just upserts the override (same slug wins via
+  // resolveRace). Either way set base speed + union the race languages. Stored ASIs
+  // derive at render through getRacialBonuses (INV-1) — nothing baked here.
+  function applyCustomRace(race: Race) {
+    if (!character) return
+    const mode = raceDialog?.mode ?? 'new'
+    const others = (character.customRaces ?? []).filter(r => r.slug !== race.slug)
+    const changes: Partial<NewCharacter> = {
+      customRaces: [...others, race],
+      speed: race.base.speed,
+      languages: [...new Set([...character.languages, ...race.base.languages])],
+    }
+    if (mode === 'new') {
+      changes.race = race.slug
+      changes.subrace = null
+      changes.raceAsiChoices = []
+    }
+    save(changes)
+    setRaceDialog(null)
   }
 
   function handleLevelChange(v: number) {
@@ -898,6 +948,7 @@ export default function CharacterPage() {
             onOpenList={setActiveList}
             onSave={save}
             onLevelChange={handleLevelChange}
+            onCustomizeRace={() => currentRaceData && setRaceDialog({ mode: 'edit', base: currentRaceData })}
           />
 
           <AbilityBlock character={character} derived={derived} onSave={save} />
@@ -910,7 +961,7 @@ export default function CharacterPage() {
           <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} derived={derived} onSave={save} />
           <FeaturesBlock character={character} setupData={setupData} onSave={save} />
           <FeatsBlock character={character} derived={derived} onSave={save} />
-          <EquipmentBlock character={character} derived={derived} onSave={save} catalog={equipmentCatalog} classRecord={classRecord} />
+          <EquipmentBlock character={character} derived={derived} onSave={save} catalog={sheetCatalog} classRecord={classRecord} />
           {classRecord && (
             <SpellBlock
               character={character}
@@ -957,8 +1008,20 @@ export default function CharacterPage() {
         open={activeList === 'race'}
         onClose={() => setActiveList(null)}
         onSelect={handleRaceSelect}
-        groupOrder={['Common', 'Exotic', 'Monstrous']}
+        groupOrder={['Common', 'Exotic', 'Monstrous', 'Homebrew']}
+        allowCreateOwn
+        onCreateOwn={() => setRaceDialog({ mode: 'new', base: null })}
       />
+
+      {raceDialog && (
+        <CustomRaceDialog
+          open
+          mode={raceDialog.mode}
+          base={raceDialog.base}
+          onClose={() => setRaceDialog(null)}
+          onCreate={applyCustomRace}
+        />
+      )}
       <SelectionList
         entries={subraceEntries}
         value={character.subrace ?? ''}
@@ -1177,6 +1240,68 @@ const IDENTITY_LABELS: Record<IdentityField, string> = {
   background: 'Background', alignment: 'Alignment',
 }
 
+// XP control (xp progression): type the XP you GAINED → it adds to the cumulative
+// total (carryover is automatic since the total drives the level via the 5e table).
+// When the total earns a higher level than the character currently is, a badge
+// opens the normal class-choosing level-up flow (onLevelChange). Multi-level jumps
+// re-show the badge after each level.
+function XpControl({
+  character,
+  onSave,
+  onLevelChange,
+}: {
+  character: Character
+  onSave: (changes: Partial<NewCharacter>) => void
+  onLevelChange: (v: number) => void
+}) {
+  const [gain, setGain] = useState('')
+  const xp = character.xp
+  const prog = xpToNext(xp)
+  const canLevel = levelForXp(xp) > character.level
+
+  function addXp() {
+    const n = Math.floor(Number(gain) || 0)
+    if (!n) return
+    onSave({ xp: Math.max(0, xp + n) })
+    setGain('')
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          value={gain}
+          onChange={e => setGain(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') addXp() }}
+          placeholder="+ XP"
+          aria-label="XP gained"
+          className="w-20 bg-[var(--color-surface-2)] text-foreground border border-border rounded px-1.5 py-0.5 text-sm text-right [color-scheme:dark]"
+        />
+        <button
+          onClick={addXp}
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-secondary transition-colors"
+        >
+          Add
+        </button>
+      </div>
+      <span className="text-[11px] text-muted-foreground tabular-nums">
+        {xp.toLocaleString()} XP{!canLevel && prog ? ` · ${prog.needed.toLocaleString()} to next level` : ''}
+      </span>
+      {canLevel && (
+        <button
+          onClick={() => onLevelChange(character.level + 1)}
+          className="text-[11px] font-semibold px-2 py-0.5 rounded animate-pulse"
+          style={{ background: 'var(--color-accent-gold)', color: '#000' }}
+          title="You've earned enough XP — choose a class and level up"
+        >
+          Ready to level up! →
+        </button>
+      )}
+    </div>
+  )
+}
+
 function IdentitySection({
   character,
   setupData,
@@ -1189,6 +1314,7 @@ function IdentitySection({
   onOpenList,
   onSave,
   onLevelChange,
+  onCustomizeRace,
 }: {
   character: ReturnType<typeof useCharacterStore.getState>['characters'][number]
   setupData: SetupData | null
@@ -1201,6 +1327,7 @@ function IdentitySection({
   onOpenList: (list: IdentityList) => void
   onSave: (changes: Partial<NewCharacter>) => void
   onLevelChange: (v: number) => void
+  onCustomizeRace: () => void
 }) {
   const [identityDetail, setIdentityDetail] = useState<{
     field: IdentityField
@@ -1221,7 +1348,7 @@ function IdentitySection({
       return cls ? classToDetailItem(cls) : null
     }
     if (field === 'race' && character.race) {
-      const race = setupData.races[character.race]
+      const race = resolveRace(character.race, setupData.races, character.customRaces)
       return race ? raceToDetailItem(race) : null
     }
     if (field === 'background' && character.background) {
@@ -1303,11 +1430,22 @@ function IdentitySection({
         )}
 
         <IdentityRow label="Race">
-          <IdentityButton
-            value={displayRace}
-            placeholder="Choose race…"
-            onClick={() => handleIdentityClick('race')}
-          />
+          <div className="flex items-center gap-2">
+            <IdentityButton
+              value={displayRace}
+              placeholder="Choose race…"
+              onClick={() => handleIdentityClick('race')}
+            />
+            {character.race && (
+              <button
+                onClick={onCustomizeRace}
+                className="flex-none text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded border border-border transition-colors"
+                title="Edit this race's ASI, proficiencies, and bonuses (homebrew)"
+              >
+                Edit
+              </button>
+            )}
+          </div>
         </IdentityRow>
 
         {subraceEntries.length > 0 && (
@@ -1361,7 +1499,7 @@ function IdentitySection({
 
         {character.progressionType === 'xp' && (
           <IdentityRow label="XP">
-            <StepperField value={character.xp} onSave={v => onSave({ xp: Math.max(0, v) })} min={0} step={100} size="sm" />
+            <XpControl character={character} onSave={onSave} onLevelChange={onLevelChange} />
           </IdentityRow>
         )}
 

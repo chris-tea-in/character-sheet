@@ -70,6 +70,20 @@ body {
   min-height: 100dvh;
 }
 
+/* iOS Safari auto-zooms when a focused form control has a font-size below 16px.
+   On touch devices (coarse pointer), force form controls to 16px so focusing the
+   search bar or any input never triggers a zoom. !important overrides Tailwind's
+   text-sm utility (higher specificity than a bare element selector). Desktop keeps
+   its compact 14px sizing and pinch-zoom stays available — only the auto-zoom is
+   suppressed. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 @media print {
   /* Switch to light theme for ink-friendly output */
   :root {

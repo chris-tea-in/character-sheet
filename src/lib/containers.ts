@@ -66,7 +66,10 @@ export const ITEM_TYPE_ORDER = [
 // — the catalog has no structured subtype. Shared by the Items picker and containers.
 export function getWondrousItemType(name: string): string {
   const n = name.toLowerCase()
-  if (/ring/.test(n) || /signet$/.test(n) || n === 'band of loyalty') return 'Rings'
+  // \bring\b, not /ring/ — the bare substring matched "devou-ring" so Bag of
+  // Devouring was sorted as a Ring (#13). Word boundaries keep "Ring of …" while
+  // excluding words that merely contain "ring".
+  if (/\bring\b/.test(n) || /signet$/.test(n) || n === 'band of loyalty') return 'Rings'
   if (/staff/.test(n)) return 'Staffs'
   if (n.startsWith('wand') || n === 'spindle of fate' || n === 'radiance') return 'Wands'
   if (/\brod\b/.test(n) || /scepter/.test(n)) return 'Rods'

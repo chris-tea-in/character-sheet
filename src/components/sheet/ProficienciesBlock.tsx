@@ -99,7 +99,7 @@ function TwoDots({
         isExpertise,
         'E',
         onToggleExp,
-        featSourced ? 'Granted by feat' : isExpertise ? 'Remove expertise' : expertiseCapped ? 'Expertise limit reached' : 'Add expertise (+2×PB)',
+        featSourced ? 'Granted by feat' : isExpertise ? 'Remove expertise' : expertiseCapped ? 'Add expertise — over the limit (homebrew)' : 'Add expertise (+2×PB)',
         expLocked,
       )}
     </div>
@@ -177,12 +177,15 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
       !featProficientSkills.has(s),
   ).length
   const atClassSkillCap = classSkillMax !== Infinity && currentClassSkillCount >= classSkillMax
+  // Over the RAW limit = homebrew (allowed, just flagged red)
+  const overClassSkillCap = classSkillMax !== Infinity && currentClassSkillCount > classSkillMax
 
   // Expertise cap counts class features only; user-assigned (stored) expertise
   // counts against it. Feat-granted expertise is locked and tracked separately.
   const expertiseCap = getExpertiseCap(classLevels)
   const currentExpertiseCount = Object.values(character.skillProficiencies).filter(v => v === 'expertise').length
   const atExpertiseCap = currentExpertiseCount >= expertiseCap
+  const overExpertiseCap = currentExpertiseCount > expertiseCap
 
   function toggleSave(ability: AbilityName) {
     const has = character.savingThrowProficiencies.includes(ability)
@@ -194,10 +197,11 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
   }
 
   function toggleSkillProf(skill: SkillName) {
-    // Feat-granted proficiency is managed by the feat, not togglable here (BUG-30)
+    // Feat-granted proficiency is derived at render time — toggling it here would
+    // write a stored duplicate that double-counts (BUG-30). Integrity lock, kept.
     if (featProficientSkills.has(skill)) return
-    const isClassOption = classSkillOptions.has(skill)
-    if (hasClass && !isClassOption) return
+    // The class-skill list and the skill-count cap are RAW limits, not integrity
+    // locks: allow crossing them (homebrew) and flag visually instead of blocking.
     const current = character.skillProficiencies[skill]
     const isProficient = current !== undefined
     if (isProficient) {
@@ -205,19 +209,19 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
       delete updated[skill]
       onSave({ skillProficiencies: updated })
     } else {
-      if (isClassOption && atClassSkillCap) return
       onSave({ skillProficiencies: { ...character.skillProficiencies, [skill]: 'proficient' } })
     }
   }
 
   function toggleSkillExp(skill: SkillName) {
-    // Feat-granted expertise is managed by the feat, not togglable here (BUG-30)
+    // Feat-granted expertise is derived, not togglable here (integrity lock, BUG-30)
     if (featExpertiseSkills.has(skill)) return
     const current = character.skillProficiencies[skill]
     if (current === 'expertise') {
       onSave({ skillProficiencies: { ...character.skillProficiencies, [skill]: 'proficient' } })
     } else if (current === 'proficient') {
-      if (atExpertiseCap) return
+      // Expertise cap is a RAW limit — homebrew-overridable, not blocked. (Expertise
+      // still requires proficiency first; that's a flow constraint, not a cap.)
       onSave({ skillProficiencies: { ...character.skillProficiencies, [skill]: 'expertise' } })
     }
   }
@@ -247,22 +251,22 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
           <span
             className="ml-auto text-xs px-2 py-0.5 rounded-full border"
             style={{
-              borderColor: atClassSkillCap ? 'var(--color-accent-gold)' : 'var(--color-border-raw)',
-              color: atClassSkillCap ? 'var(--color-accent-gold)' : undefined,
+              borderColor: overClassSkillCap ? 'var(--color-accent-red)' : atClassSkillCap ? 'var(--color-accent-gold)' : 'var(--color-border-raw)',
+              color: overClassSkillCap ? 'var(--color-accent-red)' : atClassSkillCap ? 'var(--color-accent-gold)' : undefined,
             }}
           >
-            {currentClassSkillCount}/{classSkillMax} skills
+            {currentClassSkillCount}/{classSkillMax} skills{overClassSkillCap ? ' (homebrew)' : ''}
           </span>
         )}
         {tab === 'skills' && expertiseCap > 0 && (
           <span
             className={classSkillMax !== Infinity ? 'text-xs px-2 py-0.5 rounded-full border' : 'ml-auto text-xs px-2 py-0.5 rounded-full border'}
             style={{
-              borderColor: atExpertiseCap ? 'var(--color-accent-gold)' : 'var(--color-border-raw)',
-              color: atExpertiseCap ? 'var(--color-accent-gold)' : undefined,
+              borderColor: overExpertiseCap ? 'var(--color-accent-red)' : atExpertiseCap ? 'var(--color-accent-gold)' : 'var(--color-border-raw)',
+              color: overExpertiseCap ? 'var(--color-accent-red)' : atExpertiseCap ? 'var(--color-accent-gold)' : undefined,
             }}
           >
-            {currentExpertiseCount}/{expertiseCap} expertise
+            {currentExpertiseCount}/{expertiseCap} expertise{overExpertiseCap ? ' (homebrew)' : ''}
           </span>
         )}
       </div>
@@ -336,13 +340,19 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
               const bonus = derived.skillModifiers[skill]
               const hasAdv = derived.advantages.skills.has(skill)
               const isClassOption = classSkillOptions.has(skill)
-              const addBlocked = isClassOption && !isProficient && atClassSkillCap
               const notClassOption = hasClass && !isClassOption
               const expertiseCapped = atExpertiseCap && !isExpertise
-              // P dot locks: non-class option, feat-granted, or add-blocked by cap
-              const profLocked = notClassOption || isFeatProficient || (addBlocked && !isProficient)
-              // E dot locks: prof prerequisite, feat-granted expertise, or cap reached
-              const expLocked = profLocked || !isProficient || isFeatExpertise || (expertiseCapped && !isExpertise)
+              // Per-row "homebrew" marks only the specific off-class pick. Going
+              // over the skill-count cap is communicated by the red count badge
+              // alone — tagging every row in that case (overClassSkillCap is global)
+              // wrongly flagged all skills at once (#7).
+              const isHomebrewPick = isProficient && notClassOption
+              // Only feat-granted dots are truly locked (integrity — the value is
+              // derived). Class-list and caps are RAW limits: clickable, just flagged.
+              const profLocked = isFeatProficient
+              const expLocked = isFeatExpertise || !isProficient
+              // Dim only off-list skills not yet picked (signals off-roster)
+              const dimRow = notClassOption && !isProficient
 
               return (
                 <div
@@ -359,12 +369,21 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     onToggleProf={() => toggleSkillProf(skill)}
                     onToggleExp={() => toggleSkillExp(skill)}
                   />
-                  <span className={cn('flex-1 text-sm min-w-0 truncate', notClassOption && 'opacity-50')}>{SKILL_DISPLAY_MAP[skill]}</span>
-                  <span className={cn('text-[10px] text-muted-foreground uppercase w-7 text-center flex-none', notClassOption && 'opacity-50')}>
+                  <span className={cn('flex-1 text-sm min-w-0 truncate', dimRow && 'opacity-50')}>{SKILL_DISPLAY_MAP[skill]}</span>
+                  {isHomebrewPick && (
+                    <span
+                      className="text-[9px] uppercase tracking-wide flex-none"
+                      style={{ color: 'var(--color-accent-red)' }}
+                      title="Off your class list or over the cap — kept as homebrew"
+                    >
+                      homebrew
+                    </span>
+                  )}
+                  <span className={cn('text-[10px] text-muted-foreground uppercase w-7 text-center flex-none', dimRow && 'opacity-50')}>
                     {ability.toUpperCase()}
                   </span>
                   <span
-                    className={cn('text-sm font-bold tabular-nums w-8 text-right flex-none', notClassOption && 'opacity-50')}
+                    className={cn('text-sm font-bold tabular-nums w-8 text-right flex-none', dimRow && 'opacity-50')}
                     style={{ color: isProficient ? 'var(--color-accent-gold)' : undefined }}
                   >
                     {formatBonus(bonus)}
@@ -378,7 +397,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            P = prof · E = expertise · class options in gold · (Adv) = advantage from feat/race/item
+            P = prof · E = expertise · class options in gold · off-list & over-cap allowed (homebrew) · (Adv) = advantage from feat/race/item
           </p>
         </>
       )}

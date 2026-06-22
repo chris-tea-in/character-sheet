@@ -1,4 +1,4 @@
-import type { WeaponItem, ArmorItem, FeatData } from './data'
+import type { WeaponItem, ArmorItem, FeatData, WondrousItem, ToolItem, SpellData, Race } from './data'
 
 export type AbilityName = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha'
 
@@ -141,6 +141,14 @@ export interface Character {
   customWeapons: WeaponItem[]
   customArmor: ArmorItem[]
   customFeats: FeatData[]
+  // Homebrew wondrous/generic items, spells, tools, and races — same render-time
+  // merge pattern as customWeapons/Armor/Feats (see lib/customContent), folded
+  // into the equipment catalog / spell map / race lookup so they resolve exactly
+  // like built-ins (INV-1). Sheet-managed; ride the synced data blob.
+  customItems: WondrousItem[]
+  customSpells: SpellData[]
+  customTools: ToolItem[]
+  customRaces: Race[]
 
   // Campaign association (player-owned, synced like any other field). null = not
   // in a campaign. Does NOT gate the main list — it only adds the character to a
@@ -192,6 +200,10 @@ export function defaultCharacter(name: string): NewCharacter {
     customWeapons: [],
     customArmor: [],
     customFeats: [],
+    customItems: [],
+    customSpells: [],
+    customTools: [],
+    customRaces: [],
     campaignId: null,
     disguiseClass: false,
     disguiseAs: '',

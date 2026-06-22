@@ -39,6 +39,9 @@ export interface DamageSpec {
   damageType?: string
   extraDamage?: ExtraDamage[]
   scaling?: DamageScaling
+  // 'heal' reuses the whole damage pipeline (dice + upcast scaling) but the modal
+  // and history present it as healing ("HP restored"), with no crit doubling.
+  mode?: 'damage' | 'heal'
 }
 
 export interface RollResult {
