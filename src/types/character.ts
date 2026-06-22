@@ -44,6 +44,8 @@ export interface EquipmentItem {
   chargesUsed?: number   // limited-use items: charges spent (catalog `charges.max` − chargesUsed = remaining); usage tracker only, no stat effect
   baseWeapon?: string    // for "any sword/any weapon" magic weapons: the chosen mundane base weapon name; its damage/type/properties drive the stats
   baseArmor?: string     // for "any armor / Varies" magic armors: the chosen mundane base armor name; its ac_formula/type/stealth/STR drive the AC
+  containerId?: string   // when set, this item is stored INSIDE the container item with this id (a bag of holding etc.); it is hidden from the main sheet sections and can't be active. undefined = carried on person
+  currency?: Partial<Currency>  // a container's own coin pouch (bag of holding & kin); coins held inside the bag, separate from the character's carried Currency. Only meaningful on coin-capable container items
 }
 
 export interface CharacterSpell {

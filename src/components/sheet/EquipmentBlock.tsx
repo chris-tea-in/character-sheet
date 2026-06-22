@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Plus, X, Pencil, Check, Sparkles } from 'lucide-react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Plus, X, Pencil, Check, Sparkles, PackageOpen, PackagePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { InfoPopup } from '@/components/InfoPopup'
@@ -8,8 +8,10 @@ import { EditableField } from './EditableField'
 import { ToolsSection } from './ToolsSection'
 import { ValueAdjustModal } from './ValueAdjustModal'
 import { CustomItemDialog } from './CustomItemDialog'
+import { ContainerInventoryDialog } from './ContainerInventoryDialog'
 import { generateId } from '@/lib/uuid'
 import { mergeCustomEquipment } from '@/lib/customContent'
+import { isContainerName, ITEM_TYPE_ORDER, getWondrousItemType, contentsOf } from '@/lib/containers'
 import { computeWeaponBonus, summarizeItemEffects, isVariableBaseArmor } from '@/lib/characterStats'
 import { abilityModifier } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
@@ -31,35 +33,7 @@ interface Props {
 
 const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary', 'Artifact', 'Unique'] as const
 
-const ITEM_TYPE_ORDER = [
-  'Rings', 'Rods', 'Scrolls', 'Staffs', 'Wands',
-  'Amulets & Jewelry', 'Bags & Containers', 'Belts',
-  'Books & Tomes', 'Cloaks & Robes', 'Footwear',
-  'Gloves & Bracers', 'Headwear', 'Instruments',
-  'Tattoos', 'Other Wondrous',
-] as const
-
 const WONDROUS_RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary', 'Artifact', 'Varies'] as const
-
-function getWondrousItemType(name: string): string {
-  const n = name.toLowerCase()
-  if (/ring/.test(n) || /signet$/.test(n) || n === 'band of loyalty') return 'Rings'
-  if (/staff/.test(n)) return 'Staffs'
-  if (n.startsWith('wand') || n === 'spindle of fate' || n === 'radiance') return 'Wands'
-  if (/\brod\b/.test(n) || /scepter/.test(n)) return 'Rods'
-  if (/scroll/.test(n)) return 'Scrolls'
-  if (/tattoo/.test(n)) return 'Tattoos'
-  if (/^instrument/.test(n) || /^pipes? of/.test(n) || /lyre/.test(n) || /\bharp\b/.test(n) || /^horn of/.test(n) || /\bdrum\b/.test(n) || /concertina/.test(n)) return 'Instruments'
-  if (/^helm/.test(n) || /^hat/.test(n) || /^headband/.test(n) || /^circlet/.test(n) || /^crown/.test(n) || /^cap /.test(n) || /^goggles/.test(n) || /^mask/.test(n) || n === 'dread helm' || /nimbus coronet/.test(n) || n === 'skull helm' || n === 'peregrine mask') return 'Headwear'
-  if (/^cloak/.test(n) || /^robe/.test(n) || /^cape/.test(n) || /^mantle/.test(n) || /piwafwi/.test(n) || /shroud/.test(n)) return 'Cloaks & Robes'
-  if (/^boots/.test(n) || /^slippers/.test(n) || /^horseshoes/.test(n) || /greaves/.test(n)) return 'Footwear'
-  if (/^gauntlets/.test(n) || /^gloves/.test(n) || /^bracers/.test(n) || /^bracelet/.test(n) || /^bracer/.test(n) || /\bclaws\b/.test(n)) return 'Gloves & Bracers'
-  if (/^belt/.test(n) || /girdle/.test(n)) return 'Belts'
-  if (/^amulet/.test(n) || /^necklace/.test(n) || /^medallion/.test(n) || /^periapt/.test(n) || /^brooch/.test(n) || /^scarab/.test(n) || /^talisman/.test(n) || /^badge/.test(n) || /\binsignia\b/.test(n) || /\bemblem\b/.test(n) || /^charm of/.test(n)) return 'Amulets & Jewelry'
-  if (/^bag/.test(n) || /quiver/.test(n) || /haversack/.test(n) || n === 'portable hole' || n === 'chest of preserving') return 'Bags & Containers'
-  if (/^tome/.test(n) || /^manual/.test(n) || /^book/.test(n) || /^grimoire/.test(n) || /^libram/.test(n) || /^codex/.test(n) || /compendium/.test(n) || /\barchive\b/.test(n) || /treatise/.test(n) || /manuscript/.test(n) || /primer$/.test(n) || /^atlas/.test(n)) return 'Books & Tomes'
-  return 'Other Wondrous'
-}
 
 const CURRENCY_KEYS: Array<{ key: keyof Currency; label: string }> = [
   { key: 'pp', label: 'PP' },
@@ -294,6 +268,7 @@ function WeaponRow({
   charges,
   variableBase = false,
   onChooseBase,
+  moveControl,
 }: {
   item: EquipmentItem
   weapon: WeaponItem
@@ -307,6 +282,7 @@ function WeaponRow({
   charges?: ItemCharges
   variableBase?: boolean
   onChooseBase?: () => void
+  moveControl?: ReactNode
 }) {
   const { dispatch, dispatchDamage } = useRollDispatch(derived)
   const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects)
@@ -442,6 +418,7 @@ function WeaponRow({
                 <span>Edit stats</span>
               </button>
               <div className="ml-auto flex items-center gap-3">
+                {moveControl}
                 <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
                 <button
                   onClick={onRemove}
@@ -466,6 +443,7 @@ function ArmorRow({
   requiresAttunement,
   active,
   onToggleActive,
+  moveControl,
 }: {
   item: EquipmentItem
   armor: ArmorItem
@@ -473,6 +451,7 @@ function ArmorRow({
   requiresAttunement: boolean
   active: boolean
   onToggleActive?: () => void
+  moveControl?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -517,6 +496,7 @@ function ArmorRow({
             )}
           </div>
           <div className="flex justify-end items-center gap-3">
+            {moveControl}
             <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
               onClick={onRemove}
@@ -539,6 +519,8 @@ function ItemRow({
   requiresAttunement,
   active,
   onToggleActive,
+  moveControl,
+  containerButton,
 }: {
   item: EquipmentItem
   onUpdate: (changes: Partial<EquipmentItem>) => void
@@ -546,6 +528,8 @@ function ItemRow({
   requiresAttunement: boolean
   active: boolean
   onToggleActive?: () => void
+  moveControl?: ReactNode
+  containerButton?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const [editingName, setEditingName] = useState(false)
@@ -569,6 +553,7 @@ function ItemRow({
             <span className="text-xs text-muted-foreground ml-1.5">×{item.quantity}</span>
           )}
         </button>
+        {containerButton}
         <ActiveTag requiresAttunement={requiresAttunement} active={active} />
       </div>
 
@@ -600,6 +585,7 @@ function ItemRow({
               <Pencil className="h-3 w-3" />
             </button>
             <div className="ml-auto flex items-center gap-3 text-xs">
+              {moveControl}
               <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
               <button
                 onClick={onRemove}
@@ -633,6 +619,8 @@ function MagicItemRow({
   requiresAttunement,
   active,
   onToggleActive,
+  moveControl,
+  containerButton,
 }: {
   item: EquipmentItem
   wondrousItem: WondrousItem
@@ -641,6 +629,8 @@ function MagicItemRow({
   requiresAttunement: boolean
   active: boolean
   onToggleActive?: () => void
+  moveControl?: ReactNode
+  containerButton?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const rarityColor = RARITY_COLORS[wondrousItem.rarity] ?? 'var(--color-text-muted)'
@@ -654,6 +644,7 @@ function MagicItemRow({
         >
           {item.name}
         </button>
+        {containerButton}
         <ActiveTag requiresAttunement={requiresAttunement} active={active} />
         <div className="flex items-center gap-2 text-xs flex-none">
           <span className="font-semibold" style={{ color: rarityColor }}>
@@ -674,6 +665,7 @@ function MagicItemRow({
             <ChargesTracker charges={wondrousItem.charges} used={item.chargesUsed ?? 0} onSetCharges={u => onUpdate({ chargesUsed: u })} />
           )}
           <div className="flex justify-end items-center gap-3">
+            {moveControl}
             <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
               onClick={onRemove}
@@ -699,6 +691,7 @@ function MagicArmorRow({
   onToggleActive,
   variableBase = false,
   onChooseBase,
+  moveControl,
 }: {
   item: EquipmentItem
   armor: ArmorItem
@@ -709,6 +702,7 @@ function MagicArmorRow({
   onToggleActive?: () => void
   variableBase?: boolean
   onChooseBase?: () => void
+  moveControl?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const rarityColor = RARITY_COLORS[armor.rarity ?? ''] ?? 'var(--color-text-muted)'
@@ -766,6 +760,7 @@ function MagicArmorRow({
             <ChargesTracker charges={armor.charges} used={item.chargesUsed ?? 0} onSetCharges={u => onUpdate({ chargesUsed: u })} />
           )}
           <div className="flex justify-end items-center gap-3">
+            {moveControl}
             <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
               onClick={onRemove}
@@ -888,6 +883,13 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   const [customDialog, setCustomDialog] = useState<'weapon' | 'armor' | null>(null)
   // Currency whose add/subtract modal is open (null = closed).
   const [currencyModal, setCurrencyModal] = useState<keyof Currency | null>(null)
+  // Container (bag of holding etc.) whose inventory dialog is open (null = closed).
+  const [openContainerId, setOpenContainerId] = useState<string | null>(null)
+  // When set, the next catalog/custom add drops the item INTO this container instead
+  // of onto the person (driven by the open container's "Add" buttons).
+  const [addTargetContainerId, setAddTargetContainerId] = useState<string | null>(null)
+  // Item awaiting a "move to which bag?" choice (only when >1 container exists).
+  const [moveChooserItem, setMoveChooserItem] = useState<EquipmentItem | null>(null)
 
   // Catalog with this character's homebrew weapons/armor folded in, so they
   // resolve by name in every row + picker exactly like built-ins (same merge the
@@ -984,26 +986,35 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
     return false
   }
 
+  // Items stored inside a container (bag of holding etc.) are hidden from every main
+  // section — they live only inside that bag's inventory dialog. `!e.containerId`
+  // guards each section below so a bagged item never double-renders or counts active.
+  const onPerson = (e: EquipmentItem) => !e.containerId
+
   // Active items (worn armor / equipped weapons / attuned or equipped magic items) are
   // pulled out of their type sections and shown ONLY in the Loadout block below.
-  const activeItems = character.equipment.filter(isActive)
+  const activeItems = character.equipment.filter(e => onPerson(e) && isActive(e))
   // The 3-item cap applies only to attune-required items; equipping costs nothing.
   const attunedCount = activeItems.filter(e => requiresAttunementFor(e.name)).length
 
+  // Containers carried on the person (not themselves inside another bag — bags don't
+  // nest). Each gets a "View Inventory" button and is a move-target.
+  const containers = character.equipment.filter(e => onPerson(e) && isContainerName(e.name))
+
   const weaponItems = character.equipment.filter(
-    e => !isActive(e) && (weaponByName.has(e.name.toLowerCase()) ||
+    e => onPerson(e) && !isActive(e) && (weaponByName.has(e.name.toLowerCase()) ||
       (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'weapon')),
   )
   const armorItems = character.equipment.filter(
-    e => !isActive(e) && (armorByName.has(e.name.toLowerCase()) ||
+    e => onPerson(e) && !isActive(e) && (armorByName.has(e.name.toLowerCase()) ||
       (wondrousItemByName.has(e.name.toLowerCase()) && e.displayCategory === 'armor')),
   )
   const wondrousInItems = character.equipment.filter(
-    e => !isActive(e) && wondrousItemByName.has(e.name.toLowerCase()) &&
+    e => onPerson(e) && !isActive(e) && wondrousItemByName.has(e.name.toLowerCase()) &&
       (e.displayCategory === 'item' || e.displayCategory === undefined),
   )
   const gearItems = character.equipment.filter(
-    e => !isActive(e) && !weaponByName.has(e.name.toLowerCase()) &&
+    e => onPerson(e) && !isActive(e) && !weaponByName.has(e.name.toLowerCase()) &&
       !armorByName.has(e.name.toLowerCase()) &&
       !wondrousItemByName.has(e.name.toLowerCase()),
   )
@@ -1017,7 +1028,39 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   function addItem(name: string, displayCategory?: 'weapon' | 'armor' | 'item') {
     const newItem: EquipmentItem = { id: generateId(), name, quantity: 1 }
     if (displayCategory) newItem.displayCategory = displayCategory
+    // When a container's "Add" button opened the picker, drop the item into the bag.
+    if (addTargetContainerId) newItem.containerId = addTargetContainerId
     onSave({ equipment: [...character.equipment, newItem] })
+    setAddTargetContainerId(null)
+  }
+  // Move an item into a container: tag it and clear active flags (a stored item can't
+  // be worn/wielded). Used by the per-row "Move to bag" control.
+  function moveItemToContainer(itemId: string, containerId: string) {
+    onSave({
+      equipment: character.equipment.map(e =>
+        e.id === itemId ? { ...e, containerId, equipped: false, attuned: false } : e,
+      ),
+    })
+  }
+  // The per-row "Move to bag" affordance: direct when there's one bag, a chooser when
+  // there are several. Returns null when the item itself is a container (no nesting)
+  // or there's nowhere to move it.
+  function buildMoveControl(item: EquipmentItem): ReactNode {
+    if (containers.length === 0 || isContainerName(item.name)) return null
+    const onClick = () => {
+      if (containers.length === 1) moveItemToContainer(item.id, containers[0].id)
+      else setMoveChooserItem(item)
+    }
+    return (
+      <button
+        onClick={onClick}
+        className="flex items-center gap-1 hover:opacity-75 transition-opacity"
+        title="Move into a bag of holding"
+      >
+        <PackagePlus className="h-3.5 w-3.5" />
+        <span>Move to bag</span>
+      </button>
+    )
   }
   function addCustomItem() {
     onSave({ equipment: [...character.equipment, { id: generateId(), name: 'New item', quantity: 1 }] })
@@ -1073,6 +1116,22 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   }
 
 
+  // "Inventory (N)" button shown in a container item's row header.
+  function buildContainerButton(item: EquipmentItem): ReactNode {
+    const count = contentsOf(character.equipment, item.id).length
+    return (
+      <button
+        onClick={() => setOpenContainerId(item.id)}
+        className="flex items-center gap-1 flex-none text-[11px] px-2 py-0.5 rounded-full border hover:opacity-80 transition-opacity"
+        style={{ color: 'var(--color-accent-gold)', borderColor: 'var(--color-accent-gold)' }}
+        title="View this container's inventory"
+      >
+        <PackageOpen className="h-3 w-3" />
+        Inventory{count > 0 ? ` (${count})` : ''}
+      </button>
+    )
+  }
+
   // Dispatch an equipment item to the right row component by catalog type. Active
   // items render here in the Loadout block; inactive ones in their type section.
   function renderRow(item: EquipmentItem) {
@@ -1080,6 +1139,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
     const reqAtt = requiresAttunementFor(item.name)
     const active = isActive(item)
     const onToggleActive = () => toggleActive(item)
+    const moveControl = buildMoveControl(item)
+    const containerButton = isContainerName(item.name) ? buildContainerButton(item) : undefined
     const weapon = weaponByName.get(n)
     if (weapon) {
       // "Any sword / any weapon" magic weapons: the chosen mundane base drives
@@ -1113,13 +1174,14 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           charges={weapon.charges}
           variableBase={variableBase}
           onChooseBase={() => setBasePickerItem(item)}
+          moveControl={moveControl}
         />
       )
     }
     const armor = armorByName.get(n)
     if (armor) {
       if (!armor.magical) {
-        return <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} requiresAttunement={reqAtt} active={active} onToggleActive={onToggleActive} />
+        return <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} requiresAttunement={reqAtt} active={active} onToggleActive={onToggleActive} moveControl={moveControl} />
       }
       // "Any armor / Varies" magic armor: resolve the chosen mundane base so the row
       // shows a real AC formula; the AC derivation does the same resolution.
@@ -1149,6 +1211,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           onToggleActive={onToggleActive}
           variableBase={variableBase}
           onChooseBase={() => setBasePickerItem(item)}
+          moveControl={moveControl}
         />
       )
     }
@@ -1164,6 +1227,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           requiresAttunement={reqAtt}
           active={active}
           onToggleActive={onToggleActive}
+          moveControl={moveControl}
+          containerButton={containerButton}
         />
       )
     }
@@ -1176,6 +1241,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         requiresAttunement={reqAtt}
         active={active}
         onToggleActive={onToggleActive}
+        moveControl={moveControl}
+        containerButton={containerButton}
       />
     )
   }
@@ -1419,7 +1486,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         value=""
         title="Add Weapon"
         open={weaponPickerOpen}
-        onClose={() => setWeaponPickerOpen(false)}
+        onClose={() => { setWeaponPickerOpen(false); setAddTargetContainerId(null) }}
         tabs={weaponTabs}
         onSelect={name => {
           addItem(name)
@@ -1431,7 +1498,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         value=""
         title="Add Armor"
         open={armorPickerOpen}
-        onClose={() => setArmorPickerOpen(false)}
+        onClose={() => { setArmorPickerOpen(false); setAddTargetContainerId(null) }}
         tabs={armorTabs}
         onSelect={name => {
           addItem(name)
@@ -1443,7 +1510,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         value=""
         title="Add Item"
         open={gearPickerOpen}
-        onClose={() => setGearPickerOpen(false)}
+        onClose={() => { setGearPickerOpen(false); setAddTargetContainerId(null) }}
         tabs={itemsTabs}
         onSelect={name => {
           addItem(name, wondrousItemByName.has(name.toLowerCase()) ? 'item' : undefined)
@@ -1479,6 +1546,44 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         <Button variant="outline" onClick={() => setBasePrompt(null)}>
           Later
         </Button>
+      </InfoPopup>
+
+      {/* Container (bag of holding etc.) inventory: contents, coin pouch, bulk import,
+          and add. Catalog adds delegate back to the pickers above via addTargetContainerId. */}
+      <ContainerInventoryDialog
+        open={openContainerId !== null}
+        container={character.equipment.find(e => e.id === openContainerId) ?? null}
+        character={character}
+        catalog={catalog}
+        onSave={onSave}
+        onClose={() => { setOpenContainerId(null); setAddTargetContainerId(null) }}
+        onAddCatalog={kind => {
+          setAddTargetContainerId(openContainerId)
+          if (kind === 'weapon') setWeaponPickerOpen(true)
+          else if (kind === 'armor') setArmorPickerOpen(true)
+          else setGearPickerOpen(true)
+        }}
+      />
+
+      {/* "Move to which bag?" — only shown when more than one container exists. */}
+      <InfoPopup
+        open={!!moveChooserItem}
+        onClose={() => setMoveChooserItem(null)}
+        title="Move to which bag?"
+        description={moveChooserItem ? `Choose where to store "${moveChooserItem.name}".` : ''}
+      >
+        {containers.map(c => (
+          <Button
+            key={c.id}
+            variant="outline"
+            onClick={() => {
+              if (moveChooserItem) moveItemToContainer(moveChooserItem.id, c.id)
+              setMoveChooserItem(null)
+            }}
+          >
+            {c.name}
+          </Button>
+        ))}
       </InfoPopup>
     </section>
   )
