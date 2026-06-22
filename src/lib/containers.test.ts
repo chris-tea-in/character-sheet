@@ -72,4 +72,11 @@ describe('getWondrousItemType', () => {
     expect(getWondrousItemType('Cloak of Protection')).toBe('Cloaks & Robes')
     expect(getWondrousItemType('Some Unknown Trinket')).toBe('Other Wondrous')
   })
+
+  it('does not treat the "ring" substring in "devouring" as a Ring (#13)', () => {
+    // "/ring/" used to match the substring inside "devou-ring"
+    expect(getWondrousItemType('Bag of Devouring')).toBe('Bags & Containers')
+    // a real ring still classifies as a Ring
+    expect(getWondrousItemType('Ring of Three Wishes')).toBe('Rings')
+  })
 })

@@ -10,11 +10,14 @@ import { useCampaignStore } from '@/store/campaigns'
 import {
   campaignRoster, campaignMembers, removeMember as apiRemoveMember,
   removeCampaignCharacter,
+  campaignItems, createCampaignItem, deleteCampaignItem,
 } from '@/lib/syncApi'
-import type { CampaignMember, RosterMember } from '@/lib/syncApi'
+import type { CampaignMember, RosterMember, CampaignItem } from '@/lib/syncApi'
+import { CustomItemDialog } from '@/components/sheet/CustomItemDialog'
 import { slugToTitle } from '@/lib/characterSetup'
 import { loadSetupData } from '@/lib/data'
 import type { Character } from '@/types/character'
+import type { WeaponItem, ArmorItem, WondrousItem } from '@/types/data'
 
 function classLabel(c: Pick<Character, 'classes' | 'class' | 'level'>): string {
   if (c.classes?.length) return c.classes.map(x => `${slugToTitle(x.classSlug)} ${x.level}`).join(' / ')
@@ -125,6 +128,8 @@ export default function CampaignPage() {
         {isDm && <DmControls campaignId={campaign.id} inviteCode={campaign.inviteCode}
           onRotate={() => rotateCampaignCode(campaign.id)}
           onDelete={() => setDeleteOpen(true)} />}
+
+        {isDm && <CampaignItemsSection campaignId={campaign.id} />}
 
         {/* The current user's own characters in this campaign */}
         <section className="space-y-3">
@@ -438,6 +443,79 @@ function DmControls({
         <Trash2 className="h-4 w-4" />
         Delete campaign
       </Button>
+    </section>
+  )
+}
+
+// ── DM-created shared items (#12): create with the same dialog the sheet uses ───
+
+function CampaignItemsSection({ campaignId }: { campaignId: string }) {
+  const [items, setItems] = useState<CampaignItem[] | null>(null)
+  const [dialogKind, setDialogKind] = useState<'weapon' | 'armor' | 'item' | null>(null)
+
+  function load() {
+    void campaignItems(campaignId).then(res => { if (res.ok) setItems(res.data) })
+  }
+  useEffect(() => { load() }, [campaignId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleCreate(def: WeaponItem | ArmorItem | WondrousItem) {
+    await createCampaignItem(campaignId, def.category as CampaignItem['category'], def)
+    setDialogKind(null)
+    load()
+  }
+
+  async function handleDelete(itemId: string) {
+    await deleteCampaignItem(campaignId, itemId)
+    load()
+  }
+
+  return (
+    <section className="space-y-3 rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Shared Items</p>
+        <div className="flex gap-1">
+          {(['weapon', 'armor', 'item'] as const).map(k => (
+            <Button key={k} size="sm" variant="outline" onClick={() => setDialogKind(k)} className="capitalize">
+              <Plus className="h-4 w-4" />{k}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Homebrew items you add here become selectable by every player in this campaign.
+      </p>
+      {items === null ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No shared items yet.</p>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {items.map(it => (
+            <li key={it.id} className="flex items-center justify-between gap-2 px-3 py-2">
+              <span className="text-sm truncate">
+                {it.data.name}
+                <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {it.category.replace('_', ' ')}
+                </span>
+              </span>
+              <button
+                onClick={() => handleDelete(it.id)}
+                className="flex-none text-muted-foreground hover:text-destructive transition-colors"
+                title="Remove item"
+                aria-label={`Remove ${it.data.name}`}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <CustomItemDialog
+        open={dialogKind !== null}
+        kind={dialogKind ?? 'weapon'}
+        onClose={() => setDialogKind(null)}
+        onCreate={handleCreate}
+      />
     </section>
   )
 }

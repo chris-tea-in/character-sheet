@@ -14,6 +14,11 @@ import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spe
 import { RollButton } from '@/components/sheet/RollButton'
 import { parseSpellDamage } from '@/lib/spellDamage'
 import type { ParsedSpellDamage } from '@/lib/spellDamage'
+import { parseSpellHeal } from '@/lib/spellHeal'
+import type { ParsedSpellHeal } from '@/lib/spellHeal'
+import { mergeCustomSpells } from '@/lib/customContent'
+import { CustomSpellDialog } from './CustomSpellDialog'
+import type { CustomSpellDamage } from './CustomSpellDialog'
 import type { ClassData, SpellData } from '@/types/data'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
@@ -37,18 +42,24 @@ function SlotPips({
 }: {
   total: number; used: number; onToggle: (n: number) => void
 }) {
+  // Filled = available (remaining), not used. The leftmost `remaining` pips are
+  // lit and show how many slots you still have; spent slots empty out from the
+  // right. Clicking a lit pip uses a slot (used+1); clicking an empty one
+  // restores it (used-1). Bounds hold naturally (lit ⇒ used<total, empty ⇒ used>0).
+  const remaining = total - used
   return (
     <div className="flex gap-1 flex-wrap">
       {Array.from({ length: total }).map((_, i) => {
-        const filled = i < used
+        const available = i < remaining
         return (
           <button
             key={i}
-            onClick={() => onToggle(filled ? i : i + 1)}
+            onClick={() => onToggle(available ? used + 1 : used - 1)}
+            title={available ? 'Use a slot' : 'Restore a slot'}
             className="w-5 h-5 rounded-full border-2 transition-colors"
             style={{
               borderColor: 'var(--color-accent-gold)',
-              background: filled ? 'var(--color-accent-gold)' : 'transparent',
+              background: available ? 'var(--color-accent-gold)' : 'transparent',
             }}
           />
         )
@@ -62,29 +73,35 @@ function SpellRow({
   charSpell,
   isPreparedCaster,
   catalogDamage,
+  catalogHeal,
   onTogglePrepared,
   onRemove,
   onHit,
   onDamage,
+  onHeal,
   onSetDamage,
 }: {
   spell: SpellData | undefined
   charSpell: CharacterSpell
   isPreparedCaster: boolean
   catalogDamage: ParsedSpellDamage | null
+  catalogHeal: ParsedSpellHeal | null
   onTogglePrepared: () => void
   onRemove: () => void
   onHit: () => void
   onDamage: () => void
+  onHeal: () => void
   onSetDamage: (patch: Partial<CharacterSpell>) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const level = spell?.level ?? 0
   const levelLabel = level === 0 ? 'Cantrip' : `Lv ${level}`
   const dmgInputClass = 'w-16 bg-[var(--color-surface-2)] border border-border rounded px-1.5 py-0.5 text-xs text-foreground'
-  // The Dmg button works from a per-character override OR the auto-detected catalog
-  // damage; only when neither exists does it fall back to opening the editor.
+  // Classify what this spell does, to show the right roll button (#3b):
+  //  • damage  → Dmg   • heals (no damage) → Heal   • neither → Utility (no roll)
+  // A per-character damage override always counts as damage.
   const hasDamage = !!(charSpell.damageDice || catalogDamage?.dice)
+  const hasHeal = !hasDamage && !!catalogHeal
   const usingCatalog = !charSpell.damageDice && !!catalogDamage?.dice
 
   return (
@@ -121,12 +138,18 @@ function SpellRow({
 
         <div className="flex items-center gap-1 flex-none">
           <RollButton label="Hit" onClick={onHit} />
-          <RollButton
-            label="Dmg"
-            tone="gold"
-            title={hasDamage ? undefined : 'No damage detected — set it in the spell details'}
-            onClick={() => (hasDamage ? onDamage() : setExpanded(true))}
-          />
+          {hasDamage ? (
+            <RollButton label="Dmg" tone="gold" onClick={onDamage} />
+          ) : hasHeal ? (
+            <RollButton label="Heal" tone="gold" title="Roll how much you heal" onClick={onHeal} />
+          ) : (
+            <span
+              className="text-[10px] text-muted-foreground italic px-1"
+              title="No attack, damage, or healing — open for details / set damage manually"
+            >
+              Utility
+            </span>
+          )}
         </div>
 
         {spell && (
@@ -221,12 +244,20 @@ function SpellRow({
 export function SpellBlock({ character, classRecord, classLevel, derived, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
+  const [customSpellOpen, setCustomSpellOpen] = useState(false)
   const [bonusEditorOpen, setBonusEditorOpen] = useState(false)
   const { dispatch, dispatchDamage } = useRollDispatch(derived)
 
   useEffect(() => {
     loadSpellsData().then(setAllSpells).catch(() => {})
   }, [])
+
+  // The catalog with this character's homebrew spells folded in (keyed by their
+  // custom:<uuid> slug), so they list, view, and classify damage/heal like built-ins.
+  const spellMap = useMemo(
+    () => mergeCustomSpells(allSpells, character.customSpells) ?? allSpells,
+    [allSpells, character.customSpells],
+  )
 
   const { profile: rawProfile, casterKind: rawCasterKind, spellsKnown: rawSpellsKnown } = getSpellcastingInfo(classRecord, classLevel)
   const profile = overrideSlotProfile ?? rawProfile
@@ -260,17 +291,17 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   })
 
   const classSpellEntries: SelectionEntry[] = useMemo(() =>
-    Object.entries(allSpells)
+    Object.entries(spellMap)
       .filter(([key]) => !alreadyKnown.has(key))
       .filter(([, s]) => s.classes.includes(classRecord.slug))
       .map(toEntry),
-  [allSpells, alreadyKnown, classRecord.slug])
+  [spellMap, alreadyKnown, classRecord.slug])
 
   const allSpellEntries: SelectionEntry[] = useMemo(() =>
-    Object.entries(allSpells)
+    Object.entries(spellMap)
       .filter(([key]) => !alreadyKnown.has(key))
       .map(toEntry),
-  [allSpells, alreadyKnown])
+  [spellMap, alreadyKnown])
 
   const spellTabs: TabConfig[] = useMemo(() => [
     { label: classRecord.name, entries: classSpellEntries, groupOrder: LEVEL_GROUP_ORDER },
@@ -284,6 +315,19 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   function addSpell(key: string) {
     onSave({ spells: [...character.spells, { slug: key, prepared: false }] })
     setSpellListOpen(false)
+  }
+
+  // Homebrew spell: store the catalog-shaped def (so it resolves by slug via the
+  // merged spell map) AND add the known-spell instance, with optional damage on
+  // the instance (#6a). One write.
+  function createCustomSpell(spell: SpellData, damage: CustomSpellDamage | null) {
+    const instance: CharacterSpell = { slug: spell.slug, prepared: false }
+    if (damage) { instance.damageDice = damage.dice; if (damage.type) instance.damageType = damage.type }
+    onSave({
+      customSpells: [...(character.customSpells ?? []), spell],
+      spells: [...character.spells, instance],
+    })
+    setCustomSpellOpen(false)
   }
 
   function removeSpell(key: string) {
@@ -310,13 +354,13 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   const spellsByLevel = useMemo(() => {
     const map = new Map<number, CharacterSpell[]>()
     for (const cs of character.spells) {
-      const spell = allSpells[normalizeSlug(cs.slug)]
+      const spell = spellMap[normalizeSlug(cs.slug)]
       const level = spell?.level ?? 0
       if (!map.has(level)) map.set(level, [])
       map.get(level)!.push(cs)
     }
     return map
-  }, [character.spells, allSpells])
+  }, [character.spells, spellMap])
 
   // "Spells Known" card indicator (mirrors the creation wizard): a total
   // (cantrips + known/prepared) plus a per-level breakdown. Totals are a
@@ -329,11 +373,21 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   const castingMod = castingShort ? abilityModifier(derived.effectiveAbilities[castingShort]) : 0
   const cantripsSelected = (spellsByLevel.get(0) ?? []).length
   const spellsSelected = character.spells.length - cantripsSelected
+  // Prepared casters: the limit applies to how many are PREPARED, not how many are
+  // selected (selection is uncapped). Count only leveled, prepared spells.
+  const preparedCount = character.spells.filter(s => {
+    const sp = spellMap[normalizeSlug(s.slug)]
+    return (sp?.level ?? 0) > 0 && s.prepared
+  }).length
   const cantripLimit = rawProfile.kind === 'none' ? 0 : rawProfile.cantripsKnown
   const spellLimit = isPreparedCaster
     ? getPreparedSpellCount(classRecord.slug, classLevel, castingMod)
     : rawSpellsKnown
   const spellLimitLabel = isPreparedCaster ? 'Prepared' : 'Known'
+  // Known casters show total selected; prepared casters show the prepared count.
+  // Either way the limit is a soft homebrew cap — going over just flags red.
+  const spellCountShown = isPreparedCaster ? preparedCount : spellsSelected
+  const overLimit = spellLimit > 0 && spellCountShown > spellLimit
   const indicatorSlots: Partial<Record<number, number>> =
     profile.kind === 'slots' || profile.kind === 'slots+pact'
       ? profile.slotsByLevel
@@ -456,23 +510,37 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Spells Known
           </p>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSpellListOpen(true)}
-            className="text-muted-foreground hover:text-foreground h-7 text-xs"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Spell
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSpellListOpen(true)}
+              className="text-muted-foreground hover:text-foreground h-7 text-xs"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Spell
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCustomSpellOpen(true)}
+              className="text-muted-foreground hover:text-foreground h-7 text-xs"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Custom
+            </Button>
+          </div>
         </div>
 
-        {/* X/Y indicator — mirrors the creation wizard (total + per-level) */}
+        {/* X/Y indicator — cantrips known, then spells (Known total / Prepared count) */}
         {rawProfile.kind !== 'none' && (
           <p className="text-xs text-muted-foreground mb-1">
             Cantrips {cantripsSelected}/{cantripLimit}
             <span className="mx-1.5">·</span>
-            {spellLimitLabel} {spellsSelected}{spellLimit > 0 && `/${spellLimit}`}
+            <span style={overLimit ? { color: 'var(--color-accent-red)' } : undefined}>
+              {spellLimitLabel} {spellCountShown}{spellLimit > 0 && `/${spellLimit}`}
+              {overLimit ? ' (homebrew)' : ''}
+            </span>
           </p>
         )}
         {Object.keys(indicatorSlots).length > 0 && (
@@ -510,12 +578,13 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                     {level === 0 ? 'Cantrips' : `${ORDINALS[level]} Level`}
                   </p>
                   {spells.map(cs => {
-                    const sp = allSpells[normalizeSlug(cs.slug)]
+                    const sp = spellMap[normalizeSlug(cs.slug)]
                     const spellLevel = sp?.level ?? 0
                     const label = sp?.name ?? normalizeSlug(cs.slug)
                     // Per-character override wins; otherwise fall back to the damage
                     // auto-detected from the spell's text.
                     const catalog = sp ? parseSpellDamage(sp) : null
+                    const heal = sp ? parseSpellHeal(sp) : null
                     const dmgDice = cs.damageDice ?? catalog?.dice ?? ''
                     const dmgType = cs.damageType ?? catalog?.type ?? undefined
                     const dmgPerLevel = cs.damagePerLevel ?? catalog?.perLevel ?? undefined
@@ -526,6 +595,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                         spell={sp}
                         isPreparedCaster={isPreparedCaster}
                         catalogDamage={catalog}
+                        catalogHeal={heal}
                         onTogglePrepared={() => togglePrepared(normalizeSlug(cs.slug))}
                         onRemove={() => removeSpell(normalizeSlug(cs.slug))}
                         onHit={() => dispatch({ type: 'attack', label, modifier: spellAttackMod })}
@@ -537,6 +607,15 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                           scaling: spellLevel === 0
                             ? { kind: 'cantrip', characterLevel: character.level }
                             : { kind: 'leveled', baseLevel: spellLevel, perLevel: dmgPerLevel, maxLevel: 9 },
+                        })}
+                        onHeal={() => heal && dispatchDamage({
+                          label,
+                          baseDice: heal.dice,
+                          damageBonus: heal.addsMod ? castingMod : 0,
+                          mode: 'heal',
+                          scaling: spellLevel === 0
+                            ? undefined
+                            : { kind: 'leveled', baseLevel: spellLevel, perLevel: heal.perLevel ?? undefined, maxLevel: 9 },
                         })}
                         onSetDamage={patch => updateSpellDamage(normalizeSlug(cs.slug), patch)}
                       />
@@ -557,6 +636,13 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         onClose={() => setSpellListOpen(false)}
         onSelect={addSpell}
         tabs={spellTabs}
+      />
+
+      <CustomSpellDialog
+        open={customSpellOpen}
+        classSlug={classRecord.slug}
+        onClose={() => setCustomSpellOpen(false)}
+        onCreate={createCustomSpell}
       />
 
       {/* Manual spell-focus override — homebrew/un-cataloged focuses only.

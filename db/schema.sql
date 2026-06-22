@@ -64,3 +64,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username CO
 -- "duplicate column name" error on subsequent applies.
 ALTER TABLE characters ADD COLUMN campaign_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_characters_campaign ON characters(campaign_id);
+
+-- ── DM-created shared homebrew items ────────────────────────────────────────
+-- A DM creates catalog-shaped weapon/armor/item definitions that become
+-- selectable by every member of THAT campaign (campaign-scoped, never global).
+-- Authorization is recomputed server-side per request: any member may read,
+-- only the campaign's DM may write. `data` is untrusted JSON shape-guarded both
+-- on write (route) and before it is merged into a player's catalog (client).
+CREATE TABLE IF NOT EXISTS campaign_items (
+  id          TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL,
+  category    TEXT NOT NULL,              -- 'weapon' | 'armor' | 'shield' | 'wondrous_item'
+  data        TEXT NOT NULL,              -- JSON of the catalog-shaped definition
+  created_by  TEXT NOT NULL,              -- DM email at creation (audit trail)
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  deleted     INTEGER NOT NULL DEFAULT 0  -- tombstone so removals propagate
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_items_campaign ON campaign_items(campaign_id);

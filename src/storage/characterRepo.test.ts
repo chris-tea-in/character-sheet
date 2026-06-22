@@ -97,9 +97,10 @@ describe('characterRepo round-trip', () => {
 
 // ── Column-parity guard ────────────────────────────────────────────────────────
 //
-// Every Character field is hand-aligned across FOUR positional SQL lists
-// (insertCharacter, updateCharacter, and upsertSyncedCharacter's INSERT + its
-// ON CONFLICT clause). Drop a field from any one list and it SILENTLY reverts to
+// Every Character field is hand-aligned across FIVE positional SQL sites
+// (rowToCharacter's parse, insertCharacter, updateCharacter, and
+// upsertSyncedCharacter's INSERT + its ON CONFLICT clause). Drop a field from any
+// one site and it SILENTLY reverts to
 // its column default on the next write — no type error, no runtime error, just a
 // lost edit on sync/reload. This test sets EVERY field to a distinctive,
 // non-default value and round-trips it through all three write paths; a dropped
@@ -162,6 +163,26 @@ function fullCharacter(): NewCharacter {
       ac_formula: '18', stealth_disadvantage: true, strength_requirement: 15,
     }],
     customFeats: [{ name: 'Custom Feat', slug: 'custom-feat', prerequisites: [], description: 'Grants a thing.' }],
+    customItems: [{
+      name: 'Custom Orb', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      source: 'Custom', description: 'A glowing orb.',
+    }],
+    customSpells: [{
+      name: 'Custom Bolt', slug: 'custom:bolt', level: 1, school: 'evocation',
+      casting_time: '1 action', range: '120 feet',
+      components: { verbal: true, somatic: true, material: false, material_text: null },
+      duration: 'Instantaneous', concentration: false, ritual: false,
+      description: 'Hurls a bolt that regains nothing.', at_higher_levels: null, classes: ['wizard'],
+    }],
+    customTools: [{ name: 'Custom Kit', category: 'tool', tool_category: 'Other', cost: null, weight: null }],
+    customRaces: [{
+      name: 'Custom Folk', slug: 'custom-folk', description: 'A homebrew people.',
+      base: {
+        ability_score_increases: { con: 2 }, asi_choices: [], speed: 30, size: 'Medium',
+        languages: ['common'], senses: {}, proficiencies: [], traits: { Lucky: 'Reroll 1s.' },
+      },
+      subraces: [],
+    }],
     campaignId: 'camp-123',
     disguiseClass: true,
     disguiseAs: 'bard',

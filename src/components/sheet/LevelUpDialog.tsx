@@ -314,6 +314,14 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
   )
   const canApply = spellsStillNeeded <= 0 && cantripsStillNeeded <= 0 && !asiStillNeeded && !featuresStillNeeded
 
+  // Soft-lock: leveling up no longer requires every choice to be made. List what's
+  // still unchosen so the player can finish it or proceed anyway (homebrew).
+  const pendingChoices: string[] = []
+  if (cantripsStillNeeded > 0) pendingChoices.push(`${cantripsStillNeeded} more cantrip${cantripsStillNeeded > 1 ? 's' : ''}`)
+  if (spellsStillNeeded > 0) pendingChoices.push(`${spellsStillNeeded} more spell${spellsStillNeeded > 1 ? 's' : ''}`)
+  if (asiStillNeeded) pendingChoices.push(asiMode === 'feat' ? 'a feat choice' : 'an ability score improvement')
+  if (featuresStillNeeded) pendingChoices.push('a class-feature selection')
+
   return (
     <>
       <Dialog open={open} onOpenChange={o => !o && onClose()}>
@@ -716,10 +724,16 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
 
           </div>
 
+          {!canApply && pendingChoices.length > 0 && (
+            <p className="text-xs font-semibold" style={{ color: 'var(--color-accent-red)' }}>
+              ⚠ Still unchosen: {pendingChoices.join(' · ')}. Finish above, or level up anyway (homebrew).
+            </p>
+          )}
+
           <DialogFooter>
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleApply} disabled={!canApply}>
-              Level Up!
+            <Button onClick={handleApply}>
+              {canApply ? 'Level Up!' : 'Level Up anyway'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -407,8 +407,12 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
           label={`Spells Known — choose ${spellInfo.spellsKnown}`}
           error={errors.find(e => e.toLowerCase().includes('more spell'))}
         >
-          <p className="text-xs text-muted-foreground mb-1">
+          <p
+            className="text-xs mb-1"
+            style={{ color: draft.spellSlugs.length > spellInfo.spellsKnown ? 'var(--color-accent-red)' : 'var(--color-text-muted)' }}
+          >
             {draft.spellSlugs.length}/{spellInfo.spellsKnown} selected
+            {draft.spellSlugs.length > spellInfo.spellsKnown ? ' (homebrew)' : ''}
             {maxSpellLevel > 0 && ` · up to level ${maxSpellLevel} spells`}
           </p>
           {Object.keys(slotsByLevel).length > 0 && (
@@ -439,36 +443,51 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
               />
             ))}
           </div>
-          {draft.spellSlugs.length < spellInfo.spellsKnown && (
-            <div className="mt-2 space-y-1">
+          {/* Soft cap: the button stays available past the limit (homebrew). */}
+          <div className="mt-2 space-y-1">
+            <button
+              onClick={() => setPickerMode('spell')}
+              className="text-sm hover:opacity-75"
+              style={{ color: 'var(--color-accent-gold)' }}
+            >
+              + Choose spell
+              {draft.spellSlugs.length < spellInfo.spellsKnown ? ` (${spellInfo.spellsKnown - draft.spellSlugs.length} remaining)` : ''}
+            </button>
+            <div>
               <button
-                onClick={() => setPickerMode('spell')}
-                className="text-sm hover:opacity-75"
-                style={{ color: 'var(--color-accent-gold)' }}
+                onClick={() => setBrowseAll(b => !b)}
+                className="text-[11px] text-muted-foreground hover:text-foreground underline"
               >
-                + Choose spell ({spellInfo.spellsKnown - draft.spellSlugs.length} remaining)
+                {browseAll ? 'Show class spells only' : 'Browse all classes'}
               </button>
-              <div>
-                <button
-                  onClick={() => setBrowseAll(b => !b)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground underline"
-                >
-                  {browseAll ? 'Show class spells only' : 'Browse all classes'}
-                </button>
-              </div>
             </div>
-          )}
+          </div>
         </Field>
       )}
 
       {isCaster && isPrepared && spellInfo && (
-        <Field label="Prepared Spells">
+        <Field label={`Spells — choose ${preparedLimit}`}>
           <p className="text-xs text-muted-foreground mb-2">
-            You prepare spells from your class list after each long rest — these can all be changed later.
+            Choose your spells like any caster, then tap <span className="font-semibold">Prepared</span> on
+            the ones ready to cast. Both can be changed later; going over a limit is allowed (homebrew).
           </p>
-          <p className="text-xs text-muted-foreground mb-1">
-            {draft.spellSlugs.length}/{preparedLimit} prepared
+          {/* Selection behaves like a known caster — soft-capped at the allotment. */}
+          <p
+            className="text-xs mb-1"
+            style={{ color: draft.spellSlugs.length > preparedLimit ? 'var(--color-accent-red)' : 'var(--color-text-muted)' }}
+          >
+            {draft.spellSlugs.length}/{preparedLimit} selected
+            {draft.spellSlugs.length > preparedLimit ? ' (homebrew)' : ''}
             {maxSpellLevel > 0 && ` · up to level ${maxSpellLevel} spells`}
+          </p>
+          {/* The Prepared toggle is a visual highlight, soft-gated to the same
+              allotment; it never changes which spells are selected. */}
+          <p
+            className="text-xs mb-2"
+            style={{ color: draft.preparedSlugs.length > preparedLimit ? 'var(--color-accent-red)' : 'var(--color-text-muted)' }}
+          >
+            {draft.preparedSlugs.length}/{preparedLimit} prepared
+            {draft.preparedSlugs.length > preparedLimit ? ' (homebrew)' : ''}
           </p>
           {Object.keys(slotsByLevel).length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
@@ -493,32 +512,39 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
               <SelectedSpellRow
                 key={key}
                 label={allSpells[key]?.name ?? key}
+                prepared={draft.preparedSlugs.includes(key)}
+                onTogglePrepared={() => onChange({
+                  preparedSlugs: draft.preparedSlugs.includes(key)
+                    ? draft.preparedSlugs.filter(s => s !== key)
+                    : [...draft.preparedSlugs, key],
+                })}
                 onView={() => setViewingSpell(key)}
-                onRemove={() => onChange({ spellSlugs: draft.spellSlugs.filter(s => s !== key) })}
+                onRemove={() => onChange({
+                  spellSlugs: draft.spellSlugs.filter(s => s !== key),
+                  preparedSlugs: draft.preparedSlugs.filter(s => s !== key),
+                })}
               />
             ))}
           </div>
-          {/* Gated on the total prepared limit (casting mod + level), NOT per-level
-              slot counts — the per-level pips above stay informational (BUG-24). */}
-          {draft.spellSlugs.length < preparedLimit && (
-            <div className="mt-2 space-y-1">
+          {/* Selection is uncapped — the per-level pips above are informational
+              (BUG-24); only the prepared COUNT is limited (softly). */}
+          <div className="mt-2 space-y-1">
+            <button
+              onClick={() => setPickerMode('spell')}
+              className="text-sm hover:opacity-75"
+              style={{ color: 'var(--color-accent-gold)' }}
+            >
+              + Choose spell
+            </button>
+            <div>
               <button
-                onClick={() => setPickerMode('spell')}
-                className="text-sm hover:opacity-75"
-                style={{ color: 'var(--color-accent-gold)' }}
+                onClick={() => setBrowseAll(b => !b)}
+                className="text-[11px] text-muted-foreground hover:text-foreground underline"
               >
-                + Choose spell ({preparedLimit - draft.spellSlugs.length} remaining)
+                {browseAll ? 'Show class spells only' : 'Browse all classes'}
               </button>
-              <div>
-                <button
-                  onClick={() => setBrowseAll(b => !b)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground underline"
-                >
-                  {browseAll ? 'Show class spells only' : 'Browse all classes'}
-                </button>
-              </div>
             </div>
-          )}
+          </div>
         </Field>
       )}
 
@@ -546,12 +572,15 @@ export function SetupScreen3({ draft, data, errors, onChange }: Props) {
         open={pickerMode === 'spell'}
         onClose={() => setPickerMode(null)}
         onSelect={key => {
-          // No per-level cap (BUG-24) — only the total limit closes the picker:
-          // spellsKnown for known casters, the prep limit for prepared casters.
+          // No per-level cap (BUG-24). Soft-lock for every caster: the picker
+          // auto-closes once you reach the allotment (spellsKnown for known casters,
+          // the prep limit for prepared) as a natural stop — but "+ Choose spell"
+          // stays available, so reopening lets you add more for homebrew (it won't
+          // auto-close again past the limit, since length === limit is only hit once).
           const newSpells = [...draft.spellSlugs, key]
           onChange({ spellSlugs: newSpells })
-          const cap = isPrepared ? preparedLimit : (spellInfo?.spellsKnown ?? 0)
-          if (cap && newSpells.length >= cap) setPickerMode(null)
+          const limit = isPrepared ? preparedLimit : (spellInfo?.spellsKnown ?? 0)
+          if (limit && newSpells.length === limit) setPickerMode(null)
         }}
         groupOrder={LEVEL_GROUP_ORDER}
         multiSelect
@@ -607,10 +636,15 @@ function SelectedSpellRow({
   label,
   onView,
   onRemove,
+  prepared,
+  onTogglePrepared,
 }: {
   label: string
   onView: () => void
   onRemove: () => void
+  // Prepared casters only: present → show a Prepared toggle (selection vs preparation)
+  prepared?: boolean
+  onTogglePrepared?: () => void
 }) {
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-secondary">
@@ -626,6 +660,18 @@ function SelectedSpellRow({
       >
         {label}
       </button>
+      {onTogglePrepared && (
+        <button
+          onClick={onTogglePrepared}
+          className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border flex-none transition-colors"
+          style={prepared
+            ? { background: 'var(--color-accent-gold)', color: '#000', borderColor: 'var(--color-accent-gold)' }
+            : { color: 'var(--color-text-muted)', borderColor: 'var(--color-border-raw)' }}
+          title={prepared ? 'Prepared — tap to unprepare' : 'Tap to prepare'}
+        >
+          Prepared
+        </button>
+      )}
       <button
         onClick={onRemove}
         className="text-muted-foreground hover:text-foreground transition-colors text-xs flex-none px-1"

@@ -395,22 +395,24 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
             <div className="space-y-1.5">
               {classHitDice!.map(c => {
                 const used = character.hitDiceUsedByClass[c.classSlug] ?? 0
+                const remaining = c.level - used
                 return (
                   <div key={c.classSlug} className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground w-10 flex-none">d{c.hitDie}</span>
+                    {/* Count down: stepper edits remaining; storage keeps used. */}
                     <StepperField
-                      value={used}
+                      value={remaining}
                       onSave={v => onSave({
                         hitDiceUsedByClass: {
                           ...character.hitDiceUsedByClass,
-                          [c.classSlug]: Math.min(c.level, Math.max(0, v)),
+                          [c.classSlug]: Math.min(c.level, Math.max(0, c.level - v)),
                         },
                       })}
                       min={0}
                       max={c.level}
                       size="sm"
                     />
-                    <span className="text-xs text-muted-foreground">{used} / {c.level} {c.className}</span>
+                    <span className="text-xs text-muted-foreground">{remaining} / {c.level} {c.className}</span>
                     <RollButton onClick={() => rollClassHitDie(c)} disabled={used >= c.level} />
                   </div>
                 )
@@ -418,14 +420,16 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
             </div>
           ) : (
             <div className="flex items-center gap-2">
+              {/* Count down: the stepper edits remaining (total − used) so it reads
+                  like "5/5 to use". Storage still keeps `hitDiceUsed` (spent). */}
               <StepperField
-                value={character.hitDiceUsed}
-                onSave={v => onSave({ hitDiceUsed: Math.min(totalHitDice, Math.max(0, v)) })}
+                value={totalHitDice - character.hitDiceUsed}
+                onSave={v => onSave({ hitDiceUsed: Math.min(totalHitDice, Math.max(0, totalHitDice - v)) })}
                 min={0}
                 max={totalHitDice}
                 size="sm"
               />
-              <span className="text-xs text-muted-foreground">d{hitDie} · used / {totalHitDice} total</span>
+              <span className="text-xs text-muted-foreground">d{hitDie} · {totalHitDice - character.hitDiceUsed} / {totalHitDice} left</span>
               <RollButton
                 onClick={rollHitDie}
                 disabled={character.hitDiceUsed >= totalHitDice}

@@ -187,6 +187,7 @@ function DamageBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, extraDamageResults = [], isCrit } = modal
+  const isHeal = modal.damageSpec?.mode === 'heal'
 
   const grandTotal = damageTotal + extraDamageResults.reduce((s, e) => s + e.total, 0)
   const hasRiders = extraDamageResults.length > 0
@@ -194,7 +195,7 @@ function DamageBody() {
   return (
     <div className="flex flex-col items-center gap-4 py-2">
       <p className="text-sm text-muted-foreground">
-        {entry.label} <span className="text-xs">(damage)</span>
+        {entry.label} <span className="text-xs">({isHeal ? 'healing' : 'damage'})</span>
       </p>
 
       <div className="flex flex-col items-center gap-1">
@@ -207,8 +208,10 @@ function DamageBody() {
         <span className="text-6xl font-black tabular-nums" style={{ color: 'var(--color-accent-gold)' }}>
           {grandTotal}
         </span>
-        {/* Per-type breakdown when there are riders; otherwise just the main type */}
-        {hasRiders ? (
+        {/* Healing has no damage type; otherwise per-type breakdown / main type */}
+        {isHeal ? (
+          <p className="text-xs text-muted-foreground">HP restored</p>
+        ) : hasRiders ? (
           <div className="flex flex-col items-center gap-0.5 mt-1">
             <p className="text-xs text-muted-foreground capitalize">
               {damageTotal} {damageType || 'damage'}
@@ -249,6 +252,7 @@ function DamageSetup() {
   const rollModalDamage = useDiceStore(s => s.rollModalDamage)
   const closeModal = useDiceStore(s => s.closeModal)
   const spec = modal.damageSpec!
+  const isHeal = spec.mode === 'heal'
 
   const leveled = spec.scaling?.kind === 'leveled' ? spec.scaling : null
   const showStepper = !!leveled?.perLevel
@@ -265,7 +269,7 @@ function DamageSetup() {
   return (
     <div className="flex flex-col items-center gap-4 py-2">
       <p className="text-sm text-muted-foreground">
-        {spec.label} <span className="text-xs">(damage)</span>
+        {spec.label} <span className="text-xs">({isHeal ? 'healing' : 'damage'})</span>
       </p>
 
       {showStepper && (
@@ -289,14 +293,16 @@ function DamageSetup() {
       )}
 
       <div className="flex gap-2">
-        <Button onClick={() => rollModalDamage(false)}>Roll Damage</Button>
-        <Button
-          variant="outline"
-          onClick={() => rollModalDamage(true)}
-          title="Roll with doubled dice (critical hit)"
-        >
-          Crit (2×)
-        </Button>
+        <Button onClick={() => rollModalDamage(false)}>{isHeal ? 'Roll Healing' : 'Roll Damage'}</Button>
+        {!isHeal && (
+          <Button
+            variant="outline"
+            onClick={() => rollModalDamage(true)}
+            title="Roll with doubled dice (critical hit)"
+          >
+            Crit (2×)
+          </Button>
+        )}
       </div>
       <button onClick={closeModal} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
         Cancel
@@ -313,7 +319,8 @@ export function DiceRollModal() {
 
   if (!modal) return null
 
-  const title = modal.phase === 'damage' ? 'Damage Roll' : 'Roll Result'
+  const isHeal = modal.damageSpec?.mode === 'heal'
+  const title = modal.phase === 'damage' ? (isHeal ? 'Healing Roll' : 'Damage Roll') : 'Roll Result'
   // A damage phase with no rolls yet (and a spec) is the Dmg-button setup state.
   const damageSetup = modal.phase === 'damage' && modal.damageRolls === undefined && !!modal.damageSpec
 

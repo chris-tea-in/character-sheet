@@ -17,6 +17,7 @@ import { abilityModifier } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
 import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
+import { condenseCurrency, canCondense } from '@/lib/currency'
 import type { WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData, ItemCharges, ClassData } from '@/types/data'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
 import type { DerivedStats } from '@/lib/characterStats'
@@ -880,7 +881,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   const [armorPickerOpen, setArmorPickerOpen] = useState(false)
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
   // Custom weapon/armor creation dialog (null = closed).
-  const [customDialog, setCustomDialog] = useState<'weapon' | 'armor' | null>(null)
+  const [customDialog, setCustomDialog] = useState<'weapon' | 'armor' | 'item' | null>(null)
   // Currency whose add/subtract modal is open (null = closed).
   const [currencyModal, setCurrencyModal] = useState<keyof Currency | null>(null)
   // Container (bag of holding etc.) whose inventory dialog is open (null = closed).
@@ -896,7 +897,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   // derive layer uses — see lib/customContent).
   const catalog = useMemo(
     () => mergeCustomEquipment(baseCatalog, character),
-    [baseCatalog, character.customWeapons, character.customArmor],
+    [baseCatalog, character.customWeapons, character.customArmor, character.customItems, character.customTools],
   )
   // Variable-base ("any sword/any armor") item whose base picker is open, and the
   // item being prompted to pick a base after activation. Lifted here so the equip
@@ -1062,17 +1063,17 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
       </button>
     )
   }
-  function addCustomItem() {
-    onSave({ equipment: [...character.equipment, { id: generateId(), name: 'New item', quantity: 1 }] })
-  }
-  // A homebrew weapon/armor: store the definition (so its stats resolve by name via
-  // the merged catalog) AND drop a loadout instance referencing it in one write.
-  function createCustomDef(def: WeaponItem | ArmorItem) {
-    const isWeapon = def.category === 'weapon'
-    const changes: Partial<NewCharacter> = isWeapon
-      ? { customWeapons: [...(character.customWeapons ?? []), def as WeaponItem] }
+  // A homebrew weapon/armor/item: store the definition (so its stats resolve by
+  // name via the merged catalog) AND drop a loadout instance referencing it, in one
+  // write. Wondrous items also set displayCategory so they file under Items.
+  function createCustomDef(def: WeaponItem | ArmorItem | WondrousItem) {
+    const changes: Partial<NewCharacter> =
+      def.category === 'weapon' ? { customWeapons: [...(character.customWeapons ?? []), def as WeaponItem] }
+      : def.category === 'wondrous_item' ? { customItems: [...(character.customItems ?? []), def as WondrousItem] }
       : { customArmor: [...(character.customArmor ?? []), def as ArmorItem] }
-    changes.equipment = [...character.equipment, { id: generateId(), name: def.name, quantity: 1 }]
+    const instance: EquipmentItem = { id: generateId(), name: def.name, quantity: 1 }
+    if (def.category === 'wondrous_item') instance.displayCategory = 'item'
+    changes.equipment = [...character.equipment, instance]
     onSave(changes)
   }
   function setCurrency(key: keyof Currency, value: number) {
@@ -1415,7 +1416,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           <Button
             variant="ghost"
             size="sm"
-            onClick={addCustomItem}
+            onClick={() => setCustomDialog('item')}
             className="text-muted-foreground hover:text-foreground"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -1434,9 +1435,19 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
 
       {/* Currency */}
       <div className="rounded-lg border border-border bg-card p-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-          Currency
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Currency
+          </p>
+          <button
+            onClick={() => onSave({ currency: condenseCurrency(character.currency) })}
+            disabled={!canCondense(character.currency)}
+            className="text-[11px] px-2 py-0.5 rounded border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Convert coins up into the fewest pp/gp/sp/cp (electrum folded in)"
+          >
+            Condense
+          </button>
+        </div>
         <div className="flex gap-4 flex-wrap">
           {CURRENCY_KEYS.map(({ key, label }) => (
             <div key={key} className="flex flex-col items-center gap-1.5">
