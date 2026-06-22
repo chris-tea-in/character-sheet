@@ -24,6 +24,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code config / local agent tooling
+.claude/
+
 # Env
 .env
 .env.*
