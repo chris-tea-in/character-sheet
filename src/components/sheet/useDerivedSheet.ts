@@ -61,6 +61,7 @@ export function useDerivedSheet(character: Character, data: SheetReferenceData):
     () => deriveCharacterStats(character, {
       classes: classRecords, race: raceData, catalog: mergedCatalog, featData: mergedFeatData,
       classFeatures: setupData?.classFeatures ?? null,
+      classFeatureEffects: setupData?.classFeatureEffects ?? null,
     }),
     [character, classRecords, raceData, mergedCatalog, mergedFeatData, setupData],
   )

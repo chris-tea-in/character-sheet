@@ -27,18 +27,29 @@ function LanguageSelector({
   onSave,
 }: {
   selected: string[]
-  granted: string[]   // item-granted (e.g. Demon Armor → Abyssal); locked, never stored
+  granted: string[]   // race- or item-granted (e.g. Dwarvish, Demon Armor → Abyssal); locked, never stored
   onSave: (langs: string[]) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [customLang, setCustomLang] = useState('')
 
   function toggle(lang: string) {
-    if (granted.includes(lang)) return  // item-granted languages are not editable
+    if (granted.includes(lang)) return  // race/item-granted languages are not editable
     if (selected.includes(lang)) {
       onSave(selected.filter(l => l !== lang))
     } else {
       onSave([...selected, lang])
     }
+  }
+
+  // Homebrew language not in the standard list — `languages` is a free string[]
+  // so a typed name renders as a chip just like a catalog language (BUG-62).
+  function addCustom() {
+    const name = customLang.trim()
+    if (!name) return
+    const exists = [...selected, ...granted].some(l => l.toLowerCase() === name.toLowerCase())
+    if (!exists) onSave([...selected, name])
+    setCustomLang('')
   }
 
   // Granted languages render first as locked chips; stored ones that aren't also
@@ -61,7 +72,7 @@ function LanguageSelector({
                 key={`granted-${l}`}
                 className="px-2 py-0.5 rounded-full text-xs font-medium border border-border inline-flex items-center gap-1"
                 style={{ color: 'var(--color-accent-gold)' }}
-                title="Granted by an attuned item"
+                title="Granted by your race or an attuned item"
               >
                 <Lock className="h-2.5 w-2.5" />
                 {l}
@@ -81,28 +92,47 @@ function LanguageSelector({
       </div>
 
       {open && (
-        <div className="mt-2 grid grid-cols-2 gap-1">
-          {ALL_LANGUAGES.map(lang => {
-            const isGranted = granted.includes(lang)
-            const isChecked = isGranted || selected.includes(lang)
-            return (
-              <button
-                key={lang}
-                onClick={() => toggle(lang)}
-                disabled={isGranted}
-                title={isGranted ? 'Granted by an attuned item' : undefined}
-                className={cn(
-                  'text-left text-xs px-2 py-1 rounded-md transition-colors inline-flex items-center gap-1',
-                  isChecked
-                    ? 'bg-secondary text-foreground font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50',
-                  isGranted && 'opacity-60 cursor-not-allowed',
-                )}
-              >
-                {isGranted ? <Lock className="h-2.5 w-2.5" /> : isChecked ? '✓ ' : ''}{lang}
-              </button>
-            )
-          })}
+        <div className="mt-2 space-y-2">
+          <div className="grid grid-cols-2 gap-1">
+            {ALL_LANGUAGES.map(lang => {
+              const isGranted = granted.includes(lang)
+              const isChecked = isGranted || selected.includes(lang)
+              return (
+                <button
+                  key={lang}
+                  onClick={() => toggle(lang)}
+                  disabled={isGranted}
+                  title={isGranted ? 'Granted by your race or an attuned item' : undefined}
+                  className={cn(
+                    'text-left text-xs px-2 py-1 rounded-md transition-colors inline-flex items-center gap-1',
+                    isChecked
+                      ? 'bg-secondary text-foreground font-medium'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50',
+                    isGranted && 'opacity-60 cursor-not-allowed',
+                  )}
+                >
+                  {isGranted ? <Lock className="h-2.5 w-2.5" /> : isChecked ? '✓ ' : ''}{lang}
+                </button>
+              )
+            })}
+          </div>
+          {/* Add a homebrew language not in the standard list (BUG-62) */}
+          <div className="flex items-center gap-1">
+            <input
+              value={customLang}
+              onChange={e => setCustomLang(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom() } }}
+              placeholder="Add a custom language…"
+              className="flex-1 bg-transparent border border-border rounded-md px-2 py-1 text-xs focus:outline-none focus:border-ring"
+            />
+            <button
+              onClick={addCustom}
+              disabled={!customLang.trim()}
+              className="text-xs px-2 py-1 rounded-md bg-secondary text-foreground font-medium disabled:opacity-40"
+            >
+              Add
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -124,7 +154,7 @@ export function DescriptionBlock({ character, derived, onSave }: Props) {
           </p>
           <LanguageSelector
             selected={character.languages}
-            granted={derived.itemGrantedLanguages}
+            granted={[...new Set([...derived.raceGrantedLanguages, ...derived.itemGrantedLanguages])]}
             onSave={langs => onSave({ languages: langs })}
           />
         </div>

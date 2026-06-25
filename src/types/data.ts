@@ -205,6 +205,26 @@ export interface AsiChoice {
   pool: 'any' | AbilityName[]
 }
 
+/**
+ * Structured, machine-applicable racial trait effect. Applied exactly once at
+ * render time in deriveCharacterStats (INV-1) via computeRaceEffects — parallel to
+ * ItemEffect. This is the authoritative grant channel: the legacy `proficiencies`
+ * string array holds only trait *names*, and resistances live only in prose `traits`,
+ * so neither is machine-readable. `languages`, `senses`, and `hp_bonus_per_level`
+ * remain clean structured fields and are read directly (not re-encoded here).
+ * Save/skill *advantages* are intentionally NOT modeled here yet — they are applied
+ * by the hardcoded advantage maps and become data-driven in the adv/dis phase.
+ */
+export type RaceEffect =
+  | { type: 'skill_proficiency';  skill: SkillName }
+  | { type: 'weapon_proficiency'; weapons: string[] }   // specific weapon names (e.g. "Longsword")
+  | { type: 'tool_proficiency';   tools: string[] }     // fixed grants only; "choose one" stays a manual pick
+  | { type: 'armor_proficiency';  armor: string[] }     // "light" | "medium" | "heavy" | "shield"
+  | { type: 'resistance'; damageType: string }          // damage resistance (free-form type, lowercased on apply)
+  | { type: 'immunity';   damageType: string }
+  // Natural armor sets the unarmored AC base (Lizardfolk 13 + DEX, Tortle 17 flat).
+  | { type: 'natural_armor'; base: number; addDex?: boolean; maxDex?: number }
+
 export interface Subrace {
   name: string
   ability_score_increases: Partial<Record<AbilityName, number>>
@@ -216,6 +236,7 @@ export interface Subrace {
   proficiencies: string[]
   traits: Record<string, string>
   hp_bonus_per_level?: number
+  effects?: RaceEffect[]
 }
 
 export interface Race {
@@ -231,6 +252,7 @@ export interface Race {
     senses: Record<string, unknown>
     proficiencies: string[]
     traits: Record<string, string>
+    effects?: RaceEffect[]
   }
   subraces: Subrace[]
 }
@@ -315,6 +337,13 @@ export type FeatEffect =
   | { type: 'save_proficiency'; ability: string }  // ability name or 'asi_choice'
   | { type: 'skill_proficiency'; count: number }
   | { type: 'expertise'; count: number }
+  // Data-driven equivalents of the old hardcoded FEAT_EFFECTS registry + new grants.
+  | { type: 'max_hp'; amount?: number; perLevel?: number }   // Tough → perLevel 2; Dwarven Toughness-style
+  | { type: 'resistance'; damageType: string }               // e.g. feats granting a damage resistance
+  | { type: 'language'; name: string }
+  | { type: 'weapon_proficiency'; weapons: string[] }
+  | { type: 'armor_proficiency'; armor: string[] }           // light | medium | heavy | shield
+  | { type: 'tool_proficiency'; tools: string[] }
 
 export interface FeatData {
   name: string
@@ -346,6 +375,19 @@ export type FeatureEffect =
   | { type: 'ac'; amount: number; condition?: 'armored' | 'unarmored' }
   | { type: 'weapon_attack'; weaponClass: 'ranged' | 'melee'; amount: number }
   | { type: 'weapon_damage'; weaponClass: 'ranged' | 'melee'; handed?: 'one-handed' | 'two-handed'; amount: number }
+  // Saving throws: proficiency (Diamond Soul → all), flat bonus, or a value DERIVED
+  // from another ability (Aura of Protection → +CHA to all saves, min 1).
+  | { type: 'save_proficiency'; ability: AbilityName | 'all' }
+  | { type: 'save_bonus'; ability: AbilityName | 'all'; amount: number }
+  | { type: 'derived_save'; ability: AbilityName | 'all'; from: AbilityName; min?: number }
+  | { type: 'resistance'; damageType: string }
+  | { type: 'immunity'; damageType: string }
+  | { type: 'speed'; amount: number }
+  | { type: 'max_hp'; amount?: number; perLevel?: number }
+  | { type: 'skill_proficiency'; skill: SkillName }
+  | { type: 'weapon_proficiency'; weapons: string[] }
+  | { type: 'armor_proficiency'; armor: string[] }
+  | { type: 'tool_proficiency'; tools: string[] }
 
 export interface FeatureOption {
   slug: string
@@ -354,6 +396,11 @@ export interface FeatureOption {
   prerequisites?: string[]
   effects?: FeatureEffect[]
 }
+
+// Always-on class-feature effects, keyed classSlug → { "Feature Name": FeatureEffect[] }.
+// Applied at render time for every earned class-level feature, up to the owning class's
+// level (INV-2). Compiled from data/class-feature-effects.json.
+export type ClassFeatureEffects = Record<string, Record<string, FeatureEffect[]>>
 
 /** Cumulative count known once the owning class reaches `level`. */
 export interface FeatureKnownStep { level: number; count: number }

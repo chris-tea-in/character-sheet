@@ -1,12 +1,27 @@
 import { useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP, formatBonus } from '@/lib/dice'
 import { ABILITY_LABELS, ABILITY_ORDER, ABILITY_FULL_TO_SHORT, toSkillName } from '@/lib/characterSetup'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
+import { StatBreakdown } from './StatBreakdown'
 import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
 import type { ClassData } from '@/types/data'
 import type { DerivedStats } from '@/lib/characterStats'
+
+// Small inline pencil that opens a stat's modifier breakdown (Modifier Ledger).
+function BreakdownPencil({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); onClick() }}
+      title={title}
+      className="flex-none text-muted-foreground hover:text-foreground transition-colors"
+    >
+      <Pencil className="h-3 w-3" />
+    </button>
+  )
+}
 
 interface Props {
   character: Character
@@ -92,14 +107,14 @@ function TwoDots({
         isProficient && !isExpertise,
         'P',
         onToggleProf,
-        featSourced ? 'Granted by feat' : isProficient ? 'Remove proficiency' : 'Add proficiency (+PB)',
+        featSourced ? 'Granted by feat/race' : isProficient ? 'Remove proficiency' : 'Add proficiency (+PB)',
         profLocked,
       )}
       {dot(
         isExpertise,
         'E',
         onToggleExp,
-        featSourced ? 'Granted by feat' : isExpertise ? 'Remove expertise' : expertiseCapped ? 'Add expertise — over the limit (homebrew)' : 'Add expertise (+2×PB)',
+        featSourced ? 'Granted by feat/race' : isExpertise ? 'Remove expertise' : expertiseCapped ? 'Add expertise — over the limit (homebrew)' : 'Add expertise (+2×PB)',
         expLocked,
       )}
     </div>
@@ -134,13 +149,17 @@ function SaveDot({
 
 export function ProficienciesBlock({ character, classRecord, classRecords, backgroundSkills, derived, onSave }: Props) {
   const [tab, setTab] = useState<Tab>('skills')
+  const [openSaveBreakdown, setOpenSaveBreakdown] = useState<AbilityName | null>(null)
+  const [openSkillBreakdown, setOpenSkillBreakdown] = useState<SkillName | null>(null)
   const { dispatch } = useRollDispatch(derived)
   const hasClass = !!classRecord
 
-  // Skills whose proficiency/expertise comes from a feat — filled but locked in
-  // the dots so a click can't write a duplicate stored copy (BUG-30)
+  // Skills whose proficiency/expertise comes from a feat OR race — filled but locked
+  // in the dots so a click can't write a duplicate stored copy (BUG-30). Both are
+  // derived at render time; the breakdown pencil shows which source granted it.
   const featProficientSkills = new Set(derived.featSkillGrants.proficient)
   const featExpertiseSkills = new Set(derived.featSkillGrants.expertise)
+  const raceProficientSkills = new Set(derived.raceSkillGrants)
   const bgSkillSet = new Set(backgroundSkills ?? [])
 
   // Per-class (record, level) pairs for expertise/skill caps — falls back to the
@@ -197,9 +216,9 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
   }
 
   function toggleSkillProf(skill: SkillName) {
-    // Feat-granted proficiency is derived at render time — toggling it here would
+    // Feat/race-granted proficiency is derived at render time — toggling it here would
     // write a stored duplicate that double-counts (BUG-30). Integrity lock, kept.
-    if (featProficientSkills.has(skill)) return
+    if (featProficientSkills.has(skill) || raceProficientSkills.has(skill)) return
     // The class-skill list and the skill-count cap are RAW limits, not integrity
     // locks: allow crossing them (homebrew) and flag visually instead of blocking.
     const current = character.skillProficiencies[skill]
@@ -311,6 +330,10 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                   >
                     {formatBonus(bonus)}
                   </span>
+                  <BreakdownPencil
+                    onClick={() => setOpenSaveBreakdown(ability)}
+                    title={`What's affecting the ${ABILITY_LABELS[ability]} save?`}
+                  />
                   <RollButton
                     onClick={() => dispatch({ type: 'save', ability, advantage: hasAdv || undefined })}
                     advantage={hasAdv}
@@ -336,6 +359,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
               const isExpertise = prof === 'expertise'
               const isFeatProficient = featProficientSkills.has(skill)
               const isFeatExpertise = featExpertiseSkills.has(skill)
+              const isRaceProficient = raceProficientSkills.has(skill)
               const ability = SKILL_ABILITY_MAP[skill]
               const bonus = derived.skillModifiers[skill]
               const hasAdv = derived.advantages.skills.has(skill)
@@ -347,9 +371,9 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
               // alone — tagging every row in that case (overClassSkillCap is global)
               // wrongly flagged all skills at once (#7).
               const isHomebrewPick = isProficient && notClassOption
-              // Only feat-granted dots are truly locked (integrity — the value is
+              // Only feat/race-granted dots are truly locked (integrity — the value is
               // derived). Class-list and caps are RAW limits: clickable, just flagged.
-              const profLocked = isFeatProficient
+              const profLocked = isFeatProficient || isRaceProficient
               const expLocked = isFeatExpertise || !isProficient
               // Dim only off-list skills not yet picked (signals off-roster)
               const dimRow = notClassOption && !isProficient
@@ -365,11 +389,20 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     profLocked={profLocked}
                     expLocked={expLocked}
                     expertiseCapped={expertiseCapped}
-                    featSourced={isFeatProficient || isFeatExpertise}
+                    featSourced={isFeatProficient || isFeatExpertise || isRaceProficient}
                     onToggleProf={() => toggleSkillProf(skill)}
                     onToggleExp={() => toggleSkillExp(skill)}
                   />
                   <span className={cn('flex-1 text-sm min-w-0 truncate', dimRow && 'opacity-50')}>{SKILL_DISPLAY_MAP[skill]}</span>
+                  {isRaceProficient && (
+                    <span
+                      className="text-[9px] uppercase tracking-wide flex-none"
+                      style={{ color: 'var(--color-accent-gold)' }}
+                      title="Granted by your race"
+                    >
+                      race
+                    </span>
+                  )}
                   {isHomebrewPick && (
                     <span
                       className="text-[9px] uppercase tracking-wide flex-none"
@@ -388,6 +421,10 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                   >
                     {formatBonus(bonus)}
                   </span>
+                  <BreakdownPencil
+                    onClick={() => setOpenSkillBreakdown(skill)}
+                    title={`What's affecting ${SKILL_DISPLAY_MAP[skill]}?`}
+                  />
                   <RollButton
                     onClick={() => dispatch({ type: 'skill', skill, advantage: hasAdv || undefined })}
                     advantage={hasAdv}
@@ -401,6 +438,21 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
           </p>
         </>
       )}
+
+      <StatBreakdown
+        open={openSaveBreakdown !== null}
+        onClose={() => setOpenSaveBreakdown(null)}
+        title={openSaveBreakdown ? `${ABILITY_LABELS[openSaveBreakdown]} Save` : ''}
+        signed
+        sources={openSaveBreakdown ? derived.breakdowns.saves[openSaveBreakdown] : []}
+      />
+      <StatBreakdown
+        open={openSkillBreakdown !== null}
+        onClose={() => setOpenSkillBreakdown(null)}
+        title={openSkillBreakdown ? SKILL_DISPLAY_MAP[openSkillBreakdown] : ''}
+        signed
+        sources={openSkillBreakdown ? derived.breakdowns.skills[openSkillBreakdown] : []}
+      />
     </section>
   )
 }

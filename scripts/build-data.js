@@ -92,6 +92,46 @@ function validateEffects(item, label) {
   })
 }
 
+// ── RaceEffect validation (mirrors RaceEffect union in src/types/data.ts) ──
+const RACE_ARMOR_CLASSES = new Set(['light', 'medium', 'heavy', 'shield'])
+
+function validateRaceEffects(effects, label) {
+  if (effects === undefined) return
+  if (!Array.isArray(effects)) {
+    errors.push(`${label}: "effects" must be an array`)
+    return
+  }
+  const isStrArr = a => Array.isArray(a) && a.length > 0 && a.every(s => typeof s === 'string' && s.trim() !== '')
+  effects.forEach((e, i) => {
+    const at = `${label}: effects[${i}]`
+    switch (e?.type) {
+      case 'skill_proficiency':
+        if (!EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (skill_proficiency): invalid skill "${e.skill}"`)
+        break
+      case 'weapon_proficiency':
+        if (!isStrArr(e.weapons)) errors.push(`${at} (weapon_proficiency): "weapons" must be a non-empty string array`)
+        break
+      case 'tool_proficiency':
+        if (!isStrArr(e.tools)) errors.push(`${at} (tool_proficiency): "tools" must be a non-empty string array`)
+        break
+      case 'armor_proficiency':
+        if (!isStrArr(e.armor) || !e.armor.every(a => RACE_ARMOR_CLASSES.has(a)))
+          errors.push(`${at} (armor_proficiency): "armor" must be a non-empty array of light|medium|heavy|shield`)
+        break
+      case 'resistance': case 'immunity':
+        if (typeof e.damageType !== 'string' || e.damageType.trim() === '') errors.push(`${at} (${e.type}): "damageType" must be a non-empty string`)
+        break
+      case 'natural_armor':
+        if (!isNum(e.base)) errors.push(`${at} (natural_armor): "base" must be a number`)
+        if (e.addDex !== undefined && typeof e.addDex !== 'boolean') errors.push(`${at} (natural_armor): "addDex" must be a boolean`)
+        if (e.maxDex !== undefined && !isNum(e.maxDex)) errors.push(`${at} (natural_armor): "maxDex" must be a number`)
+        break
+      default:
+        errors.push(`${at}: unknown race effect type "${e?.type}"`)
+    }
+  })
+}
+
 // ── Item charges validation (mirrors ItemCharges in src/types/data.ts) ──
 const CHARGE_RECHARGES = new Set(['dawn', 'dusk', 'long_rest', 'short_rest'])
 
@@ -133,6 +173,41 @@ function validateFeatureEffects(effects, label) {
         if (e.handed !== undefined && e.handed !== 'one-handed' && e.handed !== 'two-handed')
           errors.push(`${at} (weapon_damage): invalid handed "${e.handed}"`)
         if (!isNum(e.amount)) errors.push(`${at} (weapon_damage): "amount" must be a number`)
+        break
+      case 'save_proficiency':
+        if (e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (save_proficiency): invalid ability "${e.ability}"`)
+        break
+      case 'save_bonus':
+        if (e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (save_bonus): invalid ability "${e.ability}"`)
+        if (!isNum(e.amount)) errors.push(`${at} (save_bonus): "amount" must be a number`)
+        break
+      case 'derived_save':
+        if (e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (derived_save): invalid ability "${e.ability}"`)
+        if (!EFFECT_ABILITIES.has(e.from)) errors.push(`${at} (derived_save): invalid "from" ability "${e.from}"`)
+        if (e.min !== undefined && !isNum(e.min)) errors.push(`${at} (derived_save): "min" must be a number`)
+        break
+      case 'resistance': case 'immunity':
+        if (typeof e.damageType !== 'string' || e.damageType.trim() === '') errors.push(`${at} (${e.type}): "damageType" must be a non-empty string`)
+        break
+      case 'speed':
+        if (!isNum(e.amount)) errors.push(`${at} (speed): "amount" must be a number`)
+        break
+      case 'max_hp':
+        if (e.amount === undefined && e.perLevel === undefined) errors.push(`${at} (max_hp): needs "amount" or "perLevel"`)
+        if (e.amount !== undefined && !isNum(e.amount)) errors.push(`${at} (max_hp): "amount" must be a number`)
+        if (e.perLevel !== undefined && !isNum(e.perLevel)) errors.push(`${at} (max_hp): "perLevel" must be a number`)
+        break
+      case 'skill_proficiency':
+        if (!EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (skill_proficiency): invalid skill "${e.skill}"`)
+        break
+      case 'weapon_proficiency':
+        if (!Array.isArray(e.weapons) || !e.weapons.length) errors.push(`${at} (weapon_proficiency): "weapons" must be a non-empty array`)
+        break
+      case 'tool_proficiency':
+        if (!Array.isArray(e.tools) || !e.tools.length) errors.push(`${at} (tool_proficiency): "tools" must be a non-empty array`)
+        break
+      case 'armor_proficiency':
+        if (!Array.isArray(e.armor) || !e.armor.every(a => RACE_ARMOR_CLASSES.has(a))) errors.push(`${at} (armor_proficiency): "armor" must be light|medium|heavy|shield values`)
         break
       default:
         errors.push(`${at}: unknown feature effect type "${e?.type}"`)
@@ -192,6 +267,9 @@ const races = buildKeyed('races', ['name', 'slug', 'description', 'base', 'subra
   (entry, slug, label) => {
     if (entry.slug && entry.slug !== slug)
       warnings.push(`${label}: slug "${entry.slug}" doesn't match filename "${slug}"`)
+    if (entry.base) validateRaceEffects(entry.base.effects, `${label} base`)
+    for (const sr of (entry.subraces ?? []))
+      validateRaceEffects(sr.effects, `${label} subrace "${sr.name}"`)
   }
 )
 
@@ -359,6 +437,20 @@ const classFeatures = (() => {
 })()
 
 const rules = readJson('data/rules.json')
+// Class-feature description glossary (flat object: { _shared: {name:desc}, classSlug: {name:desc} }).
+// Surfaced in the Features & Traits block; missing file is fine (rows fall back to a stub).
+const featureDescriptions = readJson('data/feature-descriptions.json')
+// Feature category map ({ "<feature name>": "<category key>" }); missing file is fine
+// (the Features block falls back to its keyword heuristic).
+const featureCategories = readJson('data/feature-categories.json')
+// Always-on class-feature effects ({ classSlug: { "Feature Name": FeatureEffect[] } }).
+const classFeatureEffects = readJson('data/class-feature-effects.json')
+if (classFeatureEffects) {
+  for (const [cls, feats] of Object.entries(classFeatureEffects)) {
+    if (typeof feats !== 'object' || feats === null) { errors.push(`class-feature-effects: "${cls}" must be an object`); continue }
+    for (const [fname, effs] of Object.entries(feats)) validateFeatureEffects(effs, `class-feature-effects ${cls} "${fname}"`)
+  }
+}
 
 if (warnings.length) {
   console.warn(`\n${warnings.length} warning(s):`)
@@ -377,6 +469,9 @@ for (const [name, data] of Object.entries(outputs)) {
   writeFileSync(`public/data/${name}.json`, JSON.stringify(data, null, 2))
 }
 if (rules) writeFileSync('public/data/rules.json', JSON.stringify(rules, null, 2))
+if (featureDescriptions) writeFileSync('public/data/feature-descriptions.json', JSON.stringify(featureDescriptions, null, 2))
+if (featureCategories) writeFileSync('public/data/feature-categories.json', JSON.stringify(featureCategories, null, 2))
+if (classFeatureEffects) writeFileSync('public/data/class-feature-effects.json', JSON.stringify(classFeatureEffects, null, 2))
 
 const entryCount = [races, spells, classes, subclasses, feats, backgrounds]
   .reduce((n, d) => n + Object.keys(d).length, 0)

@@ -228,6 +228,10 @@ stored character fields are **base values**. All racial ASIs and feat effects ar
 - `deriveCharacterStats(character, ctx)` takes a `DeriveContext` with **all** class records (ordered to match `character.classes`), race, armor catalog, and feat data. Weapon proficiency and spell attack/DC consider every class, not just the primary.
 - Both violation directions are known bug families: applying an effect at write time **double-counts** (bake + derive); applying it nowhere **silently ignores data**. When adding any new feat/race/item effect, invoke the `feature-effect-system` skill and apply the effect in `deriveCharacterStats` only.
 
+### Design principle — Transparent, Editable Derivation (the "Modifier Ledger")
+
+**Standing direction (2026-06-24):** anything the app auto-derives or auto-grants must be (1) **traceable to its source**, (2) **individually disableable / re-enableable**, and (3) **augmentable with the player's own entry**. Nothing is silently always-on or uneditable. This holds for all three kinds of auto-applied thing — **numeric modifiers** (summed), **boolean states** (advantage/disadvantage, netted per RAW), and **set-membership grants** (proficiencies, languages, resistances, senses). The mechanism: `deriveCharacterStats` emits per-target **provenance** (`{ id, label, sourceKind, value, removable }`); a stored override layer (`disabledModifiers` + `modifierOverrides` + `customGrants`) applies as the **last** derive step — still INV-1, no write-time baking. Full spec: [BACKLOG.md](BACKLOG.md) → "Modifier Ledger"; it resolves ~15 of the Part 2 findings in [DND_RULES_REFERENCE.md](DND_RULES_REFERENCE.md) by construction. When adding any new derived value or grant, expose its provenance and make it ledger-editable — do not add a silent always-on bonus.
+
 ## Bug Log & Codebase Invariants
 
 - [bugs.md](bugs.md) is the live bug log (audit of 2026-06-11, 52 findings; fixed entries move to its ✅ section). Its "Systemic root-cause families" table is the distilled failure-pattern catalog for this codebase.

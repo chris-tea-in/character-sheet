@@ -1,6 +1,9 @@
+import { useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { abilityModifier } from '@/lib/dice'
 import { ABILITY_ORDER, ABILITY_SHORT } from '@/lib/characterSetup'
 import { StepperField } from './StepperField'
+import { StatBreakdown } from './StatBreakdown'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import type { AbilityName, Character, NewCharacter } from '@/types/character'
 import type { RollKind } from '@/types/dice'
@@ -17,18 +20,27 @@ function AbilityBox({
   score,
   dispatch,
   onSaveScore,
+  onOpenBreakdown,
 }: {
   ability: AbilityName
   score: number
   dispatch: (kind: RollKind) => void
   onSaveScore: (v: number) => void
+  onOpenBreakdown: () => void
 }) {
   const mod = abilityModifier(score)
 
   return (
     <div className="flex flex-col items-center rounded-lg border border-border bg-card py-2 px-1 gap-1.5 select-none">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {ABILITY_SHORT[ability]}
+        <button
+          onClick={onOpenBreakdown}
+          title={`What's affecting ${ABILITY_SHORT[ability]}?`}
+          className="hover:text-foreground transition-colors"
+        >
+          <Pencil className="h-2.5 w-2.5" />
+        </button>
       </span>
 
       <StepperField
@@ -54,6 +66,7 @@ function AbilityBox({
 
 export function AbilityBlock({ character, derived, onSave }: Props) {
   const { dispatch } = useRollDispatch(derived)
+  const [openBreakdown, setOpenBreakdown] = useState<AbilityName | null>(null)
 
   function saveScore(ability: AbilityName, v: number) {
     const bonus = derived.effectiveAbilities[ability] - character.abilities[ability]
@@ -73,12 +86,19 @@ export function AbilityBlock({ character, derived, onSave }: Props) {
             score={derived.effectiveAbilities[ability]}
             dispatch={dispatch}
             onSaveScore={v => saveScore(ability, v)}
+            onOpenBreakdown={() => setOpenBreakdown(ability)}
           />
         ))}
       </div>
       <p className="text-[11px] text-muted-foreground mt-1.5">
         Tap modifier to roll ability check
       </p>
+      <StatBreakdown
+        open={openBreakdown !== null}
+        onClose={() => setOpenBreakdown(null)}
+        title={openBreakdown ? ABILITY_SHORT[openBreakdown] : ''}
+        sources={openBreakdown ? derived.breakdowns.abilities[openBreakdown] : []}
+      />
     </section>
   )
 }

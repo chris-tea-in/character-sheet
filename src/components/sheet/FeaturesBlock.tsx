@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react'
+import { BookOpen, Sword, Shield, Sparkles, GraduationCap, Eye, Heart, MessageCircle, Star } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
 import { slugToTitle } from '@/lib/characterSetup'
+import { toSubraceSlug } from '@/lib/racialBonuses'
+import { lookupFeatureDescription } from '@/lib/data'
 import { applicableGroups, resourceCount, meetsFeatureOptionPrereqs, allSelectedOptionSlugs } from '@/lib/classFeatures'
 import type { SetupData } from '@/lib/data'
 import type { Character, NewCharacter } from '@/types/character'
@@ -24,20 +28,68 @@ function optionToDetail(opt: FeatureOption): DetailItem {
   }
 }
 
-interface EarnedFeature { name: string; description?: string }
-interface EarnedClassFeatures { heading: string; features: EarnedFeature[] }
+interface EarnedFeature { name: string; description?: string; note?: string }
+interface EarnedFeatureGroup { heading: string; features: EarnedFeature[] }
 
-/** Read-only list of every class + subclass feature the character has earned at
- * its current per-class levels. Class-level features are name-only (the class data
- * carries no descriptions); subclass features include their description. */
-function collectEarnedFeatures(character: Character, setupData: SetupData | null): EarnedClassFeatures[] {
+// Race traits that are descriptive boilerplate, not "features" worth listing.
+const SKIP_RACE_TRAITS = new Set(['ability score increase', 'age', 'alignment', 'size', 'speed', 'languages'])
+
+// At-a-glance category for a feature so you can scan the list for "what helps in
+// combat / with a skill / etc." A stored category (data/feature-categories.json,
+// authored against the full description text — far more accurate) wins; otherwise we
+// fall back to a keyword heuristic on name + description. Heuristic order matters:
+// the first category whose keyword appears wins.
+export type FeatureCategoryKey =
+  | 'combat' | 'defense' | 'magic' | 'skill' | 'exploration' | 'support' | 'social' | 'utility'
+
+const CATEGORY_META: Record<FeatureCategoryKey, { label: string; Icon: LucideIcon }> = {
+  combat:      { label: 'Combat', Icon: Sword },
+  defense:     { label: 'Defense', Icon: Shield },
+  magic:       { label: 'Magic / Spellcasting', Icon: Sparkles },
+  skill:       { label: 'Skill / Knowledge', Icon: GraduationCap },
+  exploration: { label: 'Exploration / Senses', Icon: Eye },
+  support:     { label: 'Support / Healing', Icon: Heart },
+  social:      { label: 'Social', Icon: MessageCircle },
+  utility:     { label: 'Utility', Icon: Star },
+}
+
+const CATEGORY_KEYWORDS: { key: FeatureCategoryKey; keywords: string[] }[] = [
+  { key: 'magic', keywords: ['spell', 'cantrip', 'arcanum', 'eldritch', 'channel divinity', 'metamagic', 'sorcer', 'invocation', 'wild shape', 'mystic', 'infuse', 'magical', 'font of magic', 'pact', 'crimson rite', 'druidic', 'beast spell'] },
+  { key: 'support', keywords: ['lay on hands', 'heal', 'second wind', 'song of rest', 'bardic inspiration', 'inspiration', 'cure', 'restoration', 'aura of courage', 'wholeness', 'relentless endurance', 'stabiliz'] },
+  { key: 'defense', keywords: ['armor', 'unarmored defense', 'resistance', 'resilien', 'deflect', 'indomitable', 'relentless rage', 'evasion', 'defense', 'parry', 'aura of protection', 'uncanny dodge', 'hardened', 'danger sense', 'blindsense', 'natural armor', 'fey ancestry', 'brave', 'magic resistance'] },
+  { key: 'combat', keywords: ['rage', 'attack', 'smite', 'sneak attack', 'martial arts', 'fury', 'strike', 'weapon', 'critical', 'brutal', 'reckless', 'action surge', 'maneuver', 'fighting style', 'favored enemy', 'favored foe', 'hunter', 'feral', 'pounce', 'savage', 'bite', 'ki'] },
+  { key: 'social', keywords: ['persuasion', 'deception', 'intimidat', 'performance', 'charm', 'menacing', 'countercharm'] },
+  { key: 'skill', keywords: ['expertise', 'proficien', 'jack of all trades', 'lore', 'knowledge', 'cunning', 'reliable talent', 'tool', 'versatility', 'psychometry', 'right tool', 'stonecunning'] },
+  { key: 'exploration', keywords: ['darkvision', 'vision', 'sense', 'perception', 'stealth', 'movement', 'explorer', "land's stride", 'tracking', 'vanish', 'hide', 'trance', 'fleet', 'mask of the wild', 'fast movement', 'swim', 'fly', 'climb', 'hold breath'] },
+]
+
+function categorizeFeature(
+  name: string,
+  description?: string,
+  stored?: Record<string, string>,
+): { label: string; Icon: LucideIcon } {
+  const key = stored?.[name]
+  if (key && key in CATEGORY_META) return CATEGORY_META[key as FeatureCategoryKey]
+  const hay = `${name} ${description ?? ''}`.toLowerCase()
+  for (const c of CATEGORY_KEYWORDS) {
+    if (c.keywords.some(k => hay.includes(k))) return CATEGORY_META[c.key]
+  }
+  return CATEGORY_META.utility
+}
+
+/** Read-only roll-up of every feature the character has earned, from ALL sources:
+ * class + subclass (by per-class level), race + subrace traits, and the background
+ * feature. Class-level features are name-only (the class data carries no description);
+ * subclass / race / background features include their text. */
+function collectEarnedFeatures(character: Character, setupData: SetupData | null): EarnedFeatureGroup[] {
   if (!setupData) return []
   const classes = character.classes?.length
     ? character.classes
     : [{ classSlug: character.class, subclassSlug: character.subclass, level: character.level }]
   const multiclass = classes.length > 1
-  const out: EarnedClassFeatures[] = []
+  const out: EarnedFeatureGroup[] = []
 
+  // ── Class + subclass ──────────────────────────────────────────────────────
   for (const c of classes) {
     if (!c.classSlug) continue
     const classRec = setupData.classes[c.classSlug]
@@ -47,7 +99,11 @@ function collectEarnedFeatures(character: Character, setupData: SetupData | null
     if (classRec) {
       for (let lvl = 1; lvl <= c.level; lvl++) {
         for (const name of (classRec.levels[String(lvl)]?.features ?? [])) {
-          features.push({ name })
+          features.push({
+            name,
+            description: lookupFeatureDescription(setupData.featureDescriptions, c.classSlug, name),
+            note: `${className} feature · level ${lvl}`,
+          })
         }
       }
     }
@@ -56,18 +112,69 @@ function collectEarnedFeatures(character: Character, setupData: SetupData | null
     if (subRec) {
       for (const [lvlKey, entries] of Object.entries(subRec.features)) {
         if (Number(lvlKey) > c.level) continue
-        for (const f of entries) features.push({ name: f.name, description: f.description })
+        for (const f of entries) features.push({ name: f.name, description: f.description, note: `${subRec.name} · level ${lvlKey}` })
       }
     }
 
     if (features.length) {
-      out.push({
-        heading: multiclass ? `${className} ${c.level}` : `${className}`,
-        features,
-      })
+      out.push({ heading: multiclass ? `${className} ${c.level}` : className, features })
     }
   }
+
+  // ── Race + subrace traits ─────────────────────────────────────────────────
+  const raceRec = setupData.races[character.race]
+  if (raceRec) {
+    const features: EarnedFeature[] = []
+    const addTraits = (traits: Record<string, string> | undefined, src: string) => {
+      for (const [name, description] of Object.entries(traits ?? {})) {
+        if (SKIP_RACE_TRAITS.has(name.toLowerCase())) continue
+        features.push({ name, description, note: src })
+      }
+    }
+    addTraits(raceRec.base.traits, raceRec.name)
+    const subrace = character.subrace
+      ? raceRec.subraces.find(s => toSubraceSlug(s.name) === character.subrace)
+      : undefined
+    if (subrace) addTraits(subrace.traits, subrace.name)
+    if (features.length) out.push({ heading: `${raceRec.name} (Race)`, features })
+  }
+
+  // ── Background feature ────────────────────────────────────────────────────
+  const bgRec = character.background ? setupData.backgrounds[character.background] : null
+  if (bgRec?.feature?.name) {
+    out.push({
+      heading: `${bgRec.name} (Background)`,
+      features: [{ name: bgRec.feature.name, description: bgRec.feature.description, note: 'Background feature' }],
+    })
+  }
+
   return out
+}
+
+/** Legend decoding the category symbols actually present in the earned list. */
+function FeatureLegend({ earned, categories }: { earned: EarnedFeatureGroup[]; categories?: Record<string, string> }) {
+  const present = new Map<string, LucideIcon>()
+  for (const g of earned) {
+    for (const f of g.features) {
+      const cat = categorizeFeature(f.name, f.description, categories)
+      if (!present.has(cat.label)) present.set(cat.label, cat.Icon)
+    }
+  }
+  if (present.size <= 1) return null
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[10px] text-muted-foreground"
+      style={{ background: 'var(--color-surface)' }}
+    >
+      <span className="uppercase tracking-wide font-semibold">Key:</span>
+      {[...present].map(([label, Icon]) => (
+        <span key={label} className="inline-flex items-center gap-1">
+          <Icon className="h-3 w-3" style={{ color: 'var(--color-accent-gold)' }} aria-hidden />
+          {label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 export function FeaturesBlock({ character, setupData, onSave }: Props) {
@@ -134,7 +241,7 @@ export function FeaturesBlock({ character, setupData, onSave }: Props) {
   return (
     <section>
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-        Features
+        Features &amp; Traits
       </h2>
 
       {/* Choosable feature groups (maneuvers, fighting styles, …) */}
@@ -237,7 +344,9 @@ export function FeaturesBlock({ character, setupData, onSave }: Props) {
         )
       })}
 
-      {/* Read-only roll-up of every earned class/subclass feature */}
+      {/* Read-only roll-up of every earned feature — class, subclass, race, background.
+          Every row is tappable to read its description (BUG-61); name-only class
+          features (no authored text yet) open a stub that points to the rulebook. */}
       {earned.length > 0 && (
         <div className="rounded-lg border border-border bg-card divide-y divide-border">
           {earned.map(group => (
@@ -245,23 +354,29 @@ export function FeaturesBlock({ character, setupData, onSave }: Props) {
               <div className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground" style={{ background: 'var(--color-surface)' }}>
                 {group.heading}
               </div>
-              {group.features.map((f, i) => (
-                f.description ? (
+              {group.features.map((f, i) => {
+                const cat = categorizeFeature(f.name, f.description, setupData.featureCategories)
+                return (
                   <button
                     key={`${f.name}-${i}`}
-                    onClick={() => setViewingDetail({ name: f.name, description: f.description, sections: [] })}
-                    className="w-full text-left px-4 py-2 text-sm hover:opacity-75 transition-opacity"
+                    onClick={() => setViewingDetail({
+                      name: f.name,
+                      subtitle: f.note,
+                      description: f.description
+                        ?? 'No description is recorded for this feature yet — see your rulebook for the full rules.',
+                      sections: [],
+                    })}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left hover:bg-secondary/30 transition-colors"
                   >
-                    {f.name}
+                    <cat.Icon className="h-3.5 w-3.5 flex-none" style={{ color: 'var(--color-accent-gold)' }} aria-hidden />
+                    <span className="flex-1 truncate">{f.name}</span>
+                    <BookOpen className="h-3.5 w-3.5 text-muted-foreground flex-none" />
                   </button>
-                ) : (
-                  <p key={`${f.name}-${i}`} className="px-4 py-2 text-sm text-muted-foreground">
-                    {f.name}
-                  </p>
                 )
-              ))}
+              })}
             </div>
           ))}
+          <FeatureLegend earned={earned} categories={setupData.featureCategories} />
         </div>
       )}
 

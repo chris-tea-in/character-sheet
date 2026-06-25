@@ -18,6 +18,7 @@ import { parseSpellHeal } from '@/lib/spellHeal'
 import type { ParsedSpellHeal } from '@/lib/spellHeal'
 import { mergeCustomSpells } from '@/lib/customContent'
 import { CustomSpellDialog } from './CustomSpellDialog'
+import { StatBreakdown } from './StatBreakdown'
 import type { CustomSpellDamage } from './CustomSpellDialog'
 import type { ClassData, SpellData } from '@/types/data'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
@@ -258,6 +259,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
   const [spellListOpen, setSpellListOpen] = useState(false)
   const [customSpellOpen, setCustomSpellOpen] = useState(false)
   const [bonusEditorOpen, setBonusEditorOpen] = useState(false)
+  const [openBreakdown, setOpenBreakdown] = useState<null | 'attack' | 'dc'>(null)
   const { dispatch, dispatchDamage } = useRollDispatch(derived)
 
   useEffect(() => {
@@ -445,7 +447,14 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
           <div className="flex gap-4 text-center">
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Attack</p>
-              <p className="text-sm font-bold">{spellAttackMod >= 0 ? `+${spellAttackMod}` : `${spellAttackMod}`}</p>
+              <button
+                onClick={() => setOpenBreakdown('attack')}
+                title="What's affecting spell attack?"
+                className="flex items-center gap-1 mx-auto hover:opacity-75 transition-opacity"
+              >
+                <span className="text-sm font-bold">{spellAttackMod >= 0 ? `+${spellAttackMod}` : `${spellAttackMod}`}</span>
+                <Pencil className="h-2.5 w-2.5 text-muted-foreground" />
+              </button>
               {!!character.spellBonusModifier && (
                 <button
                   onClick={() => setBonusEditorOpen(true)}
@@ -459,7 +468,14 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Save DC</p>
-              <p className="text-sm font-bold">{derived.spellSaveDC}</p>
+              <button
+                onClick={() => setOpenBreakdown('dc')}
+                title="What's affecting spell save DC?"
+                className="flex items-center gap-1 mx-auto hover:opacity-75 transition-opacity"
+              >
+                <span className="text-sm font-bold">{derived.spellSaveDC}</span>
+                <Pencil className="h-2.5 w-2.5 text-muted-foreground" />
+              </button>
               {!!character.spellBonusModifier && (
                 <button
                   onClick={() => setBonusEditorOpen(true)}
@@ -667,6 +683,20 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         />
         <Button onClick={() => setBonusEditorOpen(false)}>Done</Button>
       </InfoPopup>
+
+      <StatBreakdown
+        open={openBreakdown === 'attack'}
+        onClose={() => setOpenBreakdown(null)}
+        title="Spell Attack"
+        signed
+        sources={derived.breakdowns.spellAttack}
+      />
+      <StatBreakdown
+        open={openBreakdown === 'dc'}
+        onClose={() => setOpenBreakdown(null)}
+        title="Spell Save DC"
+        sources={derived.breakdowns.spellSaveDC}
+      />
     </section>
   )
 }

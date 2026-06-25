@@ -1,8 +1,8 @@
 import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP, SKILL_DISPLAY_MAP, formatBonus } from './dice'
-import { ABILITY_FULL_TO_SHORT, getRacialBonuses } from './racialBonuses'
+import { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug } from './racialBonuses'
 import { applicableGroups } from './classFeatures'
 import type { Character, AbilityName, Abilities, SkillName, SkillProficiency, EquipmentItem } from '../types/character'
-import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem, ItemEffect, ClassFeatureData, FeatureEffect } from '../types/data'
+import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem, ItemEffect, ClassFeatureData, ClassFeatureEffects, FeatureEffect, RaceEffect } from '../types/data'
 
 /** The weapon-conditional fighting-style effects (Archery to-hit, Dueling damage). */
 export type FeatureWeaponEffect = Extract<FeatureEffect, { type: 'weapon_attack' } | { type: 'weapon_damage' }>
@@ -15,6 +15,20 @@ export interface WeaponBonus {
   damageType: string
   abilityLabel: string
   toHitModifier: number
+}
+
+/** One contributor to a derived stat — provenance for the Modifier Ledger (see BACKLOG).
+ *  `amount` is its signed contribution to the target stat; the list sums to the effective value. */
+export type ModifierKind =
+  | 'base' | 'abilityMod' | 'proficiency' | 'race' | 'subrace'
+  | 'feat' | 'item' | 'feature' | 'class' | 'spell' | 'manual' | 'custom'
+
+export interface ModifierSource {
+  id: string          // stable + deterministic: `${kind}:${sourceSlug}:${targetKey}`
+  label: string
+  amount: number
+  kind: ModifierKind
+  removable: boolean   // base / abilityMod are locked; feats/items/manual become toggleable (P2)
 }
 
 export interface DerivedStats {
@@ -41,7 +55,16 @@ export interface DerivedStats {
   // stored record) — the UI shows these filled but locked so a dot click can't
   // write a duplicate stored copy (BUG-30)
   featSkillGrants: { proficient: SkillName[]; expertise: SkillName[] }
+  // Skills granted by the character's race — shown filled+locked like feat grants.
+  raceSkillGrants: SkillName[]
   weaponProficiencies: string[]
+  // Armor proficiency union (class + racial), lowercased. Used for feat prereqs/display.
+  armorProficiencies: string[]
+  // Tool proficiencies granted by race (display) and racial languages (DescriptionBlock grid).
+  raceToolGrants: string[]
+  raceGrantedLanguages: string[]
+  // Senses granted by race (e.g. { darkvision: 60 }) — display.
+  senses: Record<string, number>
   // Flat damage bonus from attuned items — added to weapon and unarmed damage
   itemDamageBonus: number
   // Unarmed-strike override from attuned items (e.g. Demon Armor → 1d8 slashing)
@@ -53,6 +76,22 @@ export interface DerivedStats {
   immunities: string[]
   // Weapon-conditional fighting-style effects — applied per-weapon in computeWeaponBonus
   featureWeaponEffects: FeatureWeaponEffect[]
+  // Provenance for the Modifier Ledger. Each list (or per-key list) sums to its
+  // effective value (dev assertions guard this); later phases add the stored
+  // disable/override/custom layer. `abilities` totals reconstruct the score; the
+  // feat-ASI cap and item set-to-N are recorded as realized deltas so the sum holds.
+  breakdowns: {
+    speed: ModifierSource[]
+    initiative: ModifierSource[]
+    ac: ModifierSource[]
+    proficiencyBonus: ModifierSource[]
+    abilities: Record<AbilityName, ModifierSource[]>
+    saves: Record<AbilityName, ModifierSource[]>
+    skills: Record<SkillName, ModifierSource[]>
+    maxHp: ModifierSource[]
+    spellAttack: ModifierSource[]
+    spellSaveDC: ModifierSource[]
+  }
 }
 
 // ── Feat effect registry ────────────────────────────────────────────────────
@@ -68,13 +107,6 @@ const FEAT_EFFECTS: Partial<Record<string, FeatEffect>> = {
   'tough':     { maxHpBonus: level => level * 2 },
   'observant': { passivePerceptionBonus: 5, passiveInvestigationBonus: 5 },
 }
-
-// ── Subrace HP bonus registry ────────────────────────────────────────────────
-
-const SUBRACE_HP_BONUS: Partial<Record<string, (level: number) => number>> = {
-  'hill-dwarf': level => level,  // Dwarven Toughness: +1 HP per level
-}
-
 
 export interface FeatStatDelta {
   abilities: Partial<Record<AbilityName, number>>
@@ -467,17 +499,26 @@ interface ActiveItemEffects {
   unarmoredAcBonus: number      // flat AC that applies only when no body armor (Bracers of Defense)
   unarmoredAcBase: number | null // sets unarmored AC base (Robe of the Archmagi → 15)
   saveBonuses: Partial<Record<AbilityName, number>>
+  saveBonusSources: { name: string; ability: AbilityName | 'all'; amount: number }[]
   abilitySets: Partial<Record<AbilityName, number>>
   abilityBonuses: Partial<Record<AbilityName, number>>
+  abilityBonusSources: { name: string; ability: AbilityName; amount: number }[]
+  abilitySetSources: { name: string; ability: AbilityName; value: number }[]
   skillBonuses: Partial<Record<SkillName, number>>
+  skillBonusSources: { name: string; skill: SkillName; amount: number }[]
   speed: number
+  speedSources: { name: string; amount: number }[]
   initiative: number
+  initiativeSources: { name: string; amount: number }[]
   damage: number
   maxHp: number
+  maxHpSources: { name: string; amount: number }[]
   resistances: string[]
   immunities: string[]
   spellAttack: number
+  spellAttackSources: { name: string; amount: number }[]
   spellSaveDC: number
+  spellSaveDCSources: { name: string; amount: number }[]
   languages: string[]
   unarmed: { dice?: string; damageType?: string; attackBonus: number; damageBonus: number }
 }
@@ -488,9 +529,11 @@ function computeActiveItemEffects(
 ): ActiveItemEffects {
   const acc: ActiveItemEffects = {
     acBonus: 0, unarmoredAcBonus: 0, unarmoredAcBase: null,
-    saveBonuses: {}, abilitySets: {}, abilityBonuses: {},
-    skillBonuses: {}, speed: 0, initiative: 0, damage: 0, maxHp: 0,
-    resistances: [], immunities: [], spellAttack: 0, spellSaveDC: 0,
+    saveBonuses: {}, saveBonusSources: [], abilitySets: {}, abilityBonuses: {},
+    abilityBonusSources: [], abilitySetSources: [],
+    skillBonuses: {}, skillBonusSources: [], speed: 0, speedSources: [], initiative: 0, initiativeSources: [],
+    damage: 0, maxHp: 0, maxHpSources: [],
+    resistances: [], immunities: [], spellAttack: 0, spellAttackSources: [], spellSaveDC: 0, spellSaveDCSources: [],
     languages: [], unarmed: { attackBonus: 0, damageBonus: 0 },
   }
   if (!catalog) return acc
@@ -524,9 +567,12 @@ function computeActiveItemEffects(
         case 'unarmored_ac':
           acc.unarmoredAcBase = Math.max(acc.unarmoredAcBase ?? 0, e.base)
           break
-        case 'max_hp':
-          acc.maxHp += (e.amount ?? 0) + (e.perLevel ?? 0) * character.level
+        case 'max_hp': {
+          const hp = (e.amount ?? 0) + (e.perLevel ?? 0) * character.level
+          acc.maxHp += hp
+          if (hp) acc.maxHpSources.push({ name: item.name, amount: hp })
           break
+        }
         case 'resistance':
           if (!acc.resistances.includes(e.damageType.toLowerCase())) acc.resistances.push(e.damageType.toLowerCase())
           break
@@ -539,22 +585,28 @@ function computeActiveItemEffects(
           } else {
             acc.saveBonuses[e.ability] = (acc.saveBonuses[e.ability] ?? 0) + e.amount
           }
+          acc.saveBonusSources.push({ name: item.name, ability: e.ability, amount: e.amount })
           break
         case 'ability_bonus':
           acc.abilityBonuses[e.ability] = (acc.abilityBonuses[e.ability] ?? 0) + e.amount
+          acc.abilityBonusSources.push({ name: item.name, ability: e.ability, amount: e.amount })
           break
         case 'ability_set':
           // Multiple setters on one ability: keep the highest target (RAW: a set never lowers a score)
           acc.abilitySets[e.ability] = Math.max(acc.abilitySets[e.ability] ?? 0, e.value)
+          acc.abilitySetSources.push({ name: item.name, ability: e.ability, value: e.value })
           break
         case 'skill':
           acc.skillBonuses[e.skill] = (acc.skillBonuses[e.skill] ?? 0) + e.amount
+          acc.skillBonusSources.push({ name: item.name, skill: e.skill, amount: e.amount })
           break
         case 'speed':
           acc.speed += e.amount
+          acc.speedSources.push({ name: item.name, amount: e.amount })
           break
         case 'initiative':
           acc.initiative += e.amount
+          acc.initiativeSources.push({ name: item.name, amount: e.amount })
           break
         case 'damage':
           acc.damage += e.amount
@@ -571,9 +623,11 @@ function computeActiveItemEffects(
           break
         case 'spell_attack':
           acc.spellAttack += e.amount
+          acc.spellAttackSources.push({ name: item.name, amount: e.amount })
           break
         case 'spell_save_dc':
           acc.spellSaveDC += e.amount
+          acc.spellSaveDCSources.push({ name: item.name, amount: e.amount })
           break
       }
     }
@@ -633,32 +687,93 @@ interface FeatureEffectAccum {
   acArmored: number   // applies only when body armor is worn (Defense)
   acUnarmored: number // applies only when no body armor is worn
   weaponEffects: FeatureWeaponEffect[] // per-weapon to-hit/damage (Archery, Dueling)
+  // Step 3 — labeled so the ledger breakdowns can show the granting feature.
+  saveProf: { label: string; ability: AbilityName | 'all' }[]
+  saveBonus: { label: string; ability: AbilityName | 'all'; amount: number }[]
+  derivedSave: { label: string; ability: AbilityName | 'all'; from: AbilityName; min: number }[]
+  resistances: { label: string; damageType: string }[]
+  immunities: { label: string; damageType: string }[]
+  speed: { label: string; amount: number }[]
+  maxHp: { label: string; amount: number }[]
+  skillProf: { label: string; skill: SkillName }[]
+  weaponProf: string[]
+  armorProf: string[]
+  toolProf: string[]
 }
 
-function computeFeatureEffects(
-  character: Character,
-  classFeatures?: ClassFeatureData | null,
-): FeatureEffectAccum {
-  const acc: FeatureEffectAccum = { acAlways: 0, acArmored: 0, acUnarmored: 0, weaponEffects: [] }
-  if (!classFeatures) return acc
+function newFeatureAccum(): FeatureEffectAccum {
+  return {
+    acAlways: 0, acArmored: 0, acUnarmored: 0, weaponEffects: [],
+    saveProf: [], saveBonus: [], derivedSave: [], resistances: [], immunities: [],
+    speed: [], maxHp: [], skillProf: [], weaponProf: [], armorProf: [], toolProf: [],
+  }
+}
 
-  for (const { group } of applicableGroups(character, classFeatures)) {
-    const selected = character.classFeatureChoices?.[group.key] ?? []
-    if (!selected.length) continue
-    const bySlug = new Map(group.options.map(o => [o.slug, o]))
-    for (const slug of selected) {
-      const opt = bySlug.get(slug)
-      for (const e of (opt?.effects ?? [])) {
-        if (e.type === 'ac') {
-          if (e.condition === 'armored') acc.acArmored += e.amount
-          else if (e.condition === 'unarmored') acc.acUnarmored += e.amount
-          else acc.acAlways += e.amount
-        } else if (e.type === 'weapon_attack' || e.type === 'weapon_damage') {
-          acc.weaponEffects.push(e)
-        }
+// Apply one FeatureEffect into the shared accumulator (single application point for
+// both selected feature options AND always-on class features). `level` scales max_hp.
+function applyFeatureEffect(e: FeatureEffect, label: string, acc: FeatureEffectAccum, level: number) {
+  switch (e.type) {
+    case 'ac':
+      if (e.condition === 'armored') acc.acArmored += e.amount
+      else if (e.condition === 'unarmored') acc.acUnarmored += e.amount
+      else acc.acAlways += e.amount
+      break
+    case 'weapon_attack': case 'weapon_damage': acc.weaponEffects.push(e); break
+    case 'save_proficiency': acc.saveProf.push({ label, ability: e.ability }); break
+    case 'save_bonus': acc.saveBonus.push({ label, ability: e.ability, amount: e.amount }); break
+    case 'derived_save': acc.derivedSave.push({ label, ability: e.ability, from: e.from, min: e.min ?? 0 }); break
+    case 'resistance': acc.resistances.push({ label, damageType: e.damageType.toLowerCase() }); break
+    case 'immunity': acc.immunities.push({ label, damageType: e.damageType.toLowerCase() }); break
+    case 'speed': acc.speed.push({ label, amount: e.amount }); break
+    case 'max_hp': { const hp = (e.amount ?? 0) + (e.perLevel ?? 0) * level; if (hp) acc.maxHp.push({ label, amount: hp }); break }
+    case 'skill_proficiency': acc.skillProf.push({ label, skill: e.skill }); break
+    case 'weapon_proficiency': for (const w of e.weapons) acc.weaponProf.push(w.toLowerCase()); break
+    case 'armor_proficiency': for (const a of e.armor) acc.armorProf.push(a); break
+    case 'tool_proficiency': for (const t of e.tools) acc.toolProf.push(t); break
+  }
+}
+
+// Collect every passive feature effect: chosen feature options (Fighting Style …) PLUS
+// always-on earned class-level features (Aura of Protection, Diamond Soul …) via the
+// class-feature-effects data. Single render-time application point (INV-1); owning-class
+// level gates the always-on scan (INV-2).
+function collectFeatureEffects(
+  character: Character,
+  classRecords: (ClassData | null)[],
+  classFeatures?: ClassFeatureData | null,
+  classFeatureEffects?: ClassFeatureEffects | null,
+): FeatureEffectAccum {
+  const acc = newFeatureAccum()
+
+  if (classFeatures) {
+    for (const { group } of applicableGroups(character, classFeatures)) {
+      const selected = character.classFeatureChoices?.[group.key] ?? []
+      if (!selected.length) continue
+      const bySlug = new Map(group.options.map(o => [o.slug, o]))
+      for (const slug of selected) {
+        const opt = bySlug.get(slug)
+        if (opt) for (const e of (opt.effects ?? [])) applyFeatureEffect(e, opt.name, acc, character.level)
       }
     }
   }
+
+  if (classFeatureEffects) {
+    const entries = character.classes?.length
+      ? character.classes
+      : [{ classSlug: character.class, subclassSlug: character.subclass, level: character.level }]
+    entries.forEach((ce, i) => {
+      const byFeature = classFeatureEffects[ce.classSlug]
+      const rec = classRecords[i] ?? null
+      if (!byFeature || !rec) return
+      for (let lvl = 1; lvl <= ce.level; lvl++) {
+        for (const name of (rec.levels[String(lvl)]?.features ?? [])) {
+          const effs = byFeature[name]
+          if (effs) for (const e of effs) applyFeatureEffect(e, name, acc, ce.level)
+        }
+      }
+    })
+  }
+
   return acc
 }
 
@@ -691,6 +806,66 @@ export function computeFeatureWeaponBonus(
   return { toHit, damage }
 }
 
+// ── Racial trait effects ───────────────────────────────────────────────────
+// Single render-time application point (INV-1) for structured racial grants —
+// parallel to computeActiveItemEffects. Reads the new RaceEffect[] (skill/weapon/
+// tool/armor proficiencies, resistances/immunities, natural armor) PLUS the clean
+// structured fields (languages, senses, hp_bonus_per_level). Save/skill advantages
+// are intentionally excluded here (still applied by getCharacterAdvantages).
+
+interface RaceEffects {
+  skillProficiencies: SkillName[]
+  weaponProficiencies: string[]   // lowercased weapon names
+  toolProficiencies: string[]
+  armorProficiencies: string[]    // 'light' | 'medium' | 'heavy' | 'shield'
+  resistances: string[]           // lowercased damage types
+  immunities: string[]
+  naturalArmor: { base: number; addDex: boolean; maxDex: number } | null
+  languages: string[]
+  senses: Record<string, number>  // e.g. { darkvision: 60 }
+  hpPerLevel: number
+}
+
+function computeRaceEffects(race: Race | null | undefined, subraceSlug?: string | null): RaceEffects {
+  const acc: RaceEffects = {
+    skillProficiencies: [], weaponProficiencies: [], toolProficiencies: [], armorProficiencies: [],
+    resistances: [], immunities: [], naturalArmor: null, languages: [], senses: {}, hpPerLevel: 0,
+  }
+  if (!race) return acc
+
+  const subrace = subraceSlug ? race.subraces.find(s => toSubraceSlug(s.name) === subraceSlug) : undefined
+  const pushUniq = (arr: string[], v: string) => { if (!arr.includes(v)) arr.push(v) }
+  const addSenses = (obj: Record<string, unknown> | undefined) => {
+    for (const [k, v] of Object.entries(obj ?? {})) {
+      if (typeof v === 'number') acc.senses[k] = Math.max(acc.senses[k] ?? 0, v)
+    }
+  }
+  const applyEffects = (effects: RaceEffect[] | undefined) => {
+    for (const e of (effects ?? [])) {
+      switch (e.type) {
+        case 'skill_proficiency':  if (!acc.skillProficiencies.includes(e.skill)) acc.skillProficiencies.push(e.skill); break
+        case 'weapon_proficiency': for (const w of e.weapons) pushUniq(acc.weaponProficiencies, w.toLowerCase()); break
+        case 'tool_proficiency':   for (const t of e.tools) pushUniq(acc.toolProficiencies, t); break
+        case 'armor_proficiency':  for (const a of e.armor) pushUniq(acc.armorProficiencies, a); break
+        case 'resistance':         pushUniq(acc.resistances, e.damageType.toLowerCase()); break
+        case 'immunity':           pushUniq(acc.immunities, e.damageType.toLowerCase()); break
+        case 'natural_armor':      acc.naturalArmor = { base: e.base, addDex: e.addDex ?? false, maxDex: e.maxDex ?? Infinity }; break
+      }
+    }
+  }
+
+  for (const l of race.base.languages) pushUniq(acc.languages, l)
+  addSenses(race.base.senses)
+  applyEffects(race.base.effects)
+  if (subrace) {
+    for (const l of subrace.languages) pushUniq(acc.languages, l)
+    addSenses(subrace.senses)
+    applyEffects(subrace.effects)
+    acc.hpPerLevel += subrace.hp_bonus_per_level ?? 0
+  }
+  return acc
+}
+
 export interface DeriveContext {
   // All class records, ordered to match character.classes; [0] = primary
   classes?: (ClassData | null)[] | null
@@ -699,6 +874,8 @@ export interface DeriveContext {
   featData?: Record<string, FeatData> | null
   // Selectable class-feature groups (public/data/class-features.json)
   classFeatures?: ClassFeatureData | null
+  // Always-on class-feature effects (public/data/class-feature-effects.json)
+  classFeatureEffects?: ClassFeatureEffects | null
 }
 
 export function deriveCharacterStats(
@@ -709,18 +886,48 @@ export function deriveCharacterStats(
   const classRecords = (ctx.classes ?? []).filter((c): c is ClassData => c != null)
   const classData = ctx.classes?.[0] ?? null
   const pb = proficiencyBonus(character.level)
-  const featureFx = computeFeatureEffects(character, classFeatures)
+  // Selected feature options + always-on class features, in one accumulator.
+  const featureFx = collectFeatureEffects(character, ctx.classes ?? [], classFeatures, ctx.classFeatureEffects)
+
+  // Stable, deterministic source IDs for the ledger (`${kind}:${sourceSlug}:${targetKey}`).
+  const slugifyName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 
   // ── Effective Abilities (base + racial ASIs + all feat ASIs) ─────────────
+  // Built with per-ability provenance: each contributor records its *realized*
+  // delta (so the feat-ASI cap at 20 and item set-to-N reconstruct the score
+  // exactly — see breakdowns.abilities). Application order is unchanged:
+  // base → racial → feats (capped) → item bonuses → item sets (max).
   const effectiveAbilities = { ...character.abilities }
+  const abilityBreakdowns = {} as Record<AbilityName, ModifierSource[]>
+  for (const ab of ALL_ABILITIES) {
+    abilityBreakdowns[ab] = [
+      { id: `base:score:${ab}`, label: 'Base score', amount: character.abilities[ab], kind: 'base', removable: false },
+    ]
+  }
   const racialBonuses = getRacialBonuses(race, character.raceAsiChoices ?? [], character.subrace ?? undefined)
   for (const [ab, amount] of Object.entries(racialBonuses) as [AbilityName, number][]) {
     effectiveAbilities[ab] = effectiveAbilities[ab] + amount
+    if (amount) abilityBreakdowns[ab].push({ id: `race:${slugifyName(character.race || 'race')}:${ab}`, label: 'Racial bonus', amount, kind: 'race', removable: true })
   }
+
+  // Structured racial trait grants (proficiencies, resistances, natural armor,
+  // languages, senses, per-level HP) — single application point, INV-1.
+  const raceEffects = computeRaceEffects(race, character.subrace)
   let featSpeedBonus = 0
   let featInitiativeBonus = 0
+  const featSpeedSources: { slug: string; name: string; amount: number }[] = []
+  const featInitSources: { slug: string; name: string; amount: number }[] = []
   const featDerivedSaves: AbilityName[] = []
   const flatSkillBonuses: Partial<Record<SkillName, number>> = {}
+  // Provenance for flat skill bonuses (feats + items), filtered per skill below.
+  const flatSkillBonusSources: { skill: SkillName; id: string; label: string; kind: ModifierKind; amount: number }[] = []
+  // Data-driven feat effects (Step 3 — max_hp/resistance/language/proficiency).
+  const featMaxHpSources: { slug: string; name: string; amount: number }[] = []
+  const featResistances: string[] = []
+  const featLanguages: string[] = []
+  const featWeaponProf: string[] = []
+  const featArmorProf: string[] = []
+  const featToolProf: string[] = []
 
   if (featData) {
     for (const slug of character.feats) {
@@ -729,10 +936,19 @@ export function deriveCharacterStats(
 
       const delta = computeFeatStatDelta(slug, feat, character.featChoices)
       for (const [ab, amount] of Object.entries(delta.abilities) as [AbilityName, number][]) {
-        effectiveAbilities[ab] = Math.min(20, effectiveAbilities[ab] + amount)
+        const before = effectiveAbilities[ab]
+        effectiveAbilities[ab] = Math.min(20, before + amount)
+        const realized = effectiveAbilities[ab] - before
+        abilityBreakdowns[ab].push({
+          id: `feat:${slug}:${ab}`,
+          label: realized < amount ? `${feat.name} (capped at 20)` : feat.name,
+          amount: realized, kind: 'feat', removable: true,
+        })
       }
       featSpeedBonus += delta.speed
       featInitiativeBonus += delta.initiativeBonus
+      if (delta.speed) featSpeedSources.push({ slug, name: feat.name, amount: delta.speed })
+      if (delta.initiativeBonus) featInitSources.push({ slug, name: feat.name, amount: delta.initiativeBonus })
       if (delta.saveProficiency && !character.savingThrowProficiencies.includes(delta.saveProficiency)) {
         featDerivedSaves.push(delta.saveProficiency)
       }
@@ -741,7 +957,21 @@ export function deriveCharacterStats(
       if (registryEffect?.skillBonuses) {
         for (const [sk, bonus] of Object.entries(registryEffect.skillBonuses) as [SkillName, number][]) {
           flatSkillBonuses[sk] = (flatSkillBonuses[sk] ?? 0) + bonus
+          flatSkillBonusSources.push({ skill: sk, id: `feat:${slug}:skill-${sk}`, label: feat.name, kind: 'feat', amount: bonus })
         }
+      }
+
+      // Data-driven feat effects (the new FeatEffect variants). max_hp here replaces
+      // the hardcoded registry once a feat carries it (Tough → perLevel 2).
+      for (const e of (feat.effects ?? [])) {
+        if (e.type === 'max_hp') {
+          const amt = (e.amount ?? 0) + (e.perLevel ?? 0) * character.level
+          if (amt) featMaxHpSources.push({ slug, name: feat.name, amount: amt })
+        } else if (e.type === 'resistance') featResistances.push(e.damageType.toLowerCase())
+        else if (e.type === 'language') featLanguages.push(e.name)
+        else if (e.type === 'weapon_proficiency') for (const w of e.weapons) featWeaponProf.push(w.toLowerCase())
+        else if (e.type === 'armor_proficiency') for (const a of e.armor) featArmorProf.push(a)
+        else if (e.type === 'tool_proficiency') for (const t of e.tools) featToolProf.push(t)
       }
     }
   }
@@ -772,35 +1002,87 @@ export function deriveCharacterStats(
       }
     }
   }
+  // Racial + always-on-feature skill proficiencies — granted at render time and shown
+  // filled+locked in the UI (the BUG-30 pattern) so a dot click can't write a duplicate.
+  const raceSkillGrants: SkillName[] = []
+  for (const sk of [...raceEffects.skillProficiencies, ...featureFx.skillProf.map(s => s.skill)]) {
+    if (!effectiveSkillProficiencies[sk]) {
+      effectiveSkillProficiencies[sk] = 'proficient'
+      raceSkillGrants.push(sk)
+    }
+  }
 
   // ── Active magic-item effects ──────────────────────────────────────────────
   // Applied on top of base + racial + feat. Item ability changes are uncapped
   // (RAW: items can raise a score above 20). Skill bonuses reuse the feat channel.
   const itemEffects = computeActiveItemEffects(character, catalog)
-  for (const [ab, amount] of Object.entries(itemEffects.abilityBonuses) as [AbilityName, number][]) {
-    effectiveAbilities[ab] = effectiveAbilities[ab] + amount
+  // Item ability bonuses (additive, uncapped) then sets (max), applied per source
+  // so each carries provenance. Order matches RAW + the prior merged application.
+  for (const s of itemEffects.abilityBonusSources) {
+    effectiveAbilities[s.ability] = effectiveAbilities[s.ability] + s.amount
+    if (s.amount) abilityBreakdowns[s.ability].push({ id: `item:${slugifyName(s.name)}:${s.ability}`, label: s.name, amount: s.amount, kind: 'item', removable: true })
   }
-  for (const [ab, value] of Object.entries(itemEffects.abilitySets) as [AbilityName, number][]) {
-    effectiveAbilities[ab] = Math.max(effectiveAbilities[ab], value)
+  for (const s of itemEffects.abilitySetSources) {
+    const before = effectiveAbilities[s.ability]
+    effectiveAbilities[s.ability] = Math.max(before, s.value)
+    const realized = effectiveAbilities[s.ability] - before
+    if (realized) abilityBreakdowns[s.ability].push({ id: `item:${slugifyName(s.name)}:${s.ability}-set`, label: `${s.name} (sets to ${s.value})`, amount: realized, kind: 'item', removable: true })
   }
   for (const [sk, bonus] of Object.entries(itemEffects.skillBonuses) as [SkillName, number][]) {
     flatSkillBonuses[sk] = (flatSkillBonuses[sk] ?? 0) + bonus
   }
+  for (const s of itemEffects.skillBonusSources) {
+    flatSkillBonusSources.push({ skill: s.skill, id: `item:${slugifyName(s.name)}:skill-${s.skill}`, label: s.name, kind: 'item', amount: s.amount })
+  }
+  // Dev guard: each ability breakdown reconstructs the effective score exactly.
+  for (const ab of ALL_ABILITIES) {
+    console.assert(abilityBreakdowns[ab].reduce((t, c) => t + c.amount, 0) === effectiveAbilities[ab], `[ledger] ${ab} breakdown ≠ effective score`)
+  }
 
   // ── Combat stats ──────────────────────────────────────────────────────────
   const dexMod = abilityModifier(effectiveAbilities.dex)
-  const effectiveSpeed = character.speed + featSpeedBonus + itemEffects.speed
+  const featureSpeed = featureFx.speed.reduce((t, s) => t + s.amount, 0)
+  const effectiveSpeed = character.speed + featSpeedBonus + itemEffects.speed + featureSpeed
   const effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus + itemEffects.initiative
   const effectiveInitiative = dexMod + effectiveInitiativeBonus
 
-  // ── Effective save proficiencies (class + feat) ───────────────────────────
+  // ── Modifier Ledger provenance (P1: speed + initiative) ───────────────────
+  // Built ALONGSIDE the sums above; each list reconstructs its effective value exactly
+  // (dev assertion below). No stored override layer yet — that's P2.
+  const speedBreakdown: ModifierSource[] = [
+    { id: 'base:race:speed', label: 'Base speed', amount: character.speed, kind: 'base', removable: false },
+    ...featSpeedSources.map(s => ({ id: `feat:${s.slug}:speed`, label: `${s.name} (feat)`, amount: s.amount, kind: 'feat' as const, removable: true })),
+    ...itemEffects.speedSources.map(s => ({ id: `item:${slugifyName(s.name)}:speed`, label: `${s.name} (item)`, amount: s.amount, kind: 'item' as const, removable: true })),
+    ...featureFx.speed.map(s => ({ id: `feature:${slugifyName(s.label)}:speed`, label: `${s.label} (feature)`, amount: s.amount, kind: 'feature' as const, removable: true })),
+  ]
+  const initiativeBreakdown: ModifierSource[] = [
+    { id: 'abilityMod:dex:initiative', label: 'DEX modifier', amount: dexMod, kind: 'abilityMod', removable: false },
+    ...((character.initiativeBonus ?? 0) !== 0
+      ? [{ id: 'manual:base:initiative', label: 'Manual bonus', amount: character.initiativeBonus, kind: 'manual' as const, removable: true }]
+      : []),
+    ...featInitSources.map(s => ({ id: `feat:${s.slug}:initiative`, label: `${s.name} (feat)`, amount: s.amount, kind: 'feat' as const, removable: true })),
+    ...itemEffects.initiativeSources.map(s => ({ id: `item:${slugifyName(s.name)}:initiative`, label: `${s.name} (item)`, amount: s.amount, kind: 'item' as const, removable: true })),
+  ]
+  // INV: a breakdown must reconstruct the effective value exactly — guards the refactor.
+  const sumModifiers = (a: ModifierSource[]) => a.reduce((t, c) => t + c.amount, 0)
+  console.assert(sumModifiers(speedBreakdown) === effectiveSpeed, '[ledger] speed breakdown ≠ effectiveSpeed', sumModifiers(speedBreakdown), effectiveSpeed)
+  console.assert(sumModifiers(initiativeBreakdown) === effectiveInitiative, '[ledger] initiative breakdown ≠ effectiveInitiative', sumModifiers(initiativeBreakdown), effectiveInitiative)
+
+  // ── Effective save proficiencies (class + feat + always-on feature) ───────
+  const featureSaveProfs: AbilityName[] = []
+  for (const sp of featureFx.saveProf) {
+    if (sp.ability === 'all') ALL_ABILITIES.forEach(a => featureSaveProfs.push(a))
+    else featureSaveProfs.push(sp.ability)
+  }
   const effectiveSaveProficiencies: AbilityName[] = [
-    ...character.savingThrowProficiencies,
-    ...featDerivedSaves,
+    ...new Set([...character.savingThrowProficiencies, ...featDerivedSaves, ...featureSaveProfs]),
   ]
 
   // ── Skill and save modifiers (pre-computed for display and dice rolls) ─────
+  // Each modifier is built alongside its ledger breakdown (ability mod · proficiency/
+  // expertise · flat feat/item bonuses) — the list sums to the modifier (asserted below).
   const skillModifiers = {} as Record<SkillName, number>
+  const skillBreakdowns = {} as Record<SkillName, ModifierSource[]>
   for (const skill of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) {
     const ability = SKILL_ABILITY_MAP[skill]
     const abilMod = abilityModifier(effectiveAbilities[ability])
@@ -808,13 +1090,54 @@ export function deriveCharacterStats(
     const profMod = prof ? pb * (prof === 'expertise' ? 2 : 1) : 0
     const flatBonus = flatSkillBonuses[skill] ?? 0
     skillModifiers[skill] = abilMod + profMod + flatBonus
+
+    const rows: ModifierSource[] = [
+      { id: `abilityMod:${ability}:skill-${skill}`, label: `${ABILITY_ABBR[ability]} modifier`, amount: abilMod, kind: 'abilityMod', removable: false },
+    ]
+    if (prof) {
+      const fromRace = prof === 'proficient' && raceSkillGrants.includes(skill)
+      rows.push({
+        id: `proficiency:${prof}:skill-${skill}`,
+        label: prof === 'expertise' ? 'Expertise (2×PB)' : fromRace ? 'Proficiency (racial)' : 'Proficiency (PB)',
+        amount: profMod, kind: fromRace ? 'race' : 'proficiency', removable: false,
+      })
+    }
+    for (const s of flatSkillBonusSources.filter(s => s.skill === skill)) {
+      rows.push({ id: s.id, label: s.label, amount: s.amount, kind: s.kind, removable: true })
+    }
+    skillBreakdowns[skill] = rows
+    console.assert(rows.reduce((t, c) => t + c.amount, 0) === skillModifiers[skill], `[ledger] ${skill} breakdown ≠ skill modifier`)
   }
 
   const saveModifiers = {} as Record<AbilityName, number>
+  const saveBreakdowns = {} as Record<AbilityName, ModifierSource[]>
   for (const ability of ALL_ABILITIES) {
     const abilMod = abilityModifier(effectiveAbilities[ability])
     const itemSave = itemEffects.saveBonuses[ability] ?? 0
-    saveModifiers[ability] = abilMod + (effectiveSaveProficiencies.includes(ability) ? pb : 0) + itemSave
+    const isProficient = effectiveSaveProficiencies.includes(ability)
+    // Always-on feature save bonuses: flat (save_bonus) + derived-from-stat
+    // (Aura of Protection = +CHA to all saves, min 1).
+    const featSaveRows = [
+      ...featureFx.saveBonus.filter(b => b.ability === ability || b.ability === 'all')
+        .map(b => ({ label: b.label, amount: b.amount })),
+      ...featureFx.derivedSave.filter(d => d.ability === ability || d.ability === 'all')
+        .map(d => ({ label: `${d.label} (+${ABILITY_ABBR[d.from]})`, amount: Math.max(d.min, abilityModifier(effectiveAbilities[d.from])) })),
+    ]
+    const featSaveTotal = featSaveRows.reduce((t, r) => t + r.amount, 0)
+    saveModifiers[ability] = abilMod + (isProficient ? pb : 0) + itemSave + featSaveTotal
+
+    const rows: ModifierSource[] = [
+      { id: `abilityMod:${ability}:save-${ability}`, label: `${ABILITY_ABBR[ability]} modifier`, amount: abilMod, kind: 'abilityMod', removable: false },
+    ]
+    if (isProficient) rows.push({ id: `proficiency:save:${ability}`, label: 'Proficiency (PB)', amount: pb, kind: 'proficiency', removable: false })
+    for (const s of itemEffects.saveBonusSources) {
+      if (s.ability === ability || s.ability === 'all') {
+        rows.push({ id: `item:${slugifyName(s.name)}:save-${ability}`, label: s.name, amount: s.amount, kind: 'item', removable: true })
+      }
+    }
+    for (const r of featSaveRows) rows.push({ id: `feature:${slugifyName(r.label)}:save-${ability}`, label: r.label, amount: r.amount, kind: 'feature', removable: true })
+    saveBreakdowns[ability] = rows
+    console.assert(rows.reduce((t, c) => t + c.amount, 0) === saveModifiers[ability], `[ledger] ${ability} save breakdown ≠ save modifier`)
   }
 
   // ── Passive stats ─────────────────────────────────────────────────────────
@@ -834,6 +1157,8 @@ export function deriveCharacterStats(
   const castingClass = classRecords.find(c => c.spellcasting?.ability) ?? null
   let spellAttackBonus = 0
   let spellSaveDC = 0
+  const spellAttackBreakdown: ModifierSource[] = []
+  const spellSaveDCBreakdown: ModifierSource[] = []
   if (castingClass?.spellcasting?.ability) {
     const spellAbilKey = ABILITY_FULL_TO_SHORT[castingClass.spellcasting.ability.toLowerCase()] ?? 'int'
     const spellAbilMod = abilityModifier(effectiveAbilities[spellAbilKey])
@@ -844,114 +1169,205 @@ export function deriveCharacterStats(
     // homebrew override for un-cataloged focuses.
     spellAttackBonus = spellAbilMod + pb + itemEffects.spellAttack + manualBonus
     spellSaveDC = 8 + spellAbilMod + pb + itemEffects.spellSaveDC + manualBonus
+
+    const abilAbbr = ABILITY_ABBR[spellAbilKey]
+    spellAttackBreakdown.push(
+      { id: `abilityMod:${spellAbilKey}:spellAttack`, label: `${abilAbbr} modifier`, amount: spellAbilMod, kind: 'abilityMod', removable: false },
+      { id: 'proficiency:level:spellAttack', label: 'Proficiency bonus', amount: pb, kind: 'proficiency', removable: false },
+      ...itemEffects.spellAttackSources.map(s => ({ id: `item:${slugifyName(s.name)}:spellAttack`, label: s.name, amount: s.amount, kind: 'item' as const, removable: true })),
+    )
+    spellSaveDCBreakdown.push(
+      { id: 'base:dc:spellSaveDC', label: 'Base DC', amount: 8, kind: 'base', removable: false },
+      { id: `abilityMod:${spellAbilKey}:spellSaveDC`, label: `${abilAbbr} modifier`, amount: spellAbilMod, kind: 'abilityMod', removable: false },
+      { id: 'proficiency:level:spellSaveDC', label: 'Proficiency bonus', amount: pb, kind: 'proficiency', removable: false },
+      ...itemEffects.spellSaveDCSources.map(s => ({ id: `item:${slugifyName(s.name)}:spellSaveDC`, label: s.name, amount: s.amount, kind: 'item' as const, removable: true })),
+    )
+    if (manualBonus) {
+      spellAttackBreakdown.push({ id: 'manual:base:spellAttack', label: 'Manual focus override', amount: manualBonus, kind: 'manual', removable: true })
+      spellSaveDCBreakdown.push({ id: 'manual:base:spellSaveDC', label: 'Manual focus override', amount: manualBonus, kind: 'manual', removable: true })
+    }
+    console.assert(spellAttackBreakdown.reduce((t, c) => t + c.amount, 0) === spellAttackBonus, '[ledger] spell attack breakdown ≠ spellAttackBonus')
+    console.assert(spellSaveDCBreakdown.reduce((t, c) => t + c.amount, 0) === spellSaveDC, '[ledger] spell save DC breakdown ≠ spellSaveDC')
   }
 
-  // ── Effective AC + stealth disadvantage ──────────────────────────────────
-  let effectiveAC: number | null = null
+  // ── Effective AC (one exclusive base + additive bonuses; itemized for the ledger) ──
+  // RAW: a creature uses exactly ONE base AC formula (worn armor, an item set-base, or
+  // Unarmored Defense), then adds shield + protection + fighting-style bonuses. Each
+  // contributor is recorded as a ModifierSource and the list sums to effectiveAC.
   let hasStealthDisadvantage = false
   let hasBodyArmor = false
+  const acSources: ModifierSource[] = []
+  const acConMod = abilityModifier(effectiveAbilities.con)
+  const acWisMod = abilityModifier(effectiveAbilities.wis)
+  const hasBarbarian = (character.classes ?? []).some(c => c.classSlug === 'barbarian')
+  const hasMonk = (character.classes ?? []).some(c => c.classSlug === 'monk')
+  // Racial natural armor (Lizardfolk 13 + DEX, Tortle 17) competes with Unarmored
+  // Defense — RAW they don't stack; use whichever base is higher (udAC below needs hasShield).
+  const naturalArmor = raceEffects.naturalArmor
+  const naturalArmorDex = naturalArmor?.addDex ? Math.min(dexMod, naturalArmor.maxDex) : 0
+  const naturalArmorAC = naturalArmor ? naturalArmor.base + naturalArmorDex : null
 
+  // Resolve the worn body armor + shield (only *worn* pieces — equipped or attuned — count).
+  let bodyArmorRec: ArmorItem | null = null
+  let bodyArmorName = ''
+  let shieldRec: ArmorItem | null = null
+  let shieldName = ''
   if (catalog?.armor) {
     const armorByName = new Map(catalog.armor.map(a => [a.name.toLowerCase(), a]))
-    // Armor contributes AC only while *worn* — equipped (non-attune) or attuned
-    // (attune-required). Unworn armor is just inventory (no AC, no numeric bonus).
-    const equippedArmor = character.equipment.filter(
+    const worn = character.equipment.filter(
       e => armorByName.has(e.name.toLowerCase()) && (e.equipped || e.attuned),
     )
+    const body = worn.find(e => armorByName.get(e.name.toLowerCase())!.armor_type !== 'Shield')
+    const shield = worn.find(e => armorByName.get(e.name.toLowerCase())!.armor_type === 'Shield')
+    if (body) { bodyArmorName = body.name; bodyArmorRec = resolveArmor(body, armorByName.get(body.name.toLowerCase())!, armorByName) }
+    if (shield) { shieldName = shield.name; shieldRec = resolveArmor(shield, armorByName.get(shield.name.toLowerCase())!, armorByName) }
+  }
+  hasBodyArmor = bodyArmorRec != null
+  const hasShield = shieldRec != null
+  const udApplies = hasBarbarian || (hasMonk && !hasShield)
+  const udAbilityMod = hasBarbarian ? acConMod : acWisMod
+  const udAC = udApplies ? 10 + dexMod + udAbilityMod : null
 
-    if (equippedArmor.length > 0) {
-      const bodyPieces = equippedArmor.filter(
-        e => armorByName.get(e.name.toLowerCase())!.armor_type !== 'Shield',
-      )
-      const shields = equippedArmor.filter(
-        e => armorByName.get(e.name.toLowerCase())!.armor_type === 'Shield',
-      )
-      hasBodyArmor = bodyPieces.length > 0
-
-      let baseAC = 10 + dexMod
-      let canComputeAC = true
-
-      if (hasBodyArmor) {
-        // Resolve a variable-base armor to its chosen mundane base before parsing
-        const bodyArmor = resolveArmor(bodyPieces[0], armorByName.get(bodyPieces[0].name.toLowerCase())!, armorByName)
-        if (bodyArmor.stealth_disadvantage) hasStealthDisadvantage = true
-        // Still "Varies" (variable-base with no base chosen) → fall back to manual AC
-        if (bodyArmor.ac_formula.trim().toLowerCase().startsWith('varies')) {
-          canComputeAC = false
-        } else {
-          baseAC = parseArmorAC(bodyArmor.ac_formula, dexMod) + (bodyArmor.bonus ?? 0)
-        }
-      }
-
-      if (canComputeAC) {
-        let shieldBonus = 0
-        if (shields.length > 0) {
-          const shieldRec = resolveArmor(shields[0], armorByName.get(shields[0].name.toLowerCase())!, armorByName)
-          // Magic shields carry their flat bonus in `bonus` (e.g. "+2 Shield"),
-          // same as body armor above
-          shieldBonus = parseArmorAC(shieldRec.ac_formula, dexMod) + (shieldRec.bonus ?? 0)
-        }
-        effectiveAC = baseAC + shieldBonus
-      }
+  // 1. BASE — exactly one, mutually exclusive.
+  let baseEstablished = false
+  if (hasBodyArmor) {
+    if (bodyArmorRec!.stealth_disadvantage) hasStealthDisadvantage = true
+    // "Varies" (variable-base magic armor, no mundane base chosen) → leave base unset → manual fallback.
+    if (!bodyArmorRec!.ac_formula.trim().toLowerCase().startsWith('varies')) {
+      acSources.push({ id: `armor:${slugifyName(bodyArmorName)}:ac`, label: bodyArmorName, amount: parseArmorAC(bodyArmorRec!.ac_formula, dexMod), kind: 'item', removable: false })
+      const magic = bodyArmorRec!.bonus ?? 0
+      if (magic) acSources.push({ id: `armor:${slugifyName(bodyArmorName)}:ac-magic`, label: `${bodyArmorName} (enchantment)`, amount: magic, kind: 'item', removable: true })
+      baseEstablished = true
     }
+  } else if (itemEffects.unarmoredAcBase != null) {
+    // Item set-base (Robe of the Archmagi → 15 + DEX)
+    acSources.push({ id: 'item:unarmored-base:ac', label: 'Unarmored base (item)', amount: itemEffects.unarmoredAcBase, kind: 'item', removable: false })
+    acSources.push({ id: 'abilityMod:dex:ac', label: 'DEX modifier', amount: dexMod, kind: 'abilityMod', removable: false })
+    baseEstablished = true
+  } else if (naturalArmorAC != null || udAC != null) {
+    // Natural armor vs Unarmored Defense — pick the higher base (they don't stack).
+    const useNatural = naturalArmorAC != null && (udAC == null || naturalArmorAC >= udAC)
+    if (useNatural) {
+      acSources.push({ id: 'race:natural-armor:ac', label: 'Natural Armor', amount: naturalArmor!.base, kind: 'race', removable: true })
+      if (naturalArmor!.addDex) acSources.push({ id: 'abilityMod:dex:ac', label: naturalArmor!.maxDex < Infinity ? `DEX modifier (max ${naturalArmor!.maxDex})` : 'DEX modifier', amount: naturalArmorDex, kind: 'abilityMod', removable: false })
+    } else {
+      // Unarmored Defense — Barbarian 10+DEX+CON (shield allowed); Monk 10+DEX+WIS (no shield).
+      acSources.push({ id: 'base:unarmored:ac', label: 'Unarmored base', amount: 10, kind: 'base', removable: false })
+      acSources.push({ id: 'abilityMod:dex:ac', label: 'DEX modifier', amount: dexMod, kind: 'abilityMod', removable: false })
+      if (hasBarbarian) acSources.push({ id: 'feature:barbarian-unarmored-defense:ac', label: 'CON (Unarmored Defense)', amount: acConMod, kind: 'feature', removable: true })
+      else acSources.push({ id: 'feature:monk-unarmored-defense:ac', label: 'WIS (Unarmored Defense)', amount: acWisMod, kind: 'feature', removable: true })
+    }
+    baseEstablished = true
+  } else if (hasShield) {
+    // Unarmored but wielding a shield → plain 10 + DEX base (the shield is added below).
+    acSources.push({ id: 'base:unarmored:ac', label: 'Unarmored base', amount: 10, kind: 'base', removable: false })
+    acSources.push({ id: 'abilityMod:dex:ac', label: 'DEX modifier', amount: dexMod, kind: 'abilityMod', removable: false })
+    baseEstablished = true
   }
 
-  // Unarmored item AC (Robe of the Archmagi base, Bracers of Defense bonus) applies
-  // only when no body armor is worn — an app-knowable condition. A set-base replaces
-  // the unarmored base entirely (preserving any equipped shield); a conditional bonus
-  // stacks on the existing unarmored AC (manual armorClass fallback when uncomputed).
-  if (!hasBodyArmor) {
-    if (itemEffects.unarmoredAcBase != null) {
-      const shieldOnly = effectiveAC != null ? effectiveAC - (10 + dexMod) : 0
-      effectiveAC = itemEffects.unarmoredAcBase + dexMod + itemEffects.unarmoredAcBonus + shieldOnly
-    } else if (itemEffects.unarmoredAcBonus !== 0) {
-      effectiveAC = (effectiveAC ?? character.armorClass) + itemEffects.unarmoredAcBonus
-    }
+  // 2. Additive bonuses on top of whatever base applies.
+  const acAdditive: ModifierSource[] = []
+  if (hasShield) {
+    acAdditive.push({ id: `armor:${slugifyName(shieldName)}:ac`, label: shieldName, amount: parseArmorAC(shieldRec!.ac_formula, dexMod) + (shieldRec!.bonus ?? 0), kind: 'item', removable: true })
   }
-
-  // Flat AC from active items (Ring/Cloak of Protection) stacks on worn armor;
-  // with no computed armor it applies over the manual armorClass the sheet already
-  // uses as the unarmored fallback (preserves e.g. a caster's Mage Armor value).
+  if (!hasBodyArmor && itemEffects.unarmoredAcBonus !== 0) {
+    acAdditive.push({ id: 'item:unarmored-ac-bonus:ac', label: 'Unarmored AC (item)', amount: itemEffects.unarmoredAcBonus, kind: 'item', removable: true })
+  }
   if (itemEffects.acBonus !== 0) {
-    effectiveAC = (effectiveAC ?? character.armorClass) + itemEffects.acBonus
+    acAdditive.push({ id: 'item:ac-protection:ac', label: 'Protection (item)', amount: itemEffects.acBonus, kind: 'item', removable: true })
   }
+  if (featureFx.acAlways !== 0) acAdditive.push({ id: 'feature:ac-always:ac', label: 'Feature bonus', amount: featureFx.acAlways, kind: 'feature', removable: true })
+  if (featureFx.acArmored !== 0 && hasBodyArmor) acAdditive.push({ id: 'feature:defense-style:ac', label: 'Defense (fighting style)', amount: featureFx.acArmored, kind: 'feature', removable: true })
+  if (featureFx.acUnarmored !== 0 && !hasBodyArmor) acAdditive.push({ id: 'feature:ac-unarmored:ac', label: 'Feature bonus (unarmored)', amount: featureFx.acUnarmored, kind: 'feature', removable: true })
 
-  // Fighting-style AC: Defense (+1 while wearing armor) gates on body armor worn;
-  // an unarmored-conditioned bonus gates on no body armor; unconditional applies
-  // always. Mirrors the item-AC fallback to the manual armorClass.
-  if (featureFx.acAlways !== 0) {
-    effectiveAC = (effectiveAC ?? character.armorClass) + featureFx.acAlways
+  // 3. Resolve. The AC value is always itemized (so the breakdown/pencil works everywhere),
+  //    even when it falls back to the editable manual stepper (effectiveAC stays null then).
+  let effectiveAC: number | null = null
+  if (baseEstablished) {
+    acSources.push(...acAdditive)
+    effectiveAC = acSources.reduce((t, c) => t + c.amount, 0)
+  } else if (acAdditive.length > 0) {
+    // No computable base but there are bonuses → anchor on the manual armorClass
+    // (preserves a caster's manually-entered Mage Armor value).
+    acSources.push({ id: 'manual:base:ac', label: 'Manual AC', amount: character.armorClass, kind: 'manual', removable: false })
+    acSources.push(...acAdditive)
+    effectiveAC = acSources.reduce((t, c) => t + c.amount, 0)
+  } else {
+    // Pure manual AC (plain unarmored, or unresolved variable-base armor): keep the editable
+    // stepper, but still itemize the value so the pencil/breakdown is available.
+    acSources.push({ id: 'manual:base:ac', label: 'Manual AC', amount: character.armorClass, kind: 'manual', removable: false })
   }
-  if (featureFx.acArmored !== 0 && hasBodyArmor) {
-    effectiveAC = (effectiveAC ?? character.armorClass) + featureFx.acArmored
-  }
-  if (featureFx.acUnarmored !== 0 && !hasBodyArmor) {
-    effectiveAC = (effectiveAC ?? character.armorClass) + featureFx.acUnarmored
-  }
+  // INV: when AC is auto-computed, the itemized list reconstructs it exactly.
+  console.assert(effectiveAC === null || acSources.reduce((t, c) => t + c.amount, 0) === effectiveAC, '[ledger] AC breakdown ≠ effectiveAC')
+
+  // Proficiency bonus is a single derived value (by total level) — itemized for ledger parity.
+  const proficiencyBonusBreakdown: ModifierSource[] = [
+    { id: 'base:level:proficiencyBonus', label: `Level ${character.level}`, amount: pb, kind: 'base', removable: false },
+  ]
 
   // ── Adjusted Max HP ───────────────────────────────────────────────────────
+  const maxHpBreakdown: ModifierSource[] = [
+    { id: 'base:hp:maxHp', label: 'Base HP', amount: character.maxHp, kind: 'base', removable: false },
+  ]
   let hpBonus = 0
   for (const slug of character.feats) {
     const effect = FEAT_EFFECTS[slug]
-    if (effect?.maxHpBonus) hpBonus += effect.maxHpBonus(character.level)
+    if (effect?.maxHpBonus) {
+      const amount = effect.maxHpBonus(character.level)
+      hpBonus += amount
+      if (amount) maxHpBreakdown.push({ id: `feat:${slug}:maxHp`, label: featData?.[slug]?.name ?? slug, amount, kind: 'feat', removable: true })
+    }
   }
-  const subraceHpFn = character.subrace ? SUBRACE_HP_BONUS[character.subrace.toLowerCase()] : undefined
-  const subraceHpBonus = subraceHpFn ? subraceHpFn(character.level) : 0
+  for (const s of featMaxHpSources) {
+    hpBonus += s.amount
+    maxHpBreakdown.push({ id: `feat:${s.slug}:maxHp`, label: s.name, amount: s.amount, kind: 'feat', removable: true })
+  }
+  // Per-level racial HP (Dwarven Toughness, etc.) — data-driven from the subrace's
+  // hp_bonus_per_level (single source; the legacy SUBRACE_HP_BONUS map is retired).
+  const subraceHpBonus = raceEffects.hpPerLevel * character.level
+  if (subraceHpBonus) maxHpBreakdown.push({ id: `subrace:${slugifyName(character.subrace ?? 'subrace')}:maxHp`, label: `${character.subrace ?? 'Subrace'} (per level)`, amount: subraceHpBonus, kind: 'subrace', removable: true })
+  for (const s of itemEffects.maxHpSources) {
+    maxHpBreakdown.push({ id: `item:${slugifyName(s.name)}:maxHp`, label: s.name, amount: s.amount, kind: 'item', removable: true })
+  }
+  let featureHp = 0
+  for (const s of featureFx.maxHp) {
+    featureHp += s.amount
+    maxHpBreakdown.push({ id: `feature:${slugifyName(s.label)}:maxHp`, label: s.label, amount: s.amount, kind: 'feature', removable: true })
+  }
+  const adjustedMaxHp = character.maxHp + hpBonus + subraceHpBonus + itemEffects.maxHp + featureHp
+  console.assert(maxHpBreakdown.reduce((t, c) => t + c.amount, 0) === adjustedMaxHp, '[ledger] maxHp breakdown ≠ adjustedMaxHp')
 
   // ── Hit dice type ─────────────────────────────────────────────────────────
   const hitDiceType = classData ? parseInt(classData.hit_die.replace('d', ''), 10) : 8
 
-  // ── Weapon proficiencies (union across all classes) ──────────────────────
+  // ── Weapon / armor proficiencies (union: classes + racial + feature + feat grants) ──
   const weaponProficiencies = [
-    ...new Set(classRecords.flatMap(c => c.weapon_proficiencies.map(p => p.toLowerCase()))),
+    ...new Set([
+      ...classRecords.flatMap(c => c.weapon_proficiencies.map(p => p.toLowerCase())),
+      ...raceEffects.weaponProficiencies,
+      ...featureFx.weaponProf,
+      ...featWeaponProf,
+    ]),
   ]
+  const armorProficiencies = [
+    ...new Set([
+      ...classRecords.flatMap(c => c.armor_proficiencies.map(p => p.toLowerCase())),
+      ...raceEffects.armorProficiencies,
+      ...featureFx.armorProf,
+      ...featArmorProf,
+    ]),
+  ]
+
+  // ── Damage resistances / immunities (items + racial + always-on features + feats) ──
+  const resistances = [...new Set([...itemEffects.resistances, ...raceEffects.resistances, ...featureFx.resistances.map(r => r.damageType), ...featResistances])]
+  const immunities = [...new Set([...itemEffects.immunities, ...raceEffects.immunities, ...featureFx.immunities.map(r => r.damageType)])]
 
   // ── Advantages ────────────────────────────────────────────────────────────
   const advantages = getCharacterAdvantages(character)
 
   return {
     effectiveAC,
-    adjustedMaxHp: character.maxHp + hpBonus + subraceHpBonus + itemEffects.maxHp,
+    adjustedMaxHp,
     effectiveAbilities,
     effectiveSpeed,
     effectiveInitiative,
@@ -970,12 +1386,29 @@ export function deriveCharacterStats(
     advantages,
     effectiveSkillProficiencies,
     featSkillGrants,
+    raceSkillGrants,
     weaponProficiencies,
+    armorProficiencies,
+    raceToolGrants: [...new Set([...raceEffects.toolProficiencies, ...featureFx.toolProf, ...featToolProf])],
+    raceGrantedLanguages: [...new Set([...raceEffects.languages, ...featLanguages])],
+    senses: raceEffects.senses,
     itemDamageBonus: itemEffects.damage,
     unarmedStrike: itemEffects.unarmed,
     itemGrantedLanguages: itemEffects.languages,
-    resistances: itemEffects.resistances,
-    immunities: itemEffects.immunities,
+    resistances,
+    immunities,
     featureWeaponEffects: featureFx.weaponEffects,
+    breakdowns: {
+      speed: speedBreakdown,
+      initiative: initiativeBreakdown,
+      ac: acSources,
+      proficiencyBonus: proficiencyBonusBreakdown,
+      abilities: abilityBreakdowns,
+      saves: saveBreakdowns,
+      skills: skillBreakdowns,
+      maxHp: maxHpBreakdown,
+      spellAttack: spellAttackBreakdown,
+      spellSaveDC: spellSaveDCBreakdown,
+    },
   }
 }

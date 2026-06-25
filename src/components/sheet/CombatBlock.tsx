@@ -6,6 +6,7 @@ import { abilityModifier } from '@/lib/dice'
 import { StepperField } from './StepperField'
 import { ValueAdjustModal } from './ValueAdjustModal'
 import { RollButton } from '@/components/sheet/RollButton'
+import { StatBreakdown } from './StatBreakdown'
 import type { Character, NewCharacter } from '@/types/character'
 import type { DieType } from '@/types/dice'
 import type { DerivedStats } from '@/lib/characterStats'
@@ -47,16 +48,20 @@ function HpSection({
   character,
   adjustedMaxHp,
   onSave,
+  onOpenBreakdown,
 }: {
   character: Character
   adjustedMaxHp: number
   onSave: (changes: Partial<NewCharacter>) => void
+  onOpenBreakdown: () => void
 }) {
   const { currentHp, maxHp, tempHp } = character
   const [adjustOpen, setAdjustOpen] = useState(false)
 
   function changeHp(delta: number) {
-    const newHp = Math.min(adjustedMaxHp, Math.max(-99, currentHp + delta))
+    // Current HP floors at 0 — a creature drops to 0 and rolls death saves; this sheet
+    // doesn't model the massive-damage instant-death check, so no negatives (BUG-66).
+    const newHp = Math.min(adjustedMaxHp, Math.max(0, currentHp + delta))
     const changes: Partial<NewCharacter> = { currentHp: newHp }
     // RAW: regaining any hit points resets both death-save counters
     if (
@@ -119,8 +124,15 @@ function HpSection({
         </div>
 
         <div className="flex flex-col items-center gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Max HP
+            <button
+              onClick={onOpenBreakdown}
+              title="What's affecting Max HP?"
+              className="hover:text-foreground transition-colors"
+            >
+              <Pencil className="h-2.5 w-2.5" />
+            </button>
           </span>
           <StepperField
             value={adjustedMaxHp}
@@ -183,8 +195,10 @@ function DeathSaves({
     const next = current > i ? i : i + 1
 
     if (type === 'successes' && next >= 3) {
-      // Show 3 filled briefly, then reset
-      onSave({ deathSaves: { successes: 3, failures } })
+      // Show 3 filled briefly, then reset. House rule (BUG-67): the 3rd success also
+      // brings the character up to 1 HP at the moment "Stabilized" shows — deviates from
+      // RAW (stabilizing leaves you unconscious at 0); intentional per the user.
+      onSave({ deathSaves: { successes: 3, failures }, currentHp: Math.max(1, currentHp) })
       setShowStabilized(true)
       setTimeout(() => {
         onSave({ deathSaves: { successes: 0, failures: 0 } })
@@ -259,6 +273,7 @@ function DeathSaves({
 }
 
 export function CombatBlock({ character, onSave, derived, classHitDice }: Props) {
+  const [openBreakdown, setOpenBreakdown] = useState<null | 'speed' | 'initiative' | 'ac' | 'proficiencyBonus' | 'maxHp'>(null)
   const hitDie = derived.hitDiceType
   const { dispatch } = useRollDispatch(derived)
   const totalHitDice = character.level
@@ -293,20 +308,35 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
       <div className="flex gap-2 flex-wrap">
         <StatCard label="AC">
           {effectiveAC !== null ? (
-            <div className="flex flex-col items-center gap-0.5">
+            <div className="flex items-center gap-1">
               <span className="text-lg font-bold" style={{ color: 'var(--color-accent-gold)' }}>
                 {effectiveAC}
               </span>
-              <span className="text-[9px] text-muted-foreground">from armor</span>
+              <button
+                onClick={() => setOpenBreakdown('ac')}
+                title="What's affecting AC?"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
             </div>
           ) : (
-            <StepperField
-              value={character.armorClass}
-              onSave={v => onSave({ armorClass: Math.max(1, v) })}
-              min={1}
-              max={30}
-              size="sm"
-            />
+            <div className="flex items-center gap-1">
+              <StepperField
+                value={character.armorClass}
+                onSave={v => onSave({ armorClass: Math.max(1, v) })}
+                min={1}
+                max={30}
+                size="sm"
+              />
+              <button
+                onClick={() => setOpenBreakdown('ac')}
+                title="What's affecting AC?"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
           )}
         </StatCard>
         <StatCard label="Speed">
@@ -324,6 +354,13 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
                 size="sm"
               />
               <span className="text-xs text-muted-foreground ml-1">ft</span>
+              <button
+                onClick={() => setOpenBreakdown('speed')}
+                title="What's affecting Speed?"
+                className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
             </div>
             {derived.effectiveSpeed !== character.speed && (
               <span className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>
@@ -332,11 +369,32 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
             )}
           </div>
         </StatCard>
-        <StatCard
-          label="Initiative"
-          value={derived.effectiveInitiative >= 0 ? `+${derived.effectiveInitiative}` : `${derived.effectiveInitiative}`}
-        />
-        <StatCard label="Prof Bonus" value={`+${derived.proficiencyBonus}`} />
+        <StatCard label="Initiative">
+          <div className="flex items-center gap-1">
+            <span className="text-lg font-bold">
+              {derived.effectiveInitiative >= 0 ? `+${derived.effectiveInitiative}` : `${derived.effectiveInitiative}`}
+            </span>
+            <button
+              onClick={() => setOpenBreakdown('initiative')}
+              title="What's affecting Initiative?"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          </div>
+        </StatCard>
+        <StatCard label="Prof Bonus">
+          <div className="flex items-center gap-1">
+            <span className="text-lg font-bold">+{derived.proficiencyBonus}</span>
+            <button
+              onClick={() => setOpenBreakdown('proficiencyBonus')}
+              title="What's affecting Proficiency Bonus?"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          </div>
+        </StatCard>
       </div>
 
       {/* Defenses — damage resistances / immunities from active items (read-only) */}
@@ -375,7 +433,12 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
       )}
 
       {/* HP */}
-      <HpSection character={character} adjustedMaxHp={adjustedMaxHp} onSave={onSave} />
+      <HpSection
+        character={character}
+        adjustedMaxHp={adjustedMaxHp}
+        onSave={onSave}
+        onOpenBreakdown={() => setOpenBreakdown('maxHp')}
+      />
 
       {/* Death saves — directly below HP */}
       <DeathSaves
@@ -451,6 +514,40 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
           />
         </div>
       </div>
+      <StatBreakdown
+        open={openBreakdown === 'speed'}
+        onClose={() => setOpenBreakdown(null)}
+        title="Speed"
+        unit="ft"
+        sources={derived.breakdowns.speed}
+      />
+      <StatBreakdown
+        open={openBreakdown === 'initiative'}
+        onClose={() => setOpenBreakdown(null)}
+        title="Initiative"
+        signed
+        sources={derived.breakdowns.initiative}
+      />
+      <StatBreakdown
+        open={openBreakdown === 'ac'}
+        onClose={() => setOpenBreakdown(null)}
+        title="Armor Class"
+        sources={derived.breakdowns.ac}
+      />
+      <StatBreakdown
+        open={openBreakdown === 'proficiencyBonus'}
+        onClose={() => setOpenBreakdown(null)}
+        title="Proficiency Bonus"
+        signed
+        sources={derived.breakdowns.proficiencyBonus}
+      />
+      <StatBreakdown
+        open={openBreakdown === 'maxHp'}
+        onClose={() => setOpenBreakdown(null)}
+        title="Max HP"
+        unit="HP"
+        sources={derived.breakdowns.maxHp}
+      />
     </section>
   )
 }
