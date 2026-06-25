@@ -44,3 +44,11 @@ mobile-shots/
 
 # Sync-verification screenshot artifacts (scripts/verify-sync.mjs)
 verify-shots/
+
+ARCHITECTURE.md
+BACKLOG.md
+bugs.md
+CLOUD_SYNC.md
+
+# Stray spell→class data artifact (not part of the build pipeline)
+_spells_classes.json
