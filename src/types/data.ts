@@ -19,6 +19,11 @@ export type ItemEffect =
   | { type: 'ability_bonus'; ability: AbilityName; amount: number } // additive ability bump
   | { type: 'skill'; skill: SkillName; amount: number }             // flat skill bonus
   | { type: 'speed'; amount: number }
+  // Non-additive speed (5a). `speed_set` is a FLOOR: walking speed becomes `value`
+  // unless already higher (Boots of Striding → 30). `speed_multiplier` multiplies the
+  // post-floor speed (Boots of Speed / Haste → 2). Applied after the additive sum.
+  | { type: 'speed_set'; value: number }
+  | { type: 'speed_multiplier'; factor: number }
   | { type: 'initiative'; amount: number }
   | { type: 'damage'; amount: number }                              // flat bonus to weapon & unarmed damage
   // Rider damage dice of another type on the weapon that carries it (Flame Tongue →
@@ -383,6 +388,9 @@ export type FeatureEffect =
   | { type: 'resistance'; damageType: string }
   | { type: 'immunity'; damageType: string }
   | { type: 'speed'; amount: number }
+  // Non-additive speed (5a) — floor (set-if-higher) and multiplier, same semantics as ItemEffect.
+  | { type: 'speed_set'; value: number }
+  | { type: 'speed_multiplier'; factor: number }
   | { type: 'max_hp'; amount?: number; perLevel?: number }
   | { type: 'skill_proficiency'; skill: SkillName }
   | { type: 'weapon_proficiency'; weapons: string[] }

@@ -571,6 +571,8 @@ interface ActiveItemEffects {
   skillBonusSources: { name: string; skill: SkillName; amount: number }[]
   speed: number
   speedSources: { name: string; amount: number }[]
+  speedSet: { name: string; value: number }[]      // floor: set speed to value if higher (Boots of Striding)
+  speedMult: { name: string; factor: number }[]    // multiply post-floor speed (Boots of Speed / Haste)
   initiative: number
   initiativeSources: { name: string; amount: number }[]
   damage: number
@@ -594,7 +596,7 @@ function computeActiveItemEffects(
     acBonus: 0, unarmoredAcBonus: 0, unarmoredAcBase: null,
     saveBonuses: {}, saveBonusSources: [], abilitySets: {}, abilityBonuses: {},
     abilityBonusSources: [], abilitySetSources: [],
-    skillBonuses: {}, skillBonusSources: [], speed: 0, speedSources: [], initiative: 0, initiativeSources: [],
+    skillBonuses: {}, skillBonusSources: [], speed: 0, speedSources: [], speedSet: [], speedMult: [], initiative: 0, initiativeSources: [],
     damage: 0, maxHp: 0, maxHpSources: [],
     resistances: [], immunities: [], spellAttack: 0, spellAttackSources: [], spellSaveDC: 0, spellSaveDCSources: [],
     languages: [], unarmed: { attackBonus: 0, damageBonus: 0 },
@@ -667,6 +669,12 @@ function computeActiveItemEffects(
           acc.speed += e.amount
           acc.speedSources.push({ name: item.name, amount: e.amount })
           break
+        case 'speed_set':
+          acc.speedSet.push({ name: item.name, value: e.value })
+          break
+        case 'speed_multiplier':
+          acc.speedMult.push({ name: item.name, factor: e.factor })
+          break
         case 'initiative':
           acc.initiative += e.amount
           acc.initiativeSources.push({ name: item.name, amount: e.amount })
@@ -724,6 +732,8 @@ export function summarizeItemEffects(effects: ItemEffect[] | undefined): string 
       case 'ability_bonus':parts.push(`${formatBonus(e.amount)} ${ABILITY_ABBR[e.ability]}`); break
       case 'skill':        parts.push(`${formatBonus(e.amount)} ${SKILL_DISPLAY_MAP[e.skill]}`); break
       case 'speed':        parts.push(`${formatBonus(e.amount)} ft speed`); break
+      case 'speed_set':    parts.push(`speed ${e.value} ft (min)`); break
+      case 'speed_multiplier': parts.push(`×${e.factor} speed`); break
       case 'initiative':   parts.push(`${formatBonus(e.amount)} initiative`); break
       case 'damage':       parts.push(`${formatBonus(e.amount)} damage`); break
       case 'damage_dice':  parts.push(`+${e.dice} ${e.damageType}`); break
@@ -757,6 +767,8 @@ interface FeatureEffectAccum {
   resistances: { label: string; damageType: string }[]
   immunities: { label: string; damageType: string }[]
   speed: { label: string; amount: number }[]
+  speedSet: { label: string; value: number }[]    // floor: set speed to value if higher
+  speedMult: { label: string; factor: number }[]  // multiply post-floor speed
   maxHp: { label: string; amount: number }[]
   skillProf: { label: string; skill: SkillName }[]
   weaponProf: string[]
@@ -769,7 +781,7 @@ function newFeatureAccum(): FeatureEffectAccum {
   return {
     acAlways: 0, acArmored: 0, acUnarmored: 0, weaponEffects: [],
     saveProf: [], saveBonus: [], derivedSave: [], resistances: [], immunities: [],
-    speed: [], maxHp: [], skillProf: [], weaponProf: [], armorProf: [], toolProf: [], advDis: [],
+    speed: [], speedSet: [], speedMult: [], maxHp: [], skillProf: [], weaponProf: [], armorProf: [], toolProf: [], advDis: [],
   }
 }
 
@@ -789,6 +801,8 @@ function applyFeatureEffect(e: FeatureEffect, label: string, acc: FeatureEffectA
     case 'resistance': acc.resistances.push({ label, damageType: e.damageType.toLowerCase() }); break
     case 'immunity': acc.immunities.push({ label, damageType: e.damageType.toLowerCase() }); break
     case 'speed': acc.speed.push({ label, amount: e.amount }); break
+    case 'speed_set': acc.speedSet.push({ label, value: e.value }); break
+    case 'speed_multiplier': acc.speedMult.push({ label, factor: e.factor }); break
     case 'max_hp': { const hp = (e.amount ?? 0) + (e.perLevel ?? 0) * level; if (hp) acc.maxHp.push({ label, amount: hp }); break }
     case 'skill_proficiency': acc.skillProf.push({ label, skill: e.skill }); break
     case 'weapon_proficiency': for (const w of e.weapons) acc.weaponProf.push(w.toLowerCase()); break
@@ -1111,13 +1125,38 @@ export function deriveCharacterStats(
   const dexMod = abilityModifier(effectiveAbilities.dex)
   const featureSpeed = featureFx.speed.reduce((t, s) => t + s.amount, 0)
   const additiveSpeed = character.speed + featSpeedBonus + itemEffects.speed + featureSpeed
-  // Condition speed (Grappled/Restrained → 0; Prone/Exhaustion 2+ → half) applies as
-  // a realized delta so the breakdown still sums to the effective value.
-  let effectiveSpeed = additiveSpeed
+  // 5a — non-additive speed semantics, applied in RAW order AFTER the additive sum:
+  // floor/set (max) → multiplier → condition (half/zero). Each non-additive step lands
+  // as a realized-delta row so speedBreakdown still sums to effectiveSpeed.
+  const speedFloors = [
+    ...itemEffects.speedSet.map(s => ({ id: `item:${slugifyName(s.name)}:speed-set`, label: `${s.name} (item)`, value: s.value, kind: 'item' as const })),
+    ...featureFx.speedSet.map(s => ({ id: `feature:${slugifyName(s.label)}:speed-set`, label: `${s.label} (feature)`, value: s.value, kind: 'feature' as const })),
+  ]
+  const speedMults = [
+    ...itemEffects.speedMult.map(s => ({ id: `item:${slugifyName(s.name)}:speed-mult`, label: `${s.name} (item)`, factor: s.factor, kind: 'item' as const })),
+    ...featureFx.speedMult.map(s => ({ id: `feature:${slugifyName(s.label)}:speed-mult`, label: `${s.label} (feature)`, factor: s.factor, kind: 'feature' as const })),
+  ]
+  let runningSpeed = additiveSpeed
+  const speedExtraRows: ModifierSource[] = []
+  // Floor/set: only the single highest floor that exceeds current speed has any effect.
+  const winningFloor = speedFloors.filter(f => f.value > runningSpeed).sort((a, b) => b.value - a.value)[0]
+  if (winningFloor) {
+    speedExtraRows.push({ id: winningFloor.id, label: `${winningFloor.label} — speed ≥ ${winningFloor.value}`, amount: winningFloor.value - runningSpeed, kind: winningFloor.kind, removable: true })
+    runningSpeed = winningFloor.value
+  }
+  // Multipliers compound; each lands its own incremental delta (RAW floors fractional feet).
+  for (const m of speedMults) {
+    const after = Math.floor(runningSpeed * m.factor)
+    if (after !== runningSpeed) speedExtraRows.push({ id: m.id, label: `${m.label} — ×${m.factor} speed`, amount: after - runningSpeed, kind: m.kind, removable: true })
+    runningSpeed = after
+  }
+  // Condition speed (Grappled/Restrained → 0; Prone/Exhaustion 2+ → half) applies LAST,
+  // as a realized delta off the post-multiplier speed.
+  let effectiveSpeed = runningSpeed
   let conditionSpeedDelta = 0
   if (conditionEffects.speed) {
-    effectiveSpeed = conditionEffects.speed.mode === 'zero' ? 0 : Math.floor(additiveSpeed / 2)
-    conditionSpeedDelta = effectiveSpeed - additiveSpeed
+    effectiveSpeed = conditionEffects.speed.mode === 'zero' ? 0 : Math.floor(runningSpeed / 2)
+    conditionSpeedDelta = effectiveSpeed - runningSpeed
   }
   const effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus + itemEffects.initiative
   const effectiveInitiative = dexMod + effectiveInitiativeBonus
@@ -1130,6 +1169,7 @@ export function deriveCharacterStats(
     ...featSpeedSources.map(s => ({ id: `feat:${s.slug}:speed`, label: `${s.name} (feat)`, amount: s.amount, kind: 'feat' as const, removable: true })),
     ...itemEffects.speedSources.map(s => ({ id: `item:${slugifyName(s.name)}:speed`, label: `${s.name} (item)`, amount: s.amount, kind: 'item' as const, removable: true })),
     ...featureFx.speed.map(s => ({ id: `feature:${slugifyName(s.label)}:speed`, label: `${s.label} (feature)`, amount: s.amount, kind: 'feature' as const, removable: true })),
+    ...speedExtraRows,
     ...(conditionSpeedDelta !== 0 ? [{ id: 'condition:speed:speed', label: `${conditionEffects.speed!.label} (${conditionEffects.speed!.mode === 'zero' ? 'speed 0' : 'speed halved'})`, amount: conditionSpeedDelta, kind: 'condition' as const, removable: true }] : []),
   ]
   const initiativeBreakdown: ModifierSource[] = [

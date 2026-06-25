@@ -41,6 +41,12 @@ function validateEffects(item, label) {
       case 'speed': case 'initiative': case 'damage': case 'spell_attack': case 'spell_save_dc':
         if (!isNum(e.amount)) errors.push(`${at} (${e.type}): "amount" must be a number`)
         break
+      case 'speed_set':
+        if (!isNum(e.value)) errors.push(`${at} (speed_set): "value" must be a number`)
+        break
+      case 'speed_multiplier':
+        if (!isNum(e.factor)) errors.push(`${at} (speed_multiplier): "factor" must be a number`)
+        break
       case 'ac':
         if (!isNum(e.amount)) errors.push(`${at} (ac): "amount" must be a number`)
         if (e.condition !== undefined && e.condition !== 'unarmored') errors.push(`${at} (ac): invalid condition "${e.condition}"`)
@@ -191,6 +197,12 @@ function validateFeatureEffects(effects, label) {
         break
       case 'speed':
         if (!isNum(e.amount)) errors.push(`${at} (speed): "amount" must be a number`)
+        break
+      case 'speed_set':
+        if (!isNum(e.value)) errors.push(`${at} (speed_set): "value" must be a number`)
+        break
+      case 'speed_multiplier':
+        if (!isNum(e.factor)) errors.push(`${at} (speed_multiplier): "factor" must be a number`)
         break
       case 'max_hp':
         if (e.amount === undefined && e.perLevel === undefined) errors.push(`${at} (max_hp): needs "amount" or "perLevel"`)

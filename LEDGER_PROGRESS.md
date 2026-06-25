@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **199 pass**. ⚠ Plain `npx vitest run` intermittently
+- **Tests:** `npx vitest run --no-file-parallelism` → **203 pass** (199 + 4 from 5a speed floor/multiplier). ⚠ Plain `npx vitest run` intermittently
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v20** (`conditions`). Next is **v21**.
@@ -273,6 +273,17 @@ Full per-block source lists + the 89 system-gaps are in `MODIFIER_SOURCE_MATRIX.
 **NOT STARTED.** Build in this order; branch is `feat/modifier-ledger-p1` (continue on it), `main` gated,
 show the user a plan before each sub-step, keep INV-1 + the realized-delta + console.assert patterns.
 
+**5a — Speed semantics — ✅ DONE.** Shipped `speed_set {value}` (floor: set-if-higher) + `speed_multiplier
+{factor}` on both `ItemEffect` and `FeatureEffect` (collapsed the redundant `speed_floor` alias into
+`speed_set` — one behavior, one name). Collected in `computeActiveItemEffects.speedSet/speedMult` +
+`FeatureEffectAccum.speedSet/speedMult`; applied in `deriveCharacterStats` in RAW order additive → floor (max)
+→ multiplier (compounded, `Math.floor`) → condition, each a realized-delta row in `speedBreakdown` (still
+`console.assert`-sums). Build validators added in both `validateEffects` + `validateFeatureEffects`. Demo:
+Boots of Striding and Springing (`speed_set:30`) authored in `data/equipment/wondrous_items.json`. 4 new
+tests in `characterStats.test.ts` (floor / no-op-when-higher / ×2 multiplier / RAW order w/ exhaustion).
+No migration, no new ModifierKind (rows reuse `item`/`feature`).
+
+_Original plan:_
 **5a — Speed semantics (clean, do first).** Add to `ItemEffect` + `FeatureEffect`:
 `speed_set {value}` (Boots of Striding → 30, a floor: `max`), `speed_floor {value}` (same as set-if-lower),
 `speed_multiplier {factor}` (Haste/Boots of Speed → 2). Collect them in `computeActiveItemEffects` /

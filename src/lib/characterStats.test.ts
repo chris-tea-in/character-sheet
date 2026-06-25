@@ -247,6 +247,60 @@ describe('deriveCharacterStats — conditions', () => {
   })
 })
 
+// ── Step 5a: non-additive speed semantics (floor / multiplier) ───────────────
+describe('deriveCharacterStats — speed floor & multiplier (5a)', () => {
+  const sumSpeed = (d: ReturnType<typeof deriveCharacterStats>) => d.breakdowns.speed.reduce((t, s) => t + s.amount, 0)
+  const stridingBoots: WondrousItem = {
+    name: 'Boots of Striding and Springing', category: 'wondrous_item', rarity: 'Uncommon', attunement: true,
+    effects: [{ type: 'speed_set', value: 30 }],
+  }
+  const speedBoots: WondrousItem = {
+    name: 'Boots of Speed', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+    effects: [{ type: 'speed_multiplier', factor: 2 }],
+  }
+
+  it('speed_set floors a slower speed up to its value; breakdown sums', () => {
+    const d = deriveCharacterStats(charWith({
+      speed: 25,
+      equipment: [{ id: 'b', name: 'Boots of Striding and Springing', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [stridingBoots] } })
+    expect(d.effectiveSpeed).toBe(30)
+    expect(sumSpeed(d)).toBe(30)
+    expect(d.breakdowns.speed.some(s => /speed ≥ 30/.test(s.label))).toBe(true)
+  })
+
+  it('speed_set is a no-op when base speed already exceeds it', () => {
+    const d = deriveCharacterStats(charWith({
+      speed: 35,
+      equipment: [{ id: 'b', name: 'Boots of Striding and Springing', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [stridingBoots] } })
+    expect(d.effectiveSpeed).toBe(35)
+    expect(d.breakdowns.speed.some(s => /speed ≥/.test(s.label))).toBe(false)
+  })
+
+  it('speed_multiplier doubles the post-floor speed; breakdown still sums', () => {
+    const d = deriveCharacterStats(charWith({
+      speed: 30,
+      equipment: [{ id: 's', name: 'Boots of Speed', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [speedBoots] } })
+    expect(d.effectiveSpeed).toBe(60)
+    expect(sumSpeed(d)).toBe(60)
+  })
+
+  it('RAW order floor → multiplier → condition: 25 →30 →60 →halved =30', () => {
+    const d = deriveCharacterStats(charWith({
+      speed: 25,
+      conditions: { active: [], exhaustion: 2 },
+      equipment: [
+        { id: 'b', name: 'Boots of Striding and Springing', quantity: 1, attuned: true },
+        { id: 's', name: 'Boots of Speed', quantity: 1, attuned: true },
+      ],
+    }), { catalog: { wondrous_items: [stridingBoots, speedBoots] } })
+    expect(d.effectiveSpeed).toBe(30)
+    expect(sumSpeed(d)).toBe(30)
+  })
+})
+
 // ── Step 4a: advantage / disadvantage netting ────────────────────────────────
 describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
   it('stealth-disadvantage armor sets Stealth to disadvantage', () => {
