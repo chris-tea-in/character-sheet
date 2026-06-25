@@ -213,7 +213,15 @@ export function FeatsBlock({ character, derived, onSave }: Props) {
       }
     }
 
-    onSave({ feats: [...character.feats, key], featChoices: newFeatChoices })
+    // A feat that raises max HP (Tough) should raise current HP by the same amount,
+    // so a full-HP character isn't silently left below max (BUG-57). Only ever raise.
+    const newFeats = [...character.feats, key]
+    const hpDelta = computeFeatHpBonus(newFeats, character.level) - computeFeatHpBonus(character.feats, character.level)
+    onSave({
+      feats: newFeats,
+      featChoices: newFeatChoices,
+      ...(hpDelta > 0 ? { currentHp: character.currentHp + hpDelta } : {}),
+    })
     setPendingFeatSlug(null)
     setPendingPhase(null)
     setPendingChoices({})

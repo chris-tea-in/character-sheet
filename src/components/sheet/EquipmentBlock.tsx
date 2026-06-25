@@ -230,15 +230,17 @@ function UnarmedRow({ derived }: { derived: DerivedStats }) {
 
   return (
     <div className="border-b border-border last:border-0">
-      <div className="flex items-center gap-2 py-2">
-        <span className="flex-1 text-left text-sm font-medium truncate min-w-0">
-          Unarmed Strike
-        </span>
-        <div className="flex items-center gap-2 text-xs flex-none">
-          <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
-            {toHit}
+      <div className="flex items-start gap-2 py-2">
+        <div className="flex-1 min-w-0">
+          <span className="block text-left text-sm font-medium">
+            Unarmed Strike
           </span>
-          <span className="text-muted-foreground">{damageDisplay}</span>
+          <div className="flex items-center gap-2 text-xs mt-0.5">
+            <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+              {toHit}
+            </span>
+            <span className="text-muted-foreground">{damageDisplay}</span>
+          </div>
         </div>
         <div className="flex items-center gap-1 flex-none">
           <RollButton
@@ -318,22 +320,25 @@ function WeaponRow({
 
   return (
     <div className="border-b border-border last:border-0">
-      <div className="flex items-center gap-2 py-2">
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="flex-1 text-left text-sm font-medium hover:opacity-75 transition-opacity truncate min-w-0"
-        >
-          {item.name}
-          {item.quantity > 1 && (
-            <span className="text-xs text-muted-foreground ml-1.5">×{item.quantity}</span>
-          )}
-        </button>
-        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
-        <div className="flex items-center gap-2 text-xs flex-none">
-          <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
-            {displayToHit}
-          </span>
-          <span className="text-muted-foreground">{displayDamage}</span>
+      <div className="flex items-start gap-2 py-2">
+        <div className="flex-1 min-w-0">
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-left text-sm font-medium hover:opacity-75 transition-opacity w-full block"
+          >
+            {item.name}
+            {item.quantity > 1 && (
+              <span className="text-xs text-muted-foreground ml-1.5">×{item.quantity}</span>
+            )}
+          </button>
+          {/* Proficiency/to-hit + damage on their own line so the name gets full width (BUG-55/65) */}
+          <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs mt-0.5">
+            <ActiveTag requiresAttunement={requiresAttunement} active={active} />
+            <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+              {displayToHit}
+            </span>
+            <span className="text-muted-foreground">{displayDamage}</span>
+          </div>
         </div>
         <div className="flex items-center gap-1 flex-none">
           <RollButton
@@ -458,22 +463,25 @@ function ArmorRow({
 
   return (
     <div className="border-b border-border last:border-0">
-      <div className="flex items-center gap-2 py-2">
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="flex-1 text-left text-sm font-medium hover:opacity-75 transition-opacity truncate min-w-0"
-        >
-          {item.name}
-        </button>
-        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
-        <div className="flex items-center gap-3 text-xs flex-none">
-          <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
-            AC {armor.ac_formula}
-          </span>
-          <span className="text-muted-foreground">{armor.armor_type}</span>
-          {armor.stealth_disadvantage && (
-            <span className="text-muted-foreground hidden sm:block">Stealth disadv.</span>
-          )}
+      <div className="flex items-start gap-2 py-2">
+        <div className="flex-1 min-w-0">
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-left text-sm font-medium hover:opacity-75 transition-opacity w-full block"
+          >
+            {item.name}
+          </button>
+          {/* AC / type / stealth on their own line so the name gets full width (BUG-55/65) */}
+          <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5 text-xs mt-0.5">
+            <ActiveTag requiresAttunement={requiresAttunement} active={active} />
+            <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+              AC {armor.ac_formula}
+            </span>
+            <span className="text-muted-foreground">{armor.armor_type}</span>
+            {armor.stealth_disadvantage && (
+              <span className="text-muted-foreground">Stealth disadv.</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -638,23 +646,26 @@ function MagicItemRow({
 
   return (
     <div className="border-b border-border last:border-0">
-      <div className="flex items-center gap-2 py-2">
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="flex-1 text-left text-sm font-medium hover:opacity-75 transition-opacity truncate min-w-0"
-        >
-          {item.name}
-        </button>
-        {containerButton}
-        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
-        <div className="flex items-center gap-2 text-xs flex-none">
-          <span className="font-semibold" style={{ color: rarityColor }}>
-            {wondrousItem.rarity}
-          </span>
-          {wondrousItem.attunement && (
-            <span className="text-muted-foreground">(Attune)</span>
-          )}
+      <div className="flex items-start gap-2 py-2">
+        <div className="flex-1 min-w-0">
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-left text-sm font-medium hover:opacity-75 transition-opacity w-full block"
+          >
+            {item.name}
+          </button>
+          {/* Rarity / attune on their own line so the name gets full width (BUG-55/65) */}
+          <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs mt-0.5">
+            <ActiveTag requiresAttunement={requiresAttunement} active={active} />
+            <span className="font-semibold" style={{ color: rarityColor }}>
+              {wondrousItem.rarity}
+            </span>
+            {wondrousItem.attunement && (
+              <span className="text-muted-foreground">(Attune)</span>
+            )}
+          </div>
         </div>
+        {containerButton}
       </div>
 
       {expanded && (
@@ -713,29 +724,32 @@ function MagicArmorRow({
 
   return (
     <div className="border-b border-border last:border-0">
-      <div className="flex items-center gap-2 py-2">
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="flex-1 text-left text-sm font-medium hover:opacity-75 transition-opacity truncate min-w-0"
-        >
-          {item.name}
-        </button>
-        <ActiveTag requiresAttunement={requiresAttunement} active={active} />
-        <div className="flex items-center gap-2 text-xs flex-none">
-          {!acUnresolved && (
-            <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
-              AC {armor.ac_formula}
+      <div className="flex items-start gap-2 py-2">
+        <div className="flex-1 min-w-0">
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-left text-sm font-medium hover:opacity-75 transition-opacity w-full block"
+          >
+            {item.name}
+          </button>
+          {/* AC / rarity / bonus / attune on their own line so the name gets full width (BUG-55/65) */}
+          <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs mt-0.5">
+            <ActiveTag requiresAttunement={requiresAttunement} active={active} />
+            {!acUnresolved && (
+              <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+                AC {armor.ac_formula}
+              </span>
+            )}
+            <span className="font-semibold" style={{ color: rarityColor }}>
+              {armor.rarity}
             </span>
-          )}
-          <span className="font-semibold" style={{ color: rarityColor }}>
-            {armor.rarity}
-          </span>
-          {armor.bonus != null && (
-            <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>+{armor.bonus}</span>
-          )}
-          {armor.attunement && (
-            <span className="text-muted-foreground">(Attune)</span>
-          )}
+            {armor.bonus != null && (
+              <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>+{armor.bonus}</span>
+            )}
+            {armor.attunement && (
+              <span className="text-muted-foreground">(Attune)</span>
+            )}
+          </div>
         </div>
       </div>
       {expanded && (

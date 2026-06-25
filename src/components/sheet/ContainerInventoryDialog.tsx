@@ -6,6 +6,7 @@ import {
 } from '@/components/ui/dialog'
 import { StepperField } from './StepperField'
 import { EditableField } from './EditableField'
+import { ValueAdjustModal } from './ValueAdjustModal'
 import { generateId } from '@/lib/uuid'
 import {
   isContainerName, isCoinContainer, COIN_FIELDS, totalCoins,
@@ -46,12 +47,15 @@ export function ContainerInventoryDialog({
   // Move-coins helper.
   const [coinKey, setCoinKey] = useState<keyof Currency>('gp')
   const [coinAmt, setCoinAmt] = useState('')
+  // Per-denomination +/- adjust on the bag's own pile (BUG-69), matching the main
+  // Currency block's ValueAdjustModal affordance.
+  const [coinAdjust, setCoinAdjust] = useState<keyof Currency | null>(null)
 
   useEffect(() => {
     if (open) {
       setMode('main'); setSelected(new Set())
       setCName(''); setCQty(1); setCDamage(''); setCDesc('')
-      setCoinKey('gp'); setCoinAmt('')
+      setCoinKey('gp'); setCoinAmt(''); setCoinAdjust(null)
     }
   }, [open, container?.id])
 
@@ -217,6 +221,13 @@ export function ContainerInventoryDialog({
                           className="text-sm font-bold tabular-nums min-w-[2ch] text-center"
                           inputClassName="text-sm font-bold tabular-nums w-12 text-center"
                         />
+                        <button
+                          onClick={() => setCoinAdjust(key)}
+                          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                          title={`Add or subtract ${label} in the bag`}
+                        >
+                          +/−
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -251,6 +262,15 @@ export function ContainerInventoryDialog({
                       You carry {character.currency[coinKey]} {coinKey.toUpperCase()}
                     </span>
                   </div>
+
+                  <ValueAdjustModal
+                    open={coinAdjust !== null}
+                    label={coinAdjust ? `${COIN_FIELDS.find(c => c.key === coinAdjust)?.label ?? ''} in bag` : ''}
+                    onClose={() => setCoinAdjust(null)}
+                    onApply={delta => {
+                      if (coinAdjust) setBagCoin(coinAdjust, (container.currency?.[coinAdjust] ?? 0) + delta)
+                    }}
+                  />
                 </div>
               )}
 
