@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **208 pass** (199 + 4 from 5a speed floor/mult + 2 from 5b AC floor + 3 from 5c ability cap). ⚠ Plain `npx vitest run` intermittently
+- **Tests:** `npx vitest run --no-file-parallelism` → **212 pass** (199 +4 5a speed +2 5b AC floor +3 5c ability cap +4 5d Reliable Talent/Lucky). ⚠ Plain `npx vitest run` intermittently
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v20** (`conditions`). Next is **v21**.
@@ -319,6 +319,22 @@ per-source ability application in derive (`itemEffects.abilityBonusSources` / `a
 the realized delta so the score doesn't exceed `cap`. Surface as the realized amount in `abilityBreakdowns`
 (it already records realized deltas — same as the feat-ASI cap).
 
+**5d — Roll-time mechanics — ✅ A+B DONE, GWF DEFERRED** (user chose 2026-06-25: ship Reliable Talent +
+Lucky now, defer GWF as its own follow-up; Lucky button-only/untracked, no migration).
+- **Reliable Talent (Rogue 11+) — DONE.** `derived.reliableTalent` (rogue owning-class level ≥ 11, INV-2).
+  In `store/dice.ts` `roll()` a proficient `skill` roll floors the kept natural d20 at 10 (`[Reliable Talent]`
+  label note). Eligibility rides on `ModalState.reliableTalent` (set in `useRollDispatch`) so `rerollWithMode`
+  + `rollIndependent` keep flooring. 2 tests.
+- **Lucky (feat) — DONE.** `luckyReroll()` store action + a "🍀 Lucky" button in the shared `RerollRow`
+  (renders for attack/skill/save/ability — exactly the d20 rolls). Rolls one extra d20, keeps the better
+  (`[Lucky: a→b]`), honors Reliable Talent on the lucky die. **Untracked** (no use-counter, no migration) —
+  matches how the app treats item charges; the button is a generic manual reroll available to all (not gated
+  on the feat, same pattern as the existing Keep-best/worst utilities). 2 tests.
+- **Great Weapon Fighting — DEFERRED** to its own focused commit (the invasive weapon→DamageSpec→
+  `rollDamageGroups` reroll threading + style detection). BACKLOG C1 ("GWF left to manual") still stands until
+  that lands. Plan below preserved.
+
+_Original plan:_
 **5d — Roll-time mechanics (the dice-engine part — user opted in).**
 - **Reliable Talent** (Rogue 11+): on a *proficient* ability check, treat a natural d20 ≤ 9 as 10. Expose
   `derived.reliableTalent: boolean` (true at rogue level ≥ 11) — gate via the rogue class record + level.

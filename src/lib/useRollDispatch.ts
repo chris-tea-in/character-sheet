@@ -27,7 +27,9 @@ export function useRollDispatch(derived: DerivedStats) {
         isCrit,
       })
     } else {
-      openModal({ entry, phase: 'result', isCrit: false })
+      // Reliable Talent eligibility travels with the modal so rerolls keep flooring at 10.
+      const reliableTalent = kind.type === 'skill' && derived.reliableTalent && !!derived.effectiveSkillProficiencies[kind.skill]
+      openModal({ entry, phase: 'result', isCrit: false, reliableTalent })
     }
   }
 

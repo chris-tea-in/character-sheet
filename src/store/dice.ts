@@ -36,6 +36,9 @@ export interface ModalState {
   damageType?: string
   extraDamage?: ExtraDamage[]   // rider damage of other types (Flame Tongue → +2d6 fire)
   isCrit: boolean
+  // Reliable Talent eligibility for THIS roll (proficient skill check + Rogue 11+), so
+  // rerolls keep flooring the kept d20 at 10.
+  reliableTalent?: boolean
   // ── Dmg-button (standalone damage) state ───────────────────────────────────
   // When `damageSpec` is set and `damageRolls` is still undefined, the modal is in
   // the damage-SETUP state: it shows the (optional) upcast level stepper and the
@@ -59,6 +62,8 @@ interface DiceState {
   rerollWithMode: (mode: 'adv' | 'dis', count?: number) => void
   // Roll the current check `count` independent times (no keep-best), showing all totals.
   rollIndependent: (count: number) => void
+  // Lucky (feat): roll one extra d20 for the current d20 roll and keep the better result.
+  luckyReroll: () => void
   openModal: (state: ModalState) => void
   openDamage: (spec: DamageSpec) => void
   setCastLevel: (level: number) => void
@@ -98,7 +103,7 @@ export const useDiceStore = create<DiceState>()((set) => ({
     const hasAdvantage = 'advantage' in kind && kind.advantage === true
     const hasDisadvantage = 'advantage' in kind && kind.advantage === false
     const d2 = (hasAdvantage || hasDisadvantage) ? rollDie(20) : undefined
-    const natural = d2 !== undefined ? (hasAdvantage ? Math.max(d1, d2) : Math.min(d1, d2)) : d1
+    let natural = d2 !== undefined ? (hasAdvantage ? Math.max(d1, d2) : Math.min(d1, d2)) : d1
     const natural2 = d2 !== undefined ? (hasAdvantage ? Math.min(d1, d2) : Math.max(d1, d2)) : undefined
 
     let modifier = 0
@@ -112,11 +117,16 @@ export const useDiceStore = create<DiceState>()((set) => ({
       modifier = kind.modifier
     }
 
+    // Reliable Talent (Rogue 11+): a proficient skill check treats a natural d20 ≤ 9 as 10.
+    const reliable = kind.type === 'skill' && derived.reliableTalent && !!derived.effectiveSkillProficiencies[kind.skill]
+    let reliableNote = ''
+    if (reliable && natural < 10) { natural = 10; reliableNote = ' [Reliable Talent]' }
+
     const entry: RollEntry = {
       id:        generateId(),
       kind,
       result:    { natural, natural2, modifier, total: natural + modifier },
-      label:     buildLabel(kind, modifier),
+      label:     buildLabel(kind, modifier) + reliableNote,
       timestamp: Date.now(),
     }
 
@@ -134,14 +144,17 @@ export const useDiceStore = create<DiceState>()((set) => ({
     const n = Math.max(2, count)
     const adv = mode === 'adv'
     const dice = Array.from({ length: n }, () => rollDie(20))
-    const natural = adv ? Math.max(...dice) : Math.min(...dice)
+    let natural = adv ? Math.max(...dice) : Math.min(...dice)
     const natural2 = n === 2 ? (adv ? Math.min(...dice) : Math.max(...dice)) : undefined
+    // Reliable Talent floors the kept d20 at 10 (treating each ≤9 as 10 nets to this).
+    let reliableNote = ''
+    if (m.reliableTalent && natural < 10) { natural = 10; reliableNote = ' [Reliable Talent]' }
     const modifier = m.entry.result.modifier
     const kind = { ...m.entry.kind, advantage: adv } as RollKind
     const entry: RollEntry = {
       id: generateId(), kind,
       result: { natural, natural2, dice: n > 2 ? dice : undefined, modifier, total: natural + modifier },
-      label: buildLabel(kind, modifier) + (n > 2 ? ` [${n}d20]` : ''),
+      label: buildLabel(kind, modifier) + (n > 2 ? ` [${n}d20]` : '') + reliableNote,
       timestamp: Date.now(),
     }
     return {
@@ -157,17 +170,41 @@ export const useDiceStore = create<DiceState>()((set) => ({
     if (kt !== 'attack' && kt !== 'skill' && kt !== 'save' && kt !== 'ability') return {}
     const n = Math.max(2, count)
     const modifier = m.entry.result.modifier
-    const multi = Array.from({ length: n }, () => rollDie(20) + modifier)
+    const rollOne = () => { const d = rollDie(20); return (m.reliableTalent && d < 10 ? 10 : d) + modifier }
+    const multi = Array.from({ length: n }, rollOne)
     const kind = { ...m.entry.kind, advantage: undefined } as RollKind
     const entry: RollEntry = {
       id: generateId(), kind,
       result: { natural: multi[0] - modifier, multi, modifier, total: multi[0] },
-      label: buildLabel(kind, modifier) + ` ×${n}`,
+      label: buildLabel(kind, modifier) + ` ×${n}` + (m.reliableTalent ? ' [Reliable Talent]' : ''),
       timestamp: Date.now(),
     }
     return {
       rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS),
       modal: { ...m, entry, isCrit: false },
+    }
+  }),
+
+  luckyReroll: () => set(s => {
+    const m = s.modal
+    if (!m) return {}
+    const kt = m.entry.kind.type
+    if (kt !== 'attack' && kt !== 'skill' && kt !== 'save' && kt !== 'ability') return {}
+    const current = m.entry.result.natural
+    const rawLucky = rollDie(20)
+    const lucky = m.reliableTalent && rawLucky < 10 ? 10 : rawLucky  // Reliable Talent floors the lucky die too
+    const natural = Math.max(current, lucky)
+    const modifier = m.entry.result.modifier
+    const kind = m.entry.kind
+    const entry: RollEntry = {
+      id: generateId(), kind,
+      result: { natural, modifier, total: natural + modifier },
+      label: buildLabel(kind, modifier) + ` [Lucky: ${current}→${lucky}]`,
+      timestamp: Date.now(),
+    }
+    return {
+      rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS),
+      modal: { ...m, entry, isCrit: kt === 'attack' && natural === 20 },
     }
   }),
 

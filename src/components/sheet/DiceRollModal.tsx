@@ -52,6 +52,7 @@ function CritLabel({ natural, kind }: { natural: number; kind: string }) {
 function RerollRow() {
   const reroll = useDiceStore(s => s.rerollWithMode)
   const rollN = useDiceStore(s => s.rollIndependent)
+  const lucky = useDiceStore(s => s.luckyReroll)
   const [n, setN] = useState(2)
   const stepBtn = 'w-5 h-5 rounded border border-border hover:bg-secondary/40 transition-colors disabled:opacity-30 leading-none'
   const actBtn = 'px-2 py-0.5 rounded border border-border hover:bg-secondary/40 transition-colors'
@@ -67,6 +68,7 @@ function RerollRow() {
         <button onClick={() => reroll('adv', n)} className={actBtn}>Keep best (Adv)</button>
         <button onClick={() => reroll('dis', n)} className={actBtn}>Keep worst (Dis)</button>
         <button onClick={() => rollN(n)} className={actBtn}>Roll {n}×</button>
+        <button onClick={lucky} className={actBtn} title="Lucky: roll one extra d20 and keep the better result">🍀 Lucky</button>
       </div>
     </div>
   )

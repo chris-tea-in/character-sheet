@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { computeWeaponBonus, deriveCharacterStats } from './characterStats'
 import { defaultCharacter } from '../types/character'
+import { useDiceStore } from '../store/dice'
 import type { Character } from '../types/character'
+import type { RollEntry } from '../types/dice'
 import type { WeaponItem, ArmorItem, WondrousItem, FeatData, ClassData } from '../types/data'
 
 // A martial weapon, used to test the proficiency-bonus gate. computeWeaponBonus
@@ -527,5 +529,57 @@ describe('deriveCharacterStats — structured race effects', () => {
     expect(d.effectiveAC).toBe(15) // 13 + 2 (DEX)
     expect(sumAc(d)).toBe(15)
     expect(d.breakdowns.ac.some(s => s.id === 'race:natural-armor:ac')).toBe(true)
+  })
+})
+
+// ── Step 5d: roll-time mechanics — Reliable Talent + Lucky ───────────────────
+describe('Reliable Talent (Rogue 11+)', () => {
+  it('sets derived.reliableTalent only at Rogue level ≥ 11', () => {
+    expect(deriveCharacterStats(charWith({ classes: [{ classSlug: 'rogue', subclassSlug: null, level: 11 }] }), {}).reliableTalent).toBe(true)
+    expect(deriveCharacterStats(charWith({ classes: [{ classSlug: 'rogue', subclassSlug: null, level: 10 }] }), {}).reliableTalent).toBe(false)
+    expect(deriveCharacterStats(charWith({ classes: [{ classSlug: 'fighter', subclassSlug: null, level: 20 }] }), {}).reliableTalent).toBe(false)
+  })
+
+  it('floors a proficient skill natural at 10 (every roll), but not a non-proficient skill', () => {
+    const d = deriveCharacterStats(charWith({
+      classes: [{ classSlug: 'rogue', subclassSlug: null, level: 11 }],
+      skillProficiencies: { stealth: 'proficient' },
+    }), {})
+    const roll = useDiceStore.getState().roll
+    for (let i = 0; i < 50; i++) {
+      expect(roll({ type: 'skill', skill: 'stealth' }, d).result.natural).toBeGreaterThanOrEqual(10)
+    }
+    // Non-proficient skill is untouched → over many rolls at least one natural < 10.
+    const naturals = Array.from({ length: 80 }, () => roll({ type: 'skill', skill: 'acrobatics' }, d).result.natural)
+    expect(naturals.some(n => n < 10)).toBe(true)
+  })
+})
+
+describe('Lucky (feat) reroll', () => {
+  const seed = (natural: number, reliableTalent = false) => {
+    const entry: RollEntry = {
+      id: 'x', kind: { type: 'skill', skill: 'stealth' },
+      result: { natural, modifier: 2, total: natural + 2 }, label: 'Stealth', timestamp: 0,
+    }
+    useDiceStore.getState().openModal({ entry, phase: 'result', isCrit: false, reliableTalent })
+  }
+
+  it('keeps the better die (never worse than the original) and recomputes the total', () => {
+    seed(20)
+    useDiceStore.getState().luckyReroll()
+    let m = useDiceStore.getState().modal!
+    expect(m.entry.result.natural).toBe(20)        // a 20 can't be beaten
+    expect(m.entry.result.total).toBe(22)
+    seed(1)
+    useDiceStore.getState().luckyReroll()
+    m = useDiceStore.getState().modal!
+    expect(m.entry.result.natural).toBeGreaterThanOrEqual(1)
+    expect(m.entry.result.total).toBe(m.entry.result.natural + 2)
+  })
+
+  it('honors Reliable Talent on the lucky die (floors at 10)', () => {
+    seed(3, true)
+    useDiceStore.getState().luckyReroll()
+    expect(useDiceStore.getState().modal!.entry.result.natural).toBeGreaterThanOrEqual(10)
   })
 })

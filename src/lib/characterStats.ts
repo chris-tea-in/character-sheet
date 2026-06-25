@@ -52,6 +52,9 @@ export interface DerivedStats {
   spellSaveDC: number
   hasStealthDisadvantage: boolean
   hitDiceType: number
+  // Roll-time: Rogue 11+ Reliable Talent — a proficient ability check treats a natural
+  // d20 ≤ 9 as 10. Consumed in the dice engine (skill rolls + their rerolls).
+  reliableTalent: boolean
   // Netted advantage/disadvantage per save/skill (RAW: adv + dis = normal). Absent
   // key = roll normally. Sources: advantage maps + armor stealth-disadvantage + data effects.
   rollStates: { saves: Partial<Record<AbilityName, RollMode>>; skills: Partial<Record<SkillName, RollMode>> }
@@ -1554,6 +1557,9 @@ export function deriveCharacterStats(
   const attackRollSources = conditionEffects.attack
   const attackRollState = netSources(attackRollSources)
 
+  // Roll-time: Reliable Talent at Rogue level ≥ 11 (owning-class level — INV-2).
+  const reliableTalent = (character.classes ?? []).some(c => c.classSlug === 'rogue' && c.level >= 11)
+
   return {
     effectiveAC,
     adjustedMaxHp,
@@ -1572,6 +1578,7 @@ export function deriveCharacterStats(
     spellSaveDC,
     hasStealthDisadvantage,
     hitDiceType,
+    reliableTalent,
     rollStates,
     rollStateSources,
     attackRollState,
