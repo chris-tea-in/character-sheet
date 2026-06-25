@@ -143,6 +143,51 @@ describe('deriveCharacterStats — ability breakdowns (cap + set)', () => {
     expect(sumOf(d.breakdowns.abilities.con)).toBe(19) // base 12 + set +7
     expect(d.breakdowns.abilities.con.some(s => /sets to 19/.test(s.label))).toBe(true)
   })
+
+  // 5c — optional per-source cap on item ability effects
+  it('item ability_bonus with cap clamps the realized delta (Belt of Dwarvenkind)', () => {
+    const belt: WondrousItem = {
+      name: 'Belt of Dwarvenkind', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      effects: [{ type: 'ability_bonus', ability: 'con', amount: 2, cap: 20 }],
+    }
+    const d = deriveCharacterStats(charWith({
+      abilities: { str: 10, dex: 10, con: 19, int: 10, wis: 10, cha: 10 },
+      equipment: [{ id: 'b', name: 'Belt of Dwarvenkind', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [belt] } })
+    expect(d.effectiveAbilities.con).toBe(20)          // 19 + 2 clamped to 20 → realized +1
+    expect(sumOf(d.breakdowns.abilities.con)).toBe(20)
+    expect(d.breakdowns.abilities.con.some(s => /max 20/.test(s.label))).toBe(true)
+  })
+
+  it('capped ability_bonus is a no-op when already at the cap; never lowers a higher score', () => {
+    const belt: WondrousItem = {
+      name: 'Belt of Dwarvenkind', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      effects: [{ type: 'ability_bonus', ability: 'con', amount: 2, cap: 20 }],
+    }
+    const atCap = deriveCharacterStats(charWith({
+      abilities: { str: 10, dex: 10, con: 20, int: 10, wis: 10, cha: 10 },
+      equipment: [{ id: 'b', name: 'Belt of Dwarvenkind', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [belt] } })
+    expect(atCap.effectiveAbilities.con).toBe(20)      // +0
+    expect(atCap.breakdowns.abilities.con.some(s => /Belt of Dwarvenkind/.test(s.label))).toBe(false)
+    const overCap = deriveCharacterStats(charWith({
+      abilities: { str: 10, dex: 10, con: 22, int: 10, wis: 10, cha: 10 }, // already above cap
+      equipment: [{ id: 'b', name: 'Belt of Dwarvenkind', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [belt] } })
+    expect(overCap.effectiveAbilities.con).toBe(22)    // not lowered to 20
+  })
+
+  it('uncapped item ability_set still exceeds 20 (RAW: items can)', () => {
+    const beltGiant: WondrousItem = {
+      name: 'Belt of Hill Giant Strength', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      effects: [{ type: 'ability_set', ability: 'str', value: 21 }], // no cap
+    }
+    const d = deriveCharacterStats(charWith({
+      abilities: { str: 14, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+      equipment: [{ id: 'g', name: 'Belt of Hill Giant Strength', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [beltGiant] } })
+    expect(d.effectiveAbilities.str).toBe(21)
+  })
 })
 
 describe('deriveCharacterStats — save / skill / maxHp / spell breakdowns', () => {

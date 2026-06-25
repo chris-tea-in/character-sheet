@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **205 pass** (199 + 4 from 5a speed floor/multiplier + 2 from 5b AC floor). ⚠ Plain `npx vitest run` intermittently
+- **Tests:** `npx vitest run --no-file-parallelism` → **208 pass** (199 + 4 from 5a speed floor/mult + 2 from 5b AC floor + 3 from 5c ability cap). ⚠ Plain `npx vitest run` intermittently
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v20** (`conditions`). Next is **v21**.
@@ -305,6 +305,14 @@ _Original plan:_
 row (`Barkskin (AC floor 16)`, amount = floor − effectiveAC) and set effectiveAC = floor. Keep the
 `console.assert`. (Barkskin is a spell, so likely a FeatureEffect/manual demo, not an item.)
 
+**5c — Ability cap flag — ✅ DONE.** Added optional `cap?: number` to `ItemEffect` `ability_bonus` + `ability_set`
+(items stay uncapped by default — RAW). Threaded through `abilityBonusSources`/`abilitySetSources`; the two
+per-source derive loops clamp with `max(before, min(target, cap))` — caps THIS effect's result without ever
+lowering an already-higher score. Realized delta + label (`(max 20)`) flow into `abilityBreakdowns` (still
+sums). Build validators added. Demo: Belt of Dwarvenkind (`ability_bonus con +2, cap 20`) in wondrous_items.json.
+3 tests (clamp / no-op-at-or-above-cap / uncapped set still exceeds 20). No migration.
+
+_Original plan:_
 **5c — Ability cap flag.** Items are currently uncapped (RAW: items CAN exceed 20). Add optional
 `cap?: number` to `ItemEffect` `ability_set`/`ability_bonus` (Belt of Dwarvenkind caps CON at 20). In the
 per-source ability application in derive (`itemEffects.abilityBonusSources` / `abilitySetSources`), clamp

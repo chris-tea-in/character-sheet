@@ -566,8 +566,8 @@ interface ActiveItemEffects {
   saveBonusSources: { name: string; ability: AbilityName | 'all'; amount: number }[]
   abilitySets: Partial<Record<AbilityName, number>>
   abilityBonuses: Partial<Record<AbilityName, number>>
-  abilityBonusSources: { name: string; ability: AbilityName; amount: number }[]
-  abilitySetSources: { name: string; ability: AbilityName; value: number }[]
+  abilityBonusSources: { name: string; ability: AbilityName; amount: number; cap?: number }[]
+  abilitySetSources: { name: string; ability: AbilityName; value: number; cap?: number }[]
   skillBonuses: Partial<Record<SkillName, number>>
   skillBonusSources: { name: string; skill: SkillName; amount: number }[]
   speed: number
@@ -658,12 +658,12 @@ function computeActiveItemEffects(
           break
         case 'ability_bonus':
           acc.abilityBonuses[e.ability] = (acc.abilityBonuses[e.ability] ?? 0) + e.amount
-          acc.abilityBonusSources.push({ name: item.name, ability: e.ability, amount: e.amount })
+          acc.abilityBonusSources.push({ name: item.name, ability: e.ability, amount: e.amount, cap: e.cap })
           break
         case 'ability_set':
           // Multiple setters on one ability: keep the highest target (RAW: a set never lowers a score)
           acc.abilitySets[e.ability] = Math.max(acc.abilitySets[e.ability] ?? 0, e.value)
-          acc.abilitySetSources.push({ name: item.name, ability: e.ability, value: e.value })
+          acc.abilitySetSources.push({ name: item.name, ability: e.ability, value: e.value, cap: e.cap })
           break
         case 'skill':
           acc.skillBonuses[e.skill] = (acc.skillBonuses[e.skill] ?? 0) + e.amount
@@ -1107,15 +1107,21 @@ export function deriveCharacterStats(
   const itemEffects = computeActiveItemEffects(character, catalog)
   // Item ability bonuses (additive, uncapped) then sets (max), applied per source
   // so each carries provenance. Order matches RAW + the prior merged application.
+  // 5c — optional per-source `cap` clamps THIS effect's result (Belt of Dwarvenkind →
+  // +2 CON to max 20) without ever lowering an already-higher score: max(before, min(target, cap)).
   for (const s of itemEffects.abilityBonusSources) {
-    effectiveAbilities[s.ability] = effectiveAbilities[s.ability] + s.amount
-    if (s.amount) abilityBreakdowns[s.ability].push({ id: `item:${slugifyName(s.name)}:${s.ability}`, label: s.name, amount: s.amount, kind: 'item', removable: true })
+    const before = effectiveAbilities[s.ability]
+    const target = before + s.amount
+    effectiveAbilities[s.ability] = s.cap != null ? Math.max(before, Math.min(target, s.cap)) : target
+    const realized = effectiveAbilities[s.ability] - before
+    if (realized) abilityBreakdowns[s.ability].push({ id: `item:${slugifyName(s.name)}:${s.ability}`, label: s.cap != null ? `${s.name} (max ${s.cap})` : s.name, amount: realized, kind: 'item', removable: true })
   }
   for (const s of itemEffects.abilitySetSources) {
     const before = effectiveAbilities[s.ability]
-    effectiveAbilities[s.ability] = Math.max(before, s.value)
+    const target = Math.max(before, s.value)
+    effectiveAbilities[s.ability] = s.cap != null ? Math.max(before, Math.min(target, s.cap)) : target
     const realized = effectiveAbilities[s.ability] - before
-    if (realized) abilityBreakdowns[s.ability].push({ id: `item:${slugifyName(s.name)}:${s.ability}-set`, label: `${s.name} (sets to ${s.value})`, amount: realized, kind: 'item', removable: true })
+    if (realized) abilityBreakdowns[s.ability].push({ id: `item:${slugifyName(s.name)}:${s.ability}-set`, label: `${s.name} (sets to ${s.value}${s.cap != null ? `, max ${s.cap}` : ''})`, amount: realized, kind: 'item', removable: true })
   }
   for (const [sk, bonus] of Object.entries(itemEffects.skillBonuses) as [SkillName, number][]) {
     flatSkillBonuses[sk] = (flatSkillBonuses[sk] ?? 0) + bonus

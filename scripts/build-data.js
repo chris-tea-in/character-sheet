@@ -77,10 +77,12 @@ function validateEffects(item, label) {
       case 'ability_bonus':
         if (!EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (ability_bonus): invalid ability "${e.ability}"`)
         if (!isNum(e.amount)) errors.push(`${at} (ability_bonus): "amount" must be a number`)
+        if (e.cap !== undefined && !isNum(e.cap)) errors.push(`${at} (ability_bonus): "cap" must be a number`)
         break
       case 'ability_set':
         if (!EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (ability_set): invalid ability "${e.ability}"`)
         if (!isNum(e.value)) errors.push(`${at} (ability_set): "value" must be a number`)
+        if (e.cap !== undefined && !isNum(e.cap)) errors.push(`${at} (ability_set): "cap" must be a number`)
         break
       case 'skill':
         if (!EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (skill): invalid skill "${e.skill}"`)

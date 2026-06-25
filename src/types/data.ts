@@ -18,8 +18,11 @@ export type ItemEffect =
   // only when it raises AC. For homebrew items + the future spell-effect channel.
   | { type: 'ac_floor'; value: number }
   | { type: 'save'; ability: AbilityName | 'all'; amount: number }  // save bonus
-  | { type: 'ability_set'; ability: AbilityName; value: number }    // Amulet of Health (CON 19), Belt of Giant Str
-  | { type: 'ability_bonus'; ability: AbilityName; amount: number } // additive ability bump
+  // Magic-item ability changes are uncapped by default (may exceed 20). An optional
+  // `cap` caps THIS effect's result (Belt of Dwarvenkind → +2 CON to a max of 20); it
+  // never lowers an already-higher score.
+  | { type: 'ability_set'; ability: AbilityName; value: number; cap?: number }    // Amulet of Health (CON 19), Belt of Giant Str
+  | { type: 'ability_bonus'; ability: AbilityName; amount: number; cap?: number }  // additive ability bump
   | { type: 'skill'; skill: SkillName; amount: number }             // flat skill bonus
   | { type: 'speed'; amount: number }
   // Non-additive speed (5a). `speed_set` is a FLOOR: walking speed becomes `value`
