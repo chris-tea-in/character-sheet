@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **203 pass** (199 + 4 from 5a speed floor/multiplier). ⚠ Plain `npx vitest run` intermittently
+- **Tests:** `npx vitest run --no-file-parallelism` → **205 pass** (199 + 4 from 5a speed floor/multiplier + 2 from 5b AC floor). ⚠ Plain `npx vitest run` intermittently
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v20** (`conditions`). Next is **v21**.
@@ -292,6 +292,14 @@ multiplier → THEN the existing condition delta. Each step is a realized-delta 
 so `speedBreakdown` still sums. Add `validateEffects`/`validateFeatureEffects` cases. Demo: author Boots of
 Striding and Springing (`speed_set:30`) in `data/equipment/wondrous_items.json` (gitignored).
 
+**5b — AC floor — ✅ DONE.** Shipped `ac_floor {value}` on both `ItemEffect` and `FeatureEffect`. Applied in
+`deriveCharacterStats` AFTER base+additive AC, only when it raises a *computed* AC (skipped when AC is purely
+manual / `effectiveAC` null), as a realized-delta row placed BEFORE the AC `console.assert` so it still sums.
+Build validators added in both. 2 tests (floor raises low AC / no-op when already met). **No demo data authored:**
+no real DMG item floors AC and there's no spell-effect channel yet — genuine carriers are homebrew/custom items
++ a future spell-effect channel; test uses a synthetic "Bracers of Barkskin". No migration, no new ModifierKind.
+
+_Original plan:_
 **5b — AC floor.** Add `ac_floor {value}` to `ItemEffect`/`FeatureEffect` (Barkskin → AC ≥ 16). After
 `effectiveAC` is computed and itemized, if any floor and `effectiveAC < floor`, push a realized-delta AC
 row (`Barkskin (AC floor 16)`, amount = floor − effectiveAC) and set effectiveAC = floor. Keep the

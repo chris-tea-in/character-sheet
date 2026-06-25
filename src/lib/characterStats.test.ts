@@ -247,6 +247,36 @@ describe('deriveCharacterStats — conditions', () => {
   })
 })
 
+// ── Step 5b: AC floor (Barkskin-style) ───────────────────────────────────────
+describe('deriveCharacterStats — AC floor (5b)', () => {
+  const barkBracers: WondrousItem = {
+    name: 'Bracers of Barkskin', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+    effects: [{ type: 'ac_floor', value: 16 }],
+  }
+
+  it('floors a lower computed AC up to the value, as a realized delta', () => {
+    const d = deriveCharacterStats(charWith({
+      classes: [{ classSlug: 'barbarian', subclassSlug: null, level: 5 }],
+      abilities: { str: 14, dex: 12, con: 12, int: 10, wis: 10, cha: 8 }, // UD = 10+1+1 = 12
+      equipment: [{ id: 'b', name: 'Bracers of Barkskin', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [barkBracers] } })
+    expect(d.effectiveAC).toBe(16)
+    expect(sumAc(d)).toBe(16)
+    expect(d.breakdowns.ac.some(s => /AC ≥ 16/.test(s.label))).toBe(true)
+  })
+
+  it('is a no-op when the computed AC already meets the floor', () => {
+    const d = deriveCharacterStats(charWith({
+      equipment: [
+        { id: 'p', name: 'Plate', quantity: 1, equipped: true },        // AC 18
+        { id: 'b', name: 'Bracers of Barkskin', quantity: 1, attuned: true },
+      ],
+    }), { catalog: { armor: [plate], wondrous_items: [barkBracers] } })
+    expect(d.effectiveAC).toBe(18)
+    expect(d.breakdowns.ac.some(s => /AC ≥/.test(s.label))).toBe(false)
+  })
+})
+
 // ── Step 5a: non-additive speed semantics (floor / multiplier) ───────────────
 describe('deriveCharacterStats — speed floor & multiplier (5a)', () => {
   const sumSpeed = (d: ReturnType<typeof deriveCharacterStats>) => d.breakdowns.speed.reduce((t, s) => t + s.amount, 0)

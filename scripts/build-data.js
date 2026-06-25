@@ -51,6 +51,9 @@ function validateEffects(item, label) {
         if (!isNum(e.amount)) errors.push(`${at} (ac): "amount" must be a number`)
         if (e.condition !== undefined && e.condition !== 'unarmored') errors.push(`${at} (ac): invalid condition "${e.condition}"`)
         break
+      case 'ac_floor':
+        if (!isNum(e.value)) errors.push(`${at} (ac_floor): "value" must be a number`)
+        break
       case 'unarmored_ac':
         if (!isNum(e.base)) errors.push(`${at} (unarmored_ac): "base" must be a number`)
         break
@@ -167,6 +170,9 @@ function validateFeatureEffects(effects, label) {
         if (!isNum(e.amount)) errors.push(`${at} (ac): "amount" must be a number`)
         if (e.condition !== undefined && e.condition !== 'armored' && e.condition !== 'unarmored')
           errors.push(`${at} (ac): invalid condition "${e.condition}"`)
+        break
+      case 'ac_floor':
+        if (!isNum(e.value)) errors.push(`${at} (ac_floor): "value" must be a number`)
         break
       case 'weapon_attack':
         if (e.weaponClass !== 'ranged' && e.weaponClass !== 'melee')

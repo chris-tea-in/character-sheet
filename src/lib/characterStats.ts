@@ -559,6 +559,7 @@ const ALL_ABILITIES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 
 interface ActiveItemEffects {
   acBonus: number               // unconditional flat AC (Ring/Cloak of Protection)
+  acFloor: { name: string; value: number }[]  // floors total AC at value (Barkskin → 16)
   unarmoredAcBonus: number      // flat AC that applies only when no body armor (Bracers of Defense)
   unarmoredAcBase: number | null // sets unarmored AC base (Robe of the Archmagi → 15)
   saveBonuses: Partial<Record<AbilityName, number>>
@@ -593,7 +594,7 @@ function computeActiveItemEffects(
   catalog?: { weapons?: WeaponItem[]; armor?: ArmorItem[]; wondrous_items?: WondrousItem[] } | null,
 ): ActiveItemEffects {
   const acc: ActiveItemEffects = {
-    acBonus: 0, unarmoredAcBonus: 0, unarmoredAcBase: null,
+    acBonus: 0, acFloor: [], unarmoredAcBonus: 0, unarmoredAcBase: null,
     saveBonuses: {}, saveBonusSources: [], abilitySets: {}, abilityBonuses: {},
     abilityBonusSources: [], abilitySetSources: [],
     skillBonuses: {}, skillBonusSources: [], speed: 0, speedSources: [], speedSet: [], speedMult: [], initiative: 0, initiativeSources: [],
@@ -628,6 +629,9 @@ function computeActiveItemEffects(
         case 'ac':
           if (e.condition === 'unarmored') acc.unarmoredAcBonus += e.amount
           else acc.acBonus += e.amount
+          break
+        case 'ac_floor':
+          acc.acFloor.push({ name: item.name, value: e.value })
           break
         case 'unarmored_ac':
           acc.unarmoredAcBase = Math.max(acc.unarmoredAcBase ?? 0, e.base)
@@ -717,6 +721,7 @@ export function summarizeItemEffects(effects: ItemEffect[] | undefined): string 
   for (const e of effects) {
     switch (e.type) {
       case 'ac':           parts.push(`${formatBonus(e.amount)} AC${e.condition === 'unarmored' ? ' (unarmored)' : ''}`); break
+      case 'ac_floor':     parts.push(`AC ≥ ${e.value}`); break
       case 'unarmored_ac': parts.push(`AC ${e.base} + DEX (unarmored)`); break
       case 'max_hp': {
         const hp: string[] = []
@@ -759,6 +764,7 @@ interface FeatureEffectAccum {
   acAlways: number    // unconditional AC bonus
   acArmored: number   // applies only when body armor is worn (Defense)
   acUnarmored: number // applies only when no body armor is worn
+  acFloor: { label: string; value: number }[] // floors total AC at value (Barkskin → 16)
   weaponEffects: FeatureWeaponEffect[] // per-weapon to-hit/damage (Archery, Dueling)
   // Step 3 — labeled so the ledger breakdowns can show the granting feature.
   saveProf: { label: string; ability: AbilityName | 'all' }[]
@@ -779,7 +785,7 @@ interface FeatureEffectAccum {
 
 function newFeatureAccum(): FeatureEffectAccum {
   return {
-    acAlways: 0, acArmored: 0, acUnarmored: 0, weaponEffects: [],
+    acAlways: 0, acArmored: 0, acUnarmored: 0, acFloor: [], weaponEffects: [],
     saveProf: [], saveBonus: [], derivedSave: [], resistances: [], immunities: [],
     speed: [], speedSet: [], speedMult: [], maxHp: [], skillProf: [], weaponProf: [], armorProf: [], toolProf: [], advDis: [],
   }
@@ -794,6 +800,7 @@ function applyFeatureEffect(e: FeatureEffect, label: string, acc: FeatureEffectA
       else if (e.condition === 'unarmored') acc.acUnarmored += e.amount
       else acc.acAlways += e.amount
       break
+    case 'ac_floor': acc.acFloor.push({ label, value: e.value }); break
     case 'weapon_attack': case 'weapon_damage': acc.weaponEffects.push(e); break
     case 'save_proficiency': acc.saveProf.push({ label, ability: e.ability }); break
     case 'save_bonus': acc.saveBonus.push({ label, ability: e.ability, amount: e.amount }); break
@@ -1413,6 +1420,20 @@ export function deriveCharacterStats(
     // Pure manual AC (plain unarmored, or unresolved variable-base armor): keep the editable
     // stepper, but still itemize the value so the pencil/breakdown is available.
     acSources.push({ id: 'manual:base:ac', label: 'Manual AC', amount: character.armorClass, kind: 'manual', removable: false })
+  }
+  // 5b — AC floor (Barkskin → AC ≥ 16): applied AFTER base+additive, only when it raises
+  // a computed AC, as a realized-delta row so the breakdown still sums. Skipped when AC is
+  // purely manual (effectiveAC null) — a floor needs a computed value to floor.
+  if (effectiveAC != null) {
+    const acFloors = [
+      ...itemEffects.acFloor.map(f => ({ id: `item:${slugifyName(f.name)}:ac-floor`, label: `${f.name} (item)`, value: f.value, kind: 'item' as const })),
+      ...featureFx.acFloor.map(f => ({ id: `feature:${slugifyName(f.label)}:ac-floor`, label: `${f.label} (feature)`, value: f.value, kind: 'feature' as const })),
+    ]
+    const winning = acFloors.filter(f => f.value > effectiveAC!).sort((a, b) => b.value - a.value)[0]
+    if (winning) {
+      acSources.push({ id: winning.id, label: `${winning.label} — AC ≥ ${winning.value}`, amount: winning.value - effectiveAC, kind: winning.kind, removable: true })
+      effectiveAC = winning.value
+    }
   }
   // INV: when AC is auto-computed, the itemized list reconstructs it exactly.
   console.assert(effectiveAC === null || acSources.reduce((t, c) => t + c.amount, 0) === effectiveAC, '[ledger] AC breakdown ≠ effectiveAC')

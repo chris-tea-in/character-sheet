@@ -14,6 +14,9 @@ export type ItemEffect =
   // flat AC (Ring/Cloak of Protection). `condition: 'unarmored'` applies only when
   // no body armor is worn (Bracers of Defense) — an app-knowable condition.
   | { type: 'ac'; amount: number; condition?: 'unarmored' }
+  // Floors total AC at `value` (Barkskin → AC ≥ 16): applied after base+additive AC,
+  // only when it raises AC. For homebrew items + the future spell-effect channel.
+  | { type: 'ac_floor'; value: number }
   | { type: 'save'; ability: AbilityName | 'all'; amount: number }  // save bonus
   | { type: 'ability_set'; ability: AbilityName; value: number }    // Amulet of Health (CON 19), Belt of Giant Str
   | { type: 'ability_bonus'; ability: AbilityName; amount: number } // additive ability bump
@@ -378,6 +381,7 @@ export interface FeatData {
  */
 export type FeatureEffect =
   | { type: 'ac'; amount: number; condition?: 'armored' | 'unarmored' }
+  | { type: 'ac_floor'; value: number }  // floors total AC at value (Barkskin → 16)
   | { type: 'weapon_attack'; weaponClass: 'ranged' | 'melee'; amount: number }
   | { type: 'weapon_damage'; weaponClass: 'ranged' | 'melee'; handed?: 'one-handed' | 'two-handed'; amount: number }
   // Saving throws: proficiency (Diamond Soul → all), flat bonus, or a value DERIVED
