@@ -15,17 +15,66 @@ player's own entry. Before this, we did a full rules audit (DND_RULES_REFERENCE.
 spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MATRIX.md). The ledger's
 **P1 + AC/Prof slice is built and green**; P2+ and the broader rollout are planned.
 
-## 2. Current state
+## 2. Current state (2026-06-24, post Step 4)
 
-- **Branch:** `feat/modifier-ledger-p1` (cut from `feat/soft-locks-homebrew`). **Uncommitted.** `main`
-  is gated on explicit user go-ahead (per CLAUDE.md Git Workflow) — do NOT push `main` without it.
-- **Tests/typecheck:** `npx vitest run` → **175 pass**; `npx tsc -p tsconfig.app.json --noEmit` → clean.
-- **Heads-up — pre-existing uncommitted changes rode onto this branch** (NOT part of the ledger):
-  `EquipmentBlock.tsx`, `DescriptionBlock.tsx`, `ContainerInventoryDialog.tsx`, `FeatsBlock.tsx`,
-  `ui/dialog.tsx`, `bugs.md`, plus two hunks in `CombatBlock.tsx` (`HpSection` BUG-66 floor-at-0,
-  `DeathSaves` BUG-67 stabilize-to-1HP). Separate these out before any commit.
-- **Edit/Write are auto-approved** this session via two unscoped rules in `.claude/settings.local.json`
-  (can be stripped when done). No cron jobs scheduled (the 5-hour loop was cancelled).
+- **Branch:** `feat/modifier-ledger-p1`. `main` is gated on explicit user go-ahead — do NOT push `main`.
+- **Committed so far** (all on this branch):
+  - `b73ded0` — pre-existing soft-locks/homebrew UX (EquipmentBlock/ContainerInventoryDialog/FeatsBlock/dialog.tsx).
+  - `d4bdd75` — **Steps 1–3** (breakdown rollout, race-effect system, always-on class-feature effects) + **Features & Traits hub** + descriptions/categories.
+  - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
+  - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
+- **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
+- **Tests:** `npx vitest run --no-file-parallelism` → **199 pass**. ⚠ Plain `npx vitest run` intermittently
+  reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
+  `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
+- **Migrations:** last is **v20** (`conditions`). Next is **v21**.
+- **data/ is gitignored** (race effects, feature-descriptions/categories, class-feature-effects, feat
+  enrichments, the Danger Sense adv demo — all local-only). `public/data/` is also gitignored (rebuild
+  with `npm run build:data`).
+- **Edit/Write auto-approved** via `.claude/settings.local.json` (strip when done). No cron jobs.
+
+### Derived fields a fresh agent can rely on (DerivedStats)
+`effectiveAbilities · effectiveSpeed · effectiveInitiative · effectiveAC · adjustedMaxHp · proficiencyBonus ·
+skillModifiers · saveModifiers · spellAttackBonus · spellSaveDC · effectiveSkillProficiencies ·
+effectiveSaveProficiencies · weaponProficiencies · armorProficiencies · raceSkillGrants · raceToolGrants ·
+raceGrantedLanguages · senses · resistances · immunities · featureWeaponEffects · hasStealthDisadvantage ·
+rollStates {saves,skills} · rollStateSources (labeled adv/dis) · attackRollState · attackRollSources ·
+activeConditions · breakdowns {speed,initiative,ac,proficiencyBonus,abilities,saves,skills,maxHp,spellAttack,spellSaveDC}`.
+
+### Effect-type registry (src/types/data.ts) — extend these for new semantics
+- **ItemEffect:** ac · save · ability_set · ability_bonus · skill · speed · initiative · damage · damage_dice ·
+  max_hp · resistance · immunity · unarmored_ac · language · unarmed · spell_attack · spell_save_dc.
+- **FeatureEffect:** ac · weapon_attack · weapon_damage · save_proficiency · save_bonus · derived_save ·
+  resistance · immunity · speed · max_hp · skill/weapon/armor/tool_proficiency · advantage · disadvantage.
+- **RaceEffect:** skill/weapon/tool/armor_proficiency · resistance · immunity · natural_armor.
+- **FeatEffect:** asi · initiative · speed · save_proficiency · skill_proficiency · expertise · max_hp ·
+  resistance · language · weapon/armor/tool_proficiency.
+- Build validation lives in `scripts/build-data.js`: `validateEffects` (items), `validateFeatureEffects`
+  (features incl. class-feature-effects.json), `validateRaceEffects`. **Add every new variant there too.**
+
+### Key invariants / patterns (apply to Step 5)
+- **INV-1:** emit in `deriveCharacterStats`; never bake at write time.
+- **Realized-delta pattern** for non-additive (set/floor/multiply/cap): compute the additive total, then
+  apply the set/floor/multiply as a **delta row** so the breakdown still `console.assert`-sums to the
+  effective value. Precedents already in the file: ability set-to-N + feat-ASI cap (`abilityBreakdowns`),
+  **condition speed set/half** (`additiveSpeed`→`effectiveSpeed` via `conditionSpeedDelta`), Exhaustion-4
+  **maxHp halving** (`additiveMaxHp`→`adjustedMaxHp`). Reuse this shape.
+- **ModifierKind** includes `condition`; add new kinds in BOTH `characterStats.ts` (the union) AND
+  `StatBreakdown.tsx` `KIND_LABEL` (a missing key is a TS error — that's the reminder).
+- **INV-4** for any NEW stored field: migration (v21) → `Character` type + `defaultCharacter` →
+  `normalizeNewCharacter` (auto via spread) → `characterRepo` (rowToCharacter + insert + update + upsert,
+  positional — add the column + one `?` + the value in EACH) → `draftToNewCharacter` (characterSetup.ts) →
+  the `characterRepo.test.ts` parity fixture. (Most Step-5 work is DERIVED, needs no migration.)
+
+### Dice engine touchpoints (for Step 5 roll-time mechanics)
+- `src/store/dice.ts` `roll(kind, derived)` — single d20/raw roller; already does advantage(2d20 keep
+  high)/disadvantage(keep low), multi-die raw (`count`), `rerollWithMode(mode,count)` (keep best/worst of
+  N), `rollIndependent(count)`. `roll()` HAS `derived`, so it can read `effectiveSkillProficiencies`,
+  `proficiencyBonus`, class info for roll-time rules.
+- `src/components/sheet/DiceRollModal.tsx` — `rollDamage()` (weapon hit→damage) + `rollModalDamage()`
+  (store, Dmg button) roll damage dice; `RollResult` has `natural · natural2 · dice · multi · modifier · total`.
+- `src/lib/useRollDispatch.ts` `dispatch()` — auto-applies `derived.attackRollState` to attack rolls.
+- `src/components/sheet/RollButton.tsx` — `rollMode?: 'adv'|'dis'` shows (Adv)/(Dis).
 
 ## 3. What is BUILT (the ledger slice)
 
@@ -216,3 +265,58 @@ INV-4 round-trip (repo patterns scouted in `characterRepo.ts` / `migrations.ts`)
 6. **Full P2 override layer** (disable / change / add-your-own) — LAST, against now-populated breakdowns.
 
 Full per-block source lists + the 89 system-gaps are in `MODIFIER_SOURCE_MATRIX.md`.
+
+---
+
+## 10. Step 5 — execution plan (decided 2026-06-24; user chose "include roll-time rerolls too")
+
+**NOT STARTED.** Build in this order; branch is `feat/modifier-ledger-p1` (continue on it), `main` gated,
+show the user a plan before each sub-step, keep INV-1 + the realized-delta + console.assert patterns.
+
+**5a — Speed semantics (clean, do first).** Add to `ItemEffect` + `FeatureEffect`:
+`speed_set {value}` (Boots of Striding → 30, a floor: `max`), `speed_floor {value}` (same as set-if-lower),
+`speed_multiplier {factor}` (Haste/Boots of Speed → 2). Collect them in `computeActiveItemEffects` /
+`collectFeatureEffects`. Apply in derive AFTER `additiveSpeed`, in RAW order: additive → floor/set (max) →
+multiplier → THEN the existing condition delta. Each step is a realized-delta row (`kind:'item'`/`'feature'`)
+so `speedBreakdown` still sums. Add `validateEffects`/`validateFeatureEffects` cases. Demo: author Boots of
+Striding and Springing (`speed_set:30`) in `data/equipment/wondrous_items.json` (gitignored).
+
+**5b — AC floor.** Add `ac_floor {value}` to `ItemEffect`/`FeatureEffect` (Barkskin → AC ≥ 16). After
+`effectiveAC` is computed and itemized, if any floor and `effectiveAC < floor`, push a realized-delta AC
+row (`Barkskin (AC floor 16)`, amount = floor − effectiveAC) and set effectiveAC = floor. Keep the
+`console.assert`. (Barkskin is a spell, so likely a FeatureEffect/manual demo, not an item.)
+
+**5c — Ability cap flag.** Items are currently uncapped (RAW: items CAN exceed 20). Add optional
+`cap?: number` to `ItemEffect` `ability_set`/`ability_bonus` (Belt of Dwarvenkind caps CON at 20). In the
+per-source ability application in derive (`itemEffects.abilityBonusSources` / `abilitySetSources`), clamp
+the realized delta so the score doesn't exceed `cap`. Surface as the realized amount in `abilityBreakdowns`
+(it already records realized deltas — same as the feat-ASI cap).
+
+**5d — Roll-time mechanics (the dice-engine part — user opted in).**
+- **Reliable Talent** (Rogue 11+): on a *proficient* ability check, treat a natural d20 ≤ 9 as 10. Expose
+  `derived.reliableTalent: boolean` (true at rogue level ≥ 11) — gate via the rogue class record + level.
+  In `dice.ts` `roll()` for `kind.type === 'skill'`: if `derived.reliableTalent` AND
+  `derived.effectiveSkillProficiencies[kind.skill]` is set, `natural = Math.max(natural, 10)`. (Also applies
+  to ability checks with tool/skill proficiency — keep to skills for v1.) Add a derived flag + a small note
+  in the roll history/modal ("Reliable Talent").
+- **Great Weapon Fighting**: reroll 1s and 2s on a weapon's damage dice once (Fighting Style: Great Weapon
+  Fighting, two-handed/versatile melee). The damage path is `rollDamage()` (DiceRollModal) + `rollDamageGroups`
+  (`lib/damage.ts`) + `rollModalDamage()` (store). Thread a `rerollBelow?: number` (=2) into the `DamageSpec`
+  / hit-damage path when the active weapon qualifies (the character has the GWF fighting style, surfaced via
+  `featureFx`/`featureWeaponEffects`) and reroll dice showing ≤ rerollBelow once. NOTE: BACKLOG C1 says GWF was
+  "left to manual"; this supersedes it — update BACKLOG C1 when done.
+- **Lucky** (feat): reroll a d20 (attack/check/save), 3 uses/long rest. Two parts: (1) a roll-modal "Lucky"
+  button that calls a reroll (can reuse `rerollWithMode('adv')`-style fresh roll, or a dedicated keep-either),
+  and (2) usage tracking. Uses = runtime state → either a NEW stored counter (`luckyUsed` → migration v21 +
+  full INV-4 round-trip) OR keep it manual/un-tracked for v1. RECOMMEND: ship the reroll button now, defer the
+  use-counter (note it) unless the user wants the v21 migration.
+
+**5e — Item-effect data authoring (opportunistic).** Author the marquee items needing 5a–5c (Boots of
+Striding/Speed, Belt of Dwarvenkind cap, etc.) and begin migrating the 22 hardcoded `ITEM_ADV_ENTRIES`
+(stealth/perception/etc. advantage items) → item `effects[]` using the `advantage` channel from Step 4b
+(would need an item-level `advantage` ItemEffect variant — add it, mirroring FeatureEffect's). All in
+gitignored `data/equipment/*.json`; rebuild + validate.
+
+**Then Step 6** = the full P2 stored override layer (disable / change / add-your-own) on every breakdown —
+the LAST step. Design sketched in §9: one `Character.ledgerOverrides` field (migration, INV-4) applied as the
+final derive step; wire disable/inline-edit/add-custom into `StatBreakdown` (currently read-only).
