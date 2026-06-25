@@ -388,6 +388,9 @@ export type FeatureEffect =
   | { type: 'weapon_proficiency'; weapons: string[] }
   | { type: 'armor_proficiency'; armor: string[] }
   | { type: 'tool_proficiency'; tools: string[] }
+  // Roll advantage/disadvantage on a save (one ability or 'all') or a skill.
+  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
 
 export interface FeatureOption {
   slug: string

@@ -17,6 +17,7 @@ export function DiceTray({ derived }: Props) {
   const clear = useDiceStore(s => s.clear)
   const { dispatch } = useRollDispatch(derived)
   const [open, setOpen] = useState(false)
+  const [count, setCount] = useState(1)
   const lastRoll = rolls[0]
 
   return (
@@ -89,10 +90,32 @@ export function DiceTray({ derived }: Props) {
         style={{ background: 'var(--color-surface)', height: '52px' }}
       >
         <div className="max-w-2xl mx-auto h-full flex items-center gap-1 px-2">
+          {/* Count: tap a die to roll `count`d that die at once (e.g. 4d6). */}
+          <div className="flex items-center gap-0.5 flex-none mr-0.5">
+            <button
+              onClick={() => setCount(c => Math.max(1, c - 1))}
+              className="w-6 h-8 rounded-md text-sm font-bold hover:bg-secondary transition-colors border border-border disabled:opacity-30"
+              disabled={count <= 1}
+              aria-label="Fewer dice"
+            >
+              −
+            </button>
+            <span className="w-5 text-center text-xs font-bold tabular-nums" style={{ color: count > 1 ? 'var(--color-accent-gold)' : 'var(--color-text-muted)' }}>
+              ×{count}
+            </span>
+            <button
+              onClick={() => setCount(c => Math.min(20, c + 1))}
+              className="w-6 h-8 rounded-md text-sm font-bold hover:bg-secondary transition-colors border border-border disabled:opacity-30"
+              disabled={count >= 20}
+              aria-label="More dice"
+            >
+              +
+            </button>
+          </div>
           {DIE_TYPES.map(die => (
             <button
               key={die}
-              onClick={() => dispatch({ type: 'raw', die })}
+              onClick={() => dispatch({ type: 'raw', die, count: count > 1 ? count : undefined })}
               className="flex-1 h-8 rounded-md text-xs font-bold hover:bg-secondary transition-colors border border-border"
               style={{ color: 'var(--color-accent-gold)' }}
             >

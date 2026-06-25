@@ -21,7 +21,10 @@ export interface WeaponBonus {
  *  `amount` is its signed contribution to the target stat; the list sums to the effective value. */
 export type ModifierKind =
   | 'base' | 'abilityMod' | 'proficiency' | 'race' | 'subrace'
-  | 'feat' | 'item' | 'feature' | 'class' | 'spell' | 'manual' | 'custom'
+  | 'feat' | 'item' | 'feature' | 'class' | 'spell' | 'manual' | 'custom' | 'condition'
+
+// Per-roll advantage state, netted per RAW (any advantage + any disadvantage = normal).
+export type RollMode = 'adv' | 'dis'
 
 export interface ModifierSource {
   id: string          // stable + deterministic: `${kind}:${sourceSlug}:${targetKey}`
@@ -49,7 +52,16 @@ export interface DerivedStats {
   spellSaveDC: number
   hasStealthDisadvantage: boolean
   hitDiceType: number
-  advantages: { saves: Set<AbilityName>; skills: Set<SkillName> }
+  // Netted advantage/disadvantage per save/skill (RAW: adv + dis = normal). Absent
+  // key = roll normally. Sources: advantage maps + armor stealth-disadvantage + data effects.
+  rollStates: { saves: Partial<Record<AbilityName, RollMode>>; skills: Partial<Record<SkillName, RollMode>> }
+  // Labeled adv/dis sources per save/skill — for the ledger breakdown (why adv/dis).
+  rollStateSources: { saves: Partial<Record<AbilityName, RollAdvSource[]>>; skills: Partial<Record<SkillName, RollAdvSource[]>> }
+  // Netted attack-roll adv/dis (from conditions) + its labeled sources; weapon/spell Hit buttons read this.
+  attackRollState: RollMode | undefined
+  attackRollSources: RollAdvSource[]
+  // Active conditions (incl. exhaustion) for the Conditions UI + sheet display.
+  activeConditions: { key: string; label: string }[]
   effectiveSkillProficiencies: Partial<Record<SkillName, SkillProficiency>>
   // Skills whose effective proficiency/expertise comes from a feat (not the
   // stored record) — the UI shows these filled but locked so a dot click can't
@@ -157,108 +169,159 @@ export function hasFeatStatEffect(feat: FeatData): boolean {
   return (feat.effects ?? []).length > 0
 }
 
-// ── Advantage registry ───────────────────────────────────────────────────────
+// ── Advantage / disadvantage registry ─────────────────────────────────────────
 // Conditions stated in the rules (e.g. "vs poison", "vs charmed") are simplified:
 // the sheet maps them to the most relevant ability and applies them broadly.
-// Players retain responsibility to roll without advantage when inapplicable.
+// Players retain responsibility to roll normally when inapplicable. Each entry
+// carries a `label` so the source is visible in the ledger breakdown (4b).
 
-type AdvantageEntry = { saves?: AbilityName[]; skills?: SkillName[] }
+// One advantage/disadvantage source on a roll (for ledger provenance).
+export interface RollAdvSource { mode: 'adv' | 'dis'; label: string; kind: ModifierKind }
+
+type AdvantageEntry = { saves?: AbilityName[]; skills?: SkillName[]; label: string; kind: ModifierKind }
 
 const ALL_SAVES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 
 const FEAT_ADVANTAGES: Partial<Record<string, AdvantageEntry>> = {
-  'war-caster': { saves: ['con'] },                         // vs concentration break → CON
-  'actor':      { skills: ['deception', 'performance'] },   // when impersonating
+  'war-caster': { saves: ['con'], label: 'War Caster (concentration)', kind: 'feat' },
+  'actor':      { skills: ['deception', 'performance'], label: 'Actor', kind: 'feat' },
 }
 
 // Fey Ancestry and similar charm/fear resistances → WIS (most charm saves are WIS)
 const RACE_ADVANTAGES: Partial<Record<string, AdvantageEntry>> = {
-  'dwarf':      { saves: ['con'] },               // Dwarven Resilience vs poison
-  'duergar':    { saves: ['con', 'wis'] },         // Dwarven Resilience + vs charm/paralysis
-  'elf':        { saves: ['wis'] },               // Fey Ancestry vs charmed
-  'eladrin':    { saves: ['wis'] },
-  'sea-elf':    { saves: ['wis'] },
-  'shadar-kai': { saves: ['wis'] },
-  'bugbear':    { saves: ['wis'] },               // Fey Ancestry
-  'hobgoblin':  { saves: ['wis'] },               // Fey Ancestry
-  'half-elf':   { saves: ['wis'] },               // Fey Ancestry
-  'gnome':      { saves: ['int', 'wis', 'cha'] }, // Gnome Cunning vs magic
-  'deep-gnome': { saves: ['int', 'wis', 'cha'] }, // Gnome Cunning vs magic
-  'githzerai':  { saves: ['wis'] },               // Mental Discipline vs charmed/frightened
-  'halfling':   { saves: ['wis'] },               // Brave vs frightened
-  'locathah':   { saves: ['wis', 'con'] },         // Leviathan Will vs many conditions
-  'satyr':      { saves: ALL_SAVES },             // Magic Resistance vs all spells
-  'yuan-ti':    { saves: ALL_SAVES },             // Magic Resistance vs all spells
-  'verdan':     { saves: ['wis', 'cha'] },         // Telepathic Insight (unconditional)
+  'dwarf':      { saves: ['con'], label: 'Dwarven Resilience', kind: 'race' },
+  'duergar':    { saves: ['con', 'wis'], label: 'Duergar Resilience', kind: 'race' },
+  'elf':        { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
+  'eladrin':    { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
+  'sea-elf':    { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
+  'shadar-kai': { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
+  'bugbear':    { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
+  'hobgoblin':  { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
+  'half-elf':   { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
+  'gnome':      { saves: ['int', 'wis', 'cha'], label: 'Gnome Cunning', kind: 'race' },
+  'deep-gnome': { saves: ['int', 'wis', 'cha'], label: 'Gnome Cunning', kind: 'race' },
+  'githzerai':  { saves: ['wis'], label: 'Mental Discipline', kind: 'race' },
+  'halfling':   { saves: ['wis'], label: 'Brave', kind: 'race' },
+  'locathah':   { saves: ['wis', 'con'], label: 'Leviathan Will', kind: 'race' },
+  'satyr':      { saves: ALL_SAVES, label: 'Magic Resistance', kind: 'race' },
+  'yuan-ti':    { saves: ALL_SAVES, label: 'Magic Resistance', kind: 'race' },
+  'verdan':     { saves: ['wis', 'cha'], label: 'Telepathic Insight', kind: 'race' },
 }
 
 const SUBRACE_ADVANTAGES: Partial<Record<string, AdvantageEntry>> = {
-  'stout': { saves: ['con'] },   // Stout Halfling Resilience vs poison
+  'stout': { saves: ['con'], label: 'Stout Resilience', kind: 'subrace' },
 }
 
-const ITEM_ADV_ENTRIES: Array<{ name: string; entry: AdvantageEntry }> = [
-  // Stealth
-  { name: 'Boots of Elvenkind',          entry: { skills: ['stealth'] } },
-  { name: 'Cloak of Elvenkind',          entry: { skills: ['stealth'] } },
-  { name: 'Cloak of the Bat',            entry: { skills: ['stealth'] } },
-  { name: 'Shadowfell Brand Tattoo',     entry: { skills: ['stealth'] } },
-  { name: 'Piwafwi',                     entry: { skills: ['stealth'] } },
-  { name: 'Piwafwi of Fire Resistance',  entry: { skills: ['stealth'] } },
-  { name: 'Kagonesti Forest Shroud',     entry: { skills: ['stealth'] } },
-  { name: "Nature's Mantle",             entry: { skills: ['stealth'] } },
-  // Perception
-  { name: 'Rod of Alertness',            entry: { skills: ['perception'] } },
-  { name: 'Sentinel Shield',             entry: { skills: ['perception'] } },
-  { name: 'Robe of Eyes',               entry: { skills: ['perception'] } },
-  { name: 'Eyes of the Eagle',           entry: { skills: ['perception'] } },
-  { name: 'Watchful Helm',              entry: { skills: ['perception'] } },
-  // Insight
-  { name: 'Ring of Truth Telling',       entry: { skills: ['insight'] } },
-  { name: "Inquisitive's Goggles",       entry: { skills: ['insight'] } },
-  // Persuasion
-  { name: 'Gavel of the Venn Rune',     entry: { skills: ['persuasion'] } },
-  // Intimidation
-  { name: 'Crown of the Wrath Bringer', entry: { skills: ['intimidation'] } },
-  { name: 'Skull Helm',                 entry: { skills: ['intimidation'] } },
-  // Performance
-  { name: "Reveler's Concertina",       entry: { skills: ['performance'] } },
-  // Saves
-  { name: 'Orb of the Stein Rune',      entry: { saves: ['str'] } },
-  { name: 'Platinum Scarf',             entry: { saves: ALL_SAVES } },
+const ITEM_ADV_ENTRIES: Array<{ name: string; skills?: SkillName[]; saves?: AbilityName[] }> = [
+  { name: 'Boots of Elvenkind',          skills: ['stealth'] },
+  { name: 'Cloak of Elvenkind',          skills: ['stealth'] },
+  { name: 'Cloak of the Bat',            skills: ['stealth'] },
+  { name: 'Shadowfell Brand Tattoo',     skills: ['stealth'] },
+  { name: 'Piwafwi',                     skills: ['stealth'] },
+  { name: 'Piwafwi of Fire Resistance',  skills: ['stealth'] },
+  { name: 'Kagonesti Forest Shroud',     skills: ['stealth'] },
+  { name: "Nature's Mantle",             skills: ['stealth'] },
+  { name: 'Rod of Alertness',            skills: ['perception'] },
+  { name: 'Sentinel Shield',             skills: ['perception'] },
+  { name: 'Robe of Eyes',                skills: ['perception'] },
+  { name: 'Eyes of the Eagle',           skills: ['perception'] },
+  { name: 'Watchful Helm',               skills: ['perception'] },
+  { name: 'Ring of Truth Telling',       skills: ['insight'] },
+  { name: "Inquisitive's Goggles",       skills: ['insight'] },
+  { name: 'Gavel of the Venn Rune',      skills: ['persuasion'] },
+  { name: 'Crown of the Wrath Bringer',  skills: ['intimidation'] },
+  { name: 'Skull Helm',                  skills: ['intimidation'] },
+  { name: "Reveler's Concertina",        skills: ['performance'] },
+  { name: 'Orb of the Stein Rune',       saves: ['str'] },
+  { name: 'Platinum Scarf',              saves: ALL_SAVES },
 ]
 
-const ITEM_ADV_MAP = new Map(
-  ITEM_ADV_ENTRIES.map(({ name, entry }) => [name.toLowerCase(), entry]),
+const ITEM_ADV_MAP = new Map<string, AdvantageEntry>(
+  ITEM_ADV_ENTRIES.map(({ name, skills, saves }) => [name.toLowerCase(), { skills, saves, label: name, kind: 'item' }]),
 )
 
-export function getCharacterAdvantages(character: Character): { saves: Set<AbilityName>; skills: Set<SkillName> } {
-  const saves = new Set<AbilityName>()
-  const skills = new Set<SkillName>()
+interface AdvSources { saves: Partial<Record<AbilityName, RollAdvSource[]>>; skills: Partial<Record<SkillName, RollAdvSource[]>> }
 
-  function apply(entry: AdvantageEntry) {
-    for (const ab of (entry.saves ?? [])) saves.add(ab)
-    for (const sk of (entry.skills ?? [])) skills.add(sk)
+// Labeled advantage sources from the hardcoded registries (feats, race/subrace, items).
+// Disadvantage sources (armor stealth, data effects) are merged in deriveCharacterStats.
+export function getCharacterAdvantages(character: Character): AdvSources {
+  const out: AdvSources = { saves: {}, skills: {} }
+  const add = (entry: AdvantageEntry) => {
+    const src: RollAdvSource = { mode: 'adv', label: entry.label, kind: entry.kind }
+    for (const ab of (entry.saves ?? [])) (out.saves[ab] ??= []).push(src)
+    for (const sk of (entry.skills ?? [])) (out.skills[sk] ??= []).push(src)
   }
+  for (const slug of character.feats) { const e = FEAT_ADVANTAGES[slug]; if (e) add(e) }
+  const raceEntry = RACE_ADVANTAGES[character.race]; if (raceEntry) add(raceEntry)
+  if (character.subrace) { const s = SUBRACE_ADVANTAGES[character.subrace.toLowerCase()]; if (s) add(s) }
+  for (const item of character.equipment) { const e = ITEM_ADV_MAP.get(item.name.toLowerCase()); if (e) add(e) }
+  return out
+}
 
-  for (const slug of character.feats) {
-    const entry = FEAT_ADVANTAGES[slug]
-    if (entry) apply(entry)
+// ── Conditions ─────────────────────────────────────────────────────────────
+// Runtime conditions (character.conditions) that mechanically affect the player's
+// own rolls / speed / max-HP. Applied at render time alongside the advantage system.
+// Effects on "attacks against you" (the DM's concern) are intentionally not modeled.
+interface ConditionDef { label: string; attack?: 'adv' | 'dis'; checks?: boolean; saves?: AbilityName | 'all'; speed?: 'zero' | 'half' }
+
+export const CONDITION_DEFS: Record<string, ConditionDef> = {
+  blinded:       { label: 'Blinded', attack: 'dis' },
+  charmed:       { label: 'Charmed' },
+  deafened:      { label: 'Deafened' },
+  frightened:    { label: 'Frightened', attack: 'dis', checks: true },
+  grappled:      { label: 'Grappled', speed: 'zero' },
+  incapacitated: { label: 'Incapacitated' },
+  invisible:     { label: 'Invisible', attack: 'adv' },
+  paralyzed:     { label: 'Paralyzed', speed: 'zero' },
+  petrified:     { label: 'Petrified', speed: 'zero' },
+  poisoned:      { label: 'Poisoned', attack: 'dis', checks: true },
+  prone:         { label: 'Prone', attack: 'dis', speed: 'half' },
+  restrained:    { label: 'Restrained', attack: 'dis', saves: 'dex', speed: 'zero' },
+  stunned:       { label: 'Stunned', speed: 'zero' },
+  unconscious:   { label: 'Unconscious', speed: 'zero' },
+}
+export const CONDITION_ORDER = Object.keys(CONDITION_DEFS)
+
+export interface ConditionEffects {
+  skillDis: RollAdvSource[]   // disadvantage on every ability check
+  saveDis: { ability: AbilityName | 'all'; src: RollAdvSource }[]  // disadvantage on save(s)
+  attack: RollAdvSource[]     // adv/dis sources on attack rolls (netted later)
+  speed?: { mode: 'zero' | 'half'; label: string }
+  maxHpHalf?: { label: string }
+  active: { key: string; label: string }[]
+}
+
+export function computeConditionEffects(character: Character): ConditionEffects {
+  const out: ConditionEffects = { skillDis: [], saveDis: [], attack: [], active: [] }
+  let speedZero: string | null = null
+  let speedHalf: string | null = null
+  for (const key of (character.conditions?.active ?? [])) {
+    const def = CONDITION_DEFS[key]
+    if (!def) continue
+    out.active.push({ key, label: def.label })
+    if (def.attack) out.attack.push({ mode: def.attack, label: def.label, kind: 'condition' })
+    if (def.checks) out.skillDis.push({ mode: 'dis', label: def.label, kind: 'condition' })
+    if (def.saves) out.saveDis.push({ ability: def.saves, src: { mode: 'dis', label: def.label, kind: 'condition' } })
+    if (def.speed === 'zero') speedZero = def.label
+    else if (def.speed === 'half') speedHalf = def.label
   }
-
-  const raceEntry = RACE_ADVANTAGES[character.race]
-  if (raceEntry) apply(raceEntry)
-
-  if (character.subrace) {
-    const subraceEntry = SUBRACE_ADVANTAGES[character.subrace.toLowerCase()]
-    if (subraceEntry) apply(subraceEntry)
+  // Exhaustion (cumulative levels 1–6).
+  const ex = character.conditions?.exhaustion ?? 0
+  if (ex > 0) {
+    const lbl = `Exhaustion ${ex}`
+    out.active.push({ key: 'exhaustion', label: `Exhaustion (level ${ex})` })
+    out.skillDis.push({ mode: 'dis', label: lbl, kind: 'condition' })            // L1
+    if (ex >= 2) speedHalf = speedHalf ?? lbl                                     // L2
+    if (ex >= 3) {                                                                // L3
+      out.attack.push({ mode: 'dis', label: lbl, kind: 'condition' })
+      out.saveDis.push({ ability: 'all', src: { mode: 'dis', label: lbl, kind: 'condition' } })
+    }
+    if (ex >= 4) out.maxHpHalf = { label: lbl }                                   // L4
+    if (ex >= 5) speedZero = lbl                                                  // L5
   }
-
-  for (const item of character.equipment) {
-    const entry = ITEM_ADV_MAP.get(item.name.toLowerCase())
-    if (entry) apply(entry)
-  }
-
-  return { saves, skills }
+  if (speedZero) out.speed = { mode: 'zero', label: speedZero }
+  else if (speedHalf) out.speed = { mode: 'half', label: speedHalf }
+  return out
 }
 
 // ── Feat prerequisite evaluation ────────────────────────────────────────────
@@ -699,13 +762,14 @@ interface FeatureEffectAccum {
   weaponProf: string[]
   armorProf: string[]
   toolProf: string[]
+  advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string }[]
 }
 
 function newFeatureAccum(): FeatureEffectAccum {
   return {
     acAlways: 0, acArmored: 0, acUnarmored: 0, weaponEffects: [],
     saveProf: [], saveBonus: [], derivedSave: [], resistances: [], immunities: [],
-    speed: [], maxHp: [], skillProf: [], weaponProf: [], armorProf: [], toolProf: [],
+    speed: [], maxHp: [], skillProf: [], weaponProf: [], armorProf: [], toolProf: [], advDis: [],
   }
 }
 
@@ -730,6 +794,8 @@ function applyFeatureEffect(e: FeatureEffect, label: string, acc: FeatureEffectA
     case 'weapon_proficiency': for (const w of e.weapons) acc.weaponProf.push(w.toLowerCase()); break
     case 'armor_proficiency': for (const a of e.armor) acc.armorProf.push(a); break
     case 'tool_proficiency': for (const t of e.tools) acc.toolProf.push(t); break
+    case 'advantage': acc.advDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label }); break
+    case 'disadvantage': acc.advDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label }); break
   }
 }
 
@@ -913,6 +979,8 @@ export function deriveCharacterStats(
   // Structured racial trait grants (proficiencies, resistances, natural armor,
   // languages, senses, per-level HP) — single application point, INV-1.
   const raceEffects = computeRaceEffects(race, character.subrace)
+  // Runtime conditions (adv/dis on rolls, speed, max-HP) — applied below.
+  const conditionEffects = computeConditionEffects(character)
   let featSpeedBonus = 0
   let featInitiativeBonus = 0
   const featSpeedSources: { slug: string; name: string; amount: number }[] = []
@@ -1042,7 +1110,15 @@ export function deriveCharacterStats(
   // ── Combat stats ──────────────────────────────────────────────────────────
   const dexMod = abilityModifier(effectiveAbilities.dex)
   const featureSpeed = featureFx.speed.reduce((t, s) => t + s.amount, 0)
-  const effectiveSpeed = character.speed + featSpeedBonus + itemEffects.speed + featureSpeed
+  const additiveSpeed = character.speed + featSpeedBonus + itemEffects.speed + featureSpeed
+  // Condition speed (Grappled/Restrained → 0; Prone/Exhaustion 2+ → half) applies as
+  // a realized delta so the breakdown still sums to the effective value.
+  let effectiveSpeed = additiveSpeed
+  let conditionSpeedDelta = 0
+  if (conditionEffects.speed) {
+    effectiveSpeed = conditionEffects.speed.mode === 'zero' ? 0 : Math.floor(additiveSpeed / 2)
+    conditionSpeedDelta = effectiveSpeed - additiveSpeed
+  }
   const effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus + itemEffects.initiative
   const effectiveInitiative = dexMod + effectiveInitiativeBonus
 
@@ -1054,6 +1130,7 @@ export function deriveCharacterStats(
     ...featSpeedSources.map(s => ({ id: `feat:${s.slug}:speed`, label: `${s.name} (feat)`, amount: s.amount, kind: 'feat' as const, removable: true })),
     ...itemEffects.speedSources.map(s => ({ id: `item:${slugifyName(s.name)}:speed`, label: `${s.name} (item)`, amount: s.amount, kind: 'item' as const, removable: true })),
     ...featureFx.speed.map(s => ({ id: `feature:${slugifyName(s.label)}:speed`, label: `${s.label} (feature)`, amount: s.amount, kind: 'feature' as const, removable: true })),
+    ...(conditionSpeedDelta !== 0 ? [{ id: 'condition:speed:speed', label: `${conditionEffects.speed!.label} (${conditionEffects.speed!.mode === 'zero' ? 'speed 0' : 'speed halved'})`, amount: conditionSpeedDelta, kind: 'condition' as const, removable: true }] : []),
   ]
   const initiativeBreakdown: ModifierSource[] = [
     { id: 'abilityMod:dex:initiative', label: 'DEX modifier', amount: dexMod, kind: 'abilityMod', removable: false },
@@ -1334,7 +1411,13 @@ export function deriveCharacterStats(
     featureHp += s.amount
     maxHpBreakdown.push({ id: `feature:${slugifyName(s.label)}:maxHp`, label: s.label, amount: s.amount, kind: 'feature', removable: true })
   }
-  const adjustedMaxHp = character.maxHp + hpBonus + subraceHpBonus + itemEffects.maxHp + featureHp
+  const additiveMaxHp = character.maxHp + hpBonus + subraceHpBonus + itemEffects.maxHp + featureHp
+  // Exhaustion level 4 halves the maximum — applied as a realized delta (set, not additive).
+  let adjustedMaxHp = additiveMaxHp
+  if (conditionEffects.maxHpHalf) {
+    adjustedMaxHp = Math.floor(additiveMaxHp / 2)
+    maxHpBreakdown.push({ id: 'condition:maxhp:maxHp', label: `${conditionEffects.maxHpHalf.label} (HP halved)`, amount: adjustedMaxHp - additiveMaxHp, kind: 'condition', removable: true })
+  }
   console.assert(maxHpBreakdown.reduce((t, c) => t + c.amount, 0) === adjustedMaxHp, '[ledger] maxHp breakdown ≠ adjustedMaxHp')
 
   // ── Hit dice type ─────────────────────────────────────────────────────────
@@ -1362,8 +1445,47 @@ export function deriveCharacterStats(
   const resistances = [...new Set([...itemEffects.resistances, ...raceEffects.resistances, ...featureFx.resistances.map(r => r.damageType), ...featResistances])]
   const immunities = [...new Set([...itemEffects.immunities, ...raceEffects.immunities, ...featureFx.immunities.map(r => r.damageType)])]
 
-  // ── Advantages ────────────────────────────────────────────────────────────
-  const advantages = getCharacterAdvantages(character)
+  // ── Advantages / disadvantages (labeled sources, netted per RAW) ──────────
+  // Collect every adv/dis source with its label (ledger provenance), then net per
+  // target: any advantage + any disadvantage cancel to normal.
+  const rollStateSources: { saves: Partial<Record<AbilityName, RollAdvSource[]>>; skills: Partial<Record<SkillName, RollAdvSource[]>> } =
+    getCharacterAdvantages(character)
+  // Always-on feature adv/dis (e.g. Danger Sense → DEX save advantage).
+  for (const a of featureFx.advDis) {
+    const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'feature' }
+    if (a.target === 'save') {
+      const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
+      for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
+    } else if (a.skill) {
+      (rollStateSources.skills[a.skill] ??= []).push(src)
+    }
+  }
+  // Armor stealth disadvantage.
+  if (hasStealthDisadvantage) {
+    (rollStateSources.skills.stealth ??= []).push({ mode: 'dis', label: `${bodyArmorName || 'Armor'} (stealth)`, kind: 'item' })
+  }
+  // Conditions: disadvantage on EVERY ability check / saving throw (Poisoned,
+  // Frightened, Exhaustion, …).
+  if (conditionEffects.skillDis.length) {
+    for (const sk of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) {
+      for (const src of conditionEffects.skillDis) (rollStateSources.skills[sk] ??= []).push(src)
+    }
+  }
+  for (const e of conditionEffects.saveDis) {
+    const abs = e.ability === 'all' ? ALL_ABILITIES : [e.ability]
+    for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(e.src)
+  }
+  const netSources = (srcs?: RollAdvSource[]): RollMode | undefined => {
+    const a = !!srcs?.some(s => s.mode === 'adv'), d = !!srcs?.some(s => s.mode === 'dis')
+    return a === d ? undefined : a ? 'adv' : 'dis'
+  }
+  const rollStates: { saves: Partial<Record<AbilityName, RollMode>>; skills: Partial<Record<SkillName, RollMode>> } = { saves: {}, skills: {} }
+  for (const ab of ALL_ABILITIES) { const m = netSources(rollStateSources.saves[ab]); if (m) rollStates.saves[ab] = m }
+  for (const sk of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) { const m = netSources(rollStateSources.skills[sk]); if (m) rollStates.skills[sk] = m }
+  // Attack-roll adv/dis (from conditions: Poisoned/Prone/Restrained → dis, Invisible →
+  // adv, Exhaustion 3+ → dis). The weapon/spell Hit buttons read this.
+  const attackRollSources = conditionEffects.attack
+  const attackRollState = netSources(attackRollSources)
 
   return {
     effectiveAC,
@@ -1383,7 +1505,11 @@ export function deriveCharacterStats(
     spellSaveDC,
     hasStealthDisadvantage,
     hitDiceType,
-    advantages,
+    rollStates,
+    rollStateSources,
+    attackRollState,
+    attackRollSources,
+    activeConditions: conditionEffects.active,
     effectiveSkillProficiencies,
     featSkillGrants,
     raceSkillGrants,

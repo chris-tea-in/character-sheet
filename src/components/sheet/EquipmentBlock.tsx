@@ -245,6 +245,7 @@ function UnarmedRow({ derived }: { derived: DerivedStats }) {
         <div className="flex items-center gap-1 flex-none">
           <RollButton
             label="Hit"
+            rollMode={derived.attackRollState}
             onClick={() => dispatch({ type: 'attack', label: 'Unarmed Strike', modifier: toHitModifier })}
           />
           <RollButton
@@ -343,6 +344,7 @@ function WeaponRow({
         <div className="flex items-center gap-1 flex-none">
           <RollButton
             label="Hit"
+            rollMode={derived.attackRollState}
             onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier })}
           />
           <RollButton

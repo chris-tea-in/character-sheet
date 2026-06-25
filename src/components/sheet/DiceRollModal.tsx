@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { rollDie } from '@/lib/dice'
@@ -46,13 +47,55 @@ function CritLabel({ natural, kind }: { natural: number; kind: string }) {
   return null
 }
 
+// Re-roll controls: keep best/worst of N d20s (advantage/disadvantage, generalized to
+// Elven-Accuracy-style N) OR roll the check N independent times. Closes audit #19/#20.
+function RerollRow() {
+  const reroll = useDiceStore(s => s.rerollWithMode)
+  const rollN = useDiceStore(s => s.rollIndependent)
+  const [n, setN] = useState(2)
+  const stepBtn = 'w-5 h-5 rounded border border-border hover:bg-secondary/40 transition-colors disabled:opacity-30 leading-none'
+  const actBtn = 'px-2 py-0.5 rounded border border-border hover:bg-secondary/40 transition-colors'
+  return (
+    <div className="flex flex-col items-center gap-1.5 text-[11px] border-t border-border pt-2 w-full">
+      <div className="flex items-center gap-1.5">
+        <span className="text-muted-foreground">How many:</span>
+        <button onClick={() => setN(v => Math.max(2, v - 1))} disabled={n <= 2} className={stepBtn} aria-label="Fewer dice">−</button>
+        <span className="w-4 text-center font-bold tabular-nums">{n}</span>
+        <button onClick={() => setN(v => Math.min(8, v + 1))} disabled={n >= 8} className={stepBtn} aria-label="More dice">+</button>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap justify-center">
+        <button onClick={() => reroll('adv', n)} className={actBtn}>Keep best (Adv)</button>
+        <button onClick={() => reroll('dis', n)} className={actBtn}>Keep worst (Dis)</button>
+        <button onClick={() => rollN(n)} className={actBtn}>Roll {n}×</button>
+      </div>
+    </div>
+  )
+}
+
+// Kept/dropped pair shown when a roll used advantage or disadvantage.
+function AdvDicePair({ natural, natural2, color }: { natural: number; natural2: number; color?: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-1">
+      <div className="flex flex-col items-center">
+        <span className="text-3xl font-black tabular-nums" style={{ color }}>{natural}</span>
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">kept</span>
+      </div>
+      <span className="text-muted-foreground text-lg">|</span>
+      <div className="flex flex-col items-center opacity-40">
+        <span className="text-3xl font-black tabular-nums line-through">{natural2}</span>
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">dropped</span>
+      </div>
+    </div>
+  )
+}
+
 // ── Modal body per phase ─────────────────────────────────────────────────────
 
 function ResultBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const { entry } = modal
-  const { natural, natural2, modifier, total } = entry.result
+  const { natural, natural2, dice, multi, modifier, total } = entry.result
   // Heal (hit-die) rolls show like a raw die — no crit highlighting
   const isRaw = entry.kind.type === 'raw' || entry.kind.type === 'heal'
   const isRawD20 = entry.kind.type === 'raw' && entry.kind.die === 20
@@ -71,40 +114,33 @@ function ResultBody() {
       <p className="text-sm text-muted-foreground">{entry.label}</p>
 
       <div className="flex flex-col items-center gap-1">
-        {hasAdvantage && (
-          <div className="flex items-center gap-3 mb-1">
-            <div className="flex flex-col items-center">
-              <span
-                className="text-3xl font-black tabular-nums"
-                style={{ color: totalColor }}
-              >
-                {natural}
-              </span>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">kept</span>
-            </div>
-            <span className="text-muted-foreground text-lg">|</span>
-            <div className="flex flex-col items-center opacity-40">
-              <span className="text-3xl font-black tabular-nums line-through">
-                {natural2}
-              </span>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">dropped</span>
-            </div>
-          </div>
+        {hasAdvantage && <AdvDicePair natural={natural} natural2={natural2!} color={totalColor} />}
+        {dice && dice.length > 0 && (
+          <p className="text-xs text-muted-foreground tabular-nums">
+            [{dice.join(', ')}]{entry.kind.type !== 'raw' && <> → kept <span className="font-bold">{natural}</span></>}
+          </p>
         )}
-        {entry.kind.type !== 'raw' && modifier !== 0 && (
+        {!multi && entry.kind.type !== 'raw' && modifier !== 0 && (
           <p className="text-xs text-muted-foreground">
             {natural}{modifier >= 0 ? ' + ' : ' − '}{Math.abs(modifier)}
           </p>
         )}
-        <span
-          className={hasAdvantage ? 'text-5xl font-black tabular-nums' : 'text-6xl font-black tabular-nums'}
-          style={{ color: totalColor }}
-        >
-          {total}
-        </span>
-        <CritLabel natural={natural} kind={entry.kind.type} />
+        {multi && multi.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-3xl font-black tabular-nums">
+            {multi.map((t, i) => <span key={i}>{t}</span>)}
+          </div>
+        ) : (
+          <span
+            className={hasAdvantage ? 'text-5xl font-black tabular-nums' : 'text-6xl font-black tabular-nums'}
+            style={{ color: totalColor }}
+          >
+            {total}
+          </span>
+        )}
+        {!multi && <CritLabel natural={natural} kind={entry.kind.type} />}
       </div>
 
+      {(entry.kind.type === 'skill' || entry.kind.type === 'save' || entry.kind.type === 'ability') && <RerollRow />}
       <Button onClick={closeModal}>Done</Button>
     </div>
   )
@@ -115,7 +151,8 @@ function HitBody() {
   const closeModal = useDiceStore(s => s.closeModal)
   const setModalDamage = useDiceStore(s => s.setModalDamage)
   const { entry, damageDice, damageBonus = 0, damageType, extraDamage = [], isCrit } = modal
-  const { natural, modifier, total } = entry.result
+  const { natural, natural2, dice, modifier, total } = entry.result
+  const hasAdvantage = natural2 !== undefined
   const isNat20 = natural === 20
   const isNat1 = natural === 1
 
@@ -146,13 +183,19 @@ function HitBody() {
       </p>
 
       <div className="flex flex-col items-center gap-1">
+        {hasAdvantage && <AdvDicePair natural={natural} natural2={natural2!} color={totalColor} />}
+        {dice && dice.length > 0 && (
+          <p className="text-xs text-muted-foreground tabular-nums">
+            [{dice.join(', ')}] → kept <span className="font-bold">{natural}</span>
+          </p>
+        )}
         {modifier !== 0 && (
           <p className="text-xs text-muted-foreground">
             {natural}{modifier >= 0 ? ' + ' : ' − '}{Math.abs(modifier)}
           </p>
         )}
         <span
-          className="text-6xl font-black tabular-nums"
+          className={hasAdvantage ? 'text-5xl font-black tabular-nums' : 'text-6xl font-black tabular-nums'}
           style={{ color: totalColor }}
         >
           {total}
@@ -179,6 +222,9 @@ function HitBody() {
           <Button onClick={closeModal}>Done</Button>
         )}
       </div>
+
+      {/* Re-roll the to-hit with advantage / disadvantage before committing to damage. */}
+      <RerollRow />
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { StepperField } from './StepperField'
 import { ValueAdjustModal } from './ValueAdjustModal'
 import { RollButton } from '@/components/sheet/RollButton'
 import { StatBreakdown } from './StatBreakdown'
+import { CONDITION_DEFS, CONDITION_ORDER } from '@/lib/characterStats'
 import type { Character, NewCharacter } from '@/types/character'
 import type { DieType } from '@/types/dice'
 import type { DerivedStats } from '@/lib/characterStats'
@@ -272,6 +273,82 @@ function DeathSaves({
   )
 }
 
+// Conditions tracker — toggle chips + exhaustion stepper. Writes character.conditions
+// (runtime state); the mechanical effects derive in deriveCharacterStats.
+function ConditionsSection({
+  character,
+  onSave,
+}: {
+  character: Character
+  onSave: (changes: Partial<NewCharacter>) => void
+}) {
+  const active = new Set(character.conditions?.active ?? [])
+  const exhaustion = character.conditions?.exhaustion ?? 0
+
+  function toggle(key: string) {
+    const next = new Set(active)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    onSave({ conditions: { active: [...next], exhaustion } })
+  }
+  function setExhaustion(level: number) {
+    onSave({ conditions: { active: [...active], exhaustion: Math.max(0, Math.min(6, level)) } })
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 space-y-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Conditions
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {CONDITION_ORDER.map(key => {
+          const on = active.has(key)
+          return (
+            <button
+              key={key}
+              onClick={() => toggle(key)}
+              className="px-2 py-0.5 rounded-full text-[11px] border transition-colors"
+              style={{
+                borderColor: on ? 'var(--color-accent-red)' : 'var(--color-border-raw)',
+                background: on ? 'var(--color-accent-red)' : 'transparent',
+                color: on ? '#fff' : 'var(--color-text-muted)',
+              }}
+            >
+              {CONDITION_DEFS[key].label}
+            </button>
+          )
+        })}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-muted-foreground flex-1">Exhaustion</span>
+        <button
+          onClick={() => setExhaustion(exhaustion - 1)}
+          className="w-6 h-6 rounded border border-border hover:bg-secondary flex items-center justify-center font-bold leading-none"
+        >
+          −
+        </button>
+        <span
+          className="text-sm font-bold tabular-nums w-4 text-center"
+          style={{ color: exhaustion >= 6 ? 'var(--color-accent-red)' : exhaustion > 0 ? 'var(--color-accent-gold)' : undefined }}
+        >
+          {exhaustion}
+        </span>
+        <button
+          onClick={() => setExhaustion(exhaustion + 1)}
+          className="w-6 h-6 rounded border border-border hover:bg-secondary flex items-center justify-center font-bold leading-none"
+        >
+          +
+        </button>
+        {exhaustion >= 6 && (
+          <span className="text-[11px] font-semibold" style={{ color: 'var(--color-accent-red)' }}>
+            Death (RAW)
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function CombatBlock({ character, onSave, derived, classHitDice }: Props) {
   const [openBreakdown, setOpenBreakdown] = useState<null | 'speed' | 'initiative' | 'ac' | 'proficiencyBonus' | 'maxHp'>(null)
   const hitDie = derived.hitDiceType
@@ -514,6 +591,9 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
           />
         </div>
       </div>
+      {/* Conditions tracker */}
+      <ConditionsSection character={character} onSave={onSave} />
+
       <StatBreakdown
         open={openBreakdown === 'speed'}
         onClose={() => setOpenBreakdown(null)}

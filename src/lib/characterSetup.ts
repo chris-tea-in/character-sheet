@@ -795,6 +795,7 @@ export function draftToNewCharacter(
     hitDiceUsed: 0,
     hitDiceUsedByClass: {},
     inspiration: false,
+    conditions: { active: [], exhaustion: 0 },
     skillProficiencies,
     savingThrowProficiencies,
     spells: [

@@ -199,11 +199,20 @@ INV-4 round-trip (repo patterns scouted in `characterRepo.ts` / `migrations.ts`)
      always-on FLAT effects — the SRD's remaining always-on features are advantages (Step 4), conditions
      (Step 4), or rerolls (Step 5). The hardcoded `FEAT_EFFECTS` registry now holds only `tough`/
      `observant` (kept — `observant`'s passive-perception bonus needs a new effect type; minor cleanup).
-4. **Disadvantage + conditions** — add the disadvantage emit to `getCharacterAdvantages` + a net
-   tristate; wire stealth-disadvantage and attack adv/dis (closes dice cluster #19/#20/#36); add a
-   conditions tracker feeding adv/dis, speed, HP.
+4. **Disadvantage + conditions.** ✅ **DONE 2026-06-24.**
+   - 4a: `rollStates` (per save/skill tristate, RAW-netted) + armor stealth-disadvantage wiring.
+   - 4b: every adv/dis source **labeled** (provenance) + a data-driven `advantage`/`disadvantage`
+     `FeatureEffect` variant; the save/skill breakdown popover shows a **Roll** section (sources + net).
+   - 4c: attack adv/dis via `advantage` on the attack `RollKind` + `rerollWithMode` + modal re-roll UI.
+   - 4d: **conditions tracker** — `Character.conditions {active, exhaustion}` (**migration v20** + full
+     INV-4 round-trip), `CONDITION_DEFS` registry + `computeConditionEffects`, applied to skills/saves
+     (per-target), attacks (auto via `useRollDispatch`, netted), speed (set/half as realized delta),
+     and Exhaustion-4 max-HP halving. Conditions UI (chips + exhaustion stepper) in CombatBlock.
+   - **+ Dice-roller enhancements:** freestyle DiceTray ×N (roll 4d6 at once) + roll-modal "how many"
+     (keep best/worst of N → Elven Accuracy, and roll-N-independent). Closes dice cluster #19/#20/#36.
 5. **New numeric semantics** (`speed_set`/floor, `speed_multiplier`, AC-floor/clamp, roll-floor,
    per-effect cap flag, reroll) + **item-effect data authoring** — opportunistically as items need them.
+   ← **NEXT.** Note: condition speed set/half already lands a realized-delta pattern Step 5 can reuse.
 6. **Full P2 override layer** (disable / change / add-your-own) — LAST, against now-populated breakdowns.
 
 Full per-block source lists + the 89 system-gaps are in `MODIFIER_SOURCE_MATRIX.md`.

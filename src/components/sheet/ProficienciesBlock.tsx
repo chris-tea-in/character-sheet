@@ -301,7 +301,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
               const isProficient = isStored || isFeatDerived
               const isClassSave = classSaveSet.has(ability)
               const bonus = derived.saveModifiers[ability]
-              const hasAdv = derived.advantages.saves.has(ability)
+              const rollMode = derived.rollStates.saves[ability]
 
               return (
                 <div
@@ -335,8 +335,8 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     title={`What's affecting the ${ABILITY_LABELS[ability]} save?`}
                   />
                   <RollButton
-                    onClick={() => dispatch({ type: 'save', ability, advantage: hasAdv || undefined })}
-                    advantage={hasAdv}
+                    onClick={() => dispatch({ type: 'save', ability, advantage: rollMode === 'adv' ? true : rollMode === 'dis' ? false : undefined })}
+                    rollMode={rollMode}
                   />
                 </div>
               )
@@ -362,7 +362,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
               const isRaceProficient = raceProficientSkills.has(skill)
               const ability = SKILL_ABILITY_MAP[skill]
               const bonus = derived.skillModifiers[skill]
-              const hasAdv = derived.advantages.skills.has(skill)
+              const rollMode = derived.rollStates.skills[skill]
               const isClassOption = classSkillOptions.has(skill)
               const notClassOption = hasClass && !isClassOption
               const expertiseCapped = atExpertiseCap && !isExpertise
@@ -426,15 +426,15 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     title={`What's affecting ${SKILL_DISPLAY_MAP[skill]}?`}
                   />
                   <RollButton
-                    onClick={() => dispatch({ type: 'skill', skill, advantage: hasAdv || undefined })}
-                    advantage={hasAdv}
+                    onClick={() => dispatch({ type: 'skill', skill, advantage: rollMode === 'adv' ? true : rollMode === 'dis' ? false : undefined })}
+                    rollMode={rollMode}
                   />
                 </div>
               )
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            P = prof · E = expertise · class options in gold · off-list & over-cap allowed (homebrew) · (Adv) = advantage from feat/race/item
+            P = prof · E = expertise · class options in gold · off-list & over-cap allowed (homebrew) · (Adv)/(Dis) = advantage/disadvantage (e.g. armor stealth), netted per RAW
           </p>
         </>
       )}
@@ -445,6 +445,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
         title={openSaveBreakdown ? `${ABILITY_LABELS[openSaveBreakdown]} Save` : ''}
         signed
         sources={openSaveBreakdown ? derived.breakdowns.saves[openSaveBreakdown] : []}
+        rollSources={openSaveBreakdown ? derived.rollStateSources.saves[openSaveBreakdown] : undefined}
       />
       <StatBreakdown
         open={openSkillBreakdown !== null}
@@ -452,6 +453,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
         title={openSkillBreakdown ? SKILL_DISPLAY_MAP[openSkillBreakdown] : ''}
         signed
         sources={openSkillBreakdown ? derived.breakdowns.skills[openSkillBreakdown] : []}
+        rollSources={openSkillBreakdown ? derived.rollStateSources.skills[openSkillBreakdown] : undefined}
       />
     </section>
   )

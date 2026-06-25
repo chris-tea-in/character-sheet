@@ -100,6 +100,10 @@ export interface Character {
   // characters use the flat hitDiceUsed counter instead
   hitDiceUsedByClass: Partial<Record<string, number>>
   inspiration: boolean
+  // Active conditions (runtime state, toggled on the sheet). `active` holds the
+  // condition keys (poisoned, prone, restrained, …); `exhaustion` is the 0–6 level.
+  // Feeds derived adv/dis, speed, and max-HP at render time (deriveCharacterStats).
+  conditions: { active: string[]; exhaustion: number }
 
   skillProficiencies: Partial<Record<SkillName, SkillProficiency>>
   savingThrowProficiencies: AbilityName[]
@@ -186,6 +190,7 @@ export function defaultCharacter(name: string): NewCharacter {
     homebrewAllWeaponsProficient: false,
     deathSaves: { successes: 0, failures: 0 },
     hitDiceUsed: 0, hitDiceUsedByClass: {}, inspiration: false,
+    conditions: { active: [], exhaustion: 0 },
     skillProficiencies: {},
     savingThrowProficiencies: [],
     spells: [], spellSlotsUsed: {},

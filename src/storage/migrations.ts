@@ -251,4 +251,14 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN custom_races TEXT NOT NULL DEFAULT '[]'`)
     },
   },
+  {
+    version: 20,
+    up: (db) => {
+      // Conditions tracker — active conditions + exhaustion level (0–6). Runtime
+      // state toggled on the sheet; feeds derived adv/dis, speed, and max-HP at
+      // render time (deriveCharacterStats). Stored as one JSON blob, synced like
+      // any other field.
+      db.run(`ALTER TABLE characters ADD COLUMN conditions TEXT NOT NULL DEFAULT '{"active":[],"exhaustion":0}'`)
+    },
+  },
 ]

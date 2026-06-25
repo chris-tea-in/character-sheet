@@ -138,6 +138,7 @@ function fullCharacter(): NewCharacter {
     hitDiceUsed: 3,
     hitDiceUsedByClass: { wizard: 3 },
     inspiration: true,
+    conditions: { active: ['poisoned', 'prone'], exhaustion: 2 },
     skillProficiencies: { arcana: 'expertise', history: 'proficient' },
     savingThrowProficiencies: ['int', 'wis'],
     spells: [{ slug: 'fireball', prepared: true, damageDice: '8d6', damageType: 'fire', damagePerLevel: '1d6' }],

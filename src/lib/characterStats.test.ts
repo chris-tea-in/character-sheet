@@ -215,6 +215,81 @@ function raceWith(effects: RaceEffect[]): import('../types/data').Race {
   } as unknown as import('../types/data').Race
 }
 
+// ── Step 4d: conditions ──────────────────────────────────────────────────────
+describe('deriveCharacterStats — conditions', () => {
+  it('Poisoned → disadvantage on all ability checks and attacks', () => {
+    const d = deriveCharacterStats(charWith({ conditions: { active: ['poisoned'], exhaustion: 0 } }), {})
+    expect(d.rollStates.skills.stealth).toBe('dis')
+    expect(d.rollStates.skills.arcana).toBe('dis')
+    expect(d.attackRollState).toBe('dis')
+    expect(d.rollStates.saves.str).toBeUndefined() // poisoned doesn't touch saves
+  })
+
+  it('Restrained → speed 0 + DEX-save disadvantage only', () => {
+    const d = deriveCharacterStats(charWith({ speed: 30, conditions: { active: ['restrained'], exhaustion: 0 } }), {})
+    expect(d.effectiveSpeed).toBe(0)
+    expect(d.breakdowns.speed.reduce((t, s) => t + s.amount, 0)).toBe(0)
+    expect(d.rollStates.saves.dex).toBe('dis')
+    expect(d.rollStates.saves.con).toBeUndefined()
+  })
+
+  it('Exhaustion 2 halves speed; level 4 halves max HP', () => {
+    const d2 = deriveCharacterStats(charWith({ speed: 30, conditions: { active: [], exhaustion: 2 } }), {})
+    expect(d2.effectiveSpeed).toBe(15)
+    const d4 = deriveCharacterStats(charWith({ maxHp: 41, conditions: { active: [], exhaustion: 4 } }), {})
+    expect(d4.adjustedMaxHp).toBe(20) // floor(41/2)
+    expect(d4.breakdowns.maxHp.reduce((t, s) => t + s.amount, 0)).toBe(20)
+  })
+
+  it('Invisible (adv) + Poisoned (dis) net attacks to normal', () => {
+    const d = deriveCharacterStats(charWith({ conditions: { active: ['invisible', 'poisoned'], exhaustion: 0 } }), {})
+    expect(d.attackRollState).toBeUndefined() // netted
+  })
+})
+
+// ── Step 4a: advantage / disadvantage netting ────────────────────────────────
+describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
+  it('stealth-disadvantage armor sets Stealth to disadvantage', () => {
+    const d = deriveCharacterStats(charWith({
+      equipment: [{ id: 'p', name: 'Plate', quantity: 1, equipped: true }],
+    }), { catalog: { armor: [plate] } })
+    expect(d.hasStealthDisadvantage).toBe(true)
+    expect(d.rollStates.skills.stealth).toBe('dis')
+  })
+
+  it('a racial save advantage (Dwarf vs poison → CON) shows as advantage', () => {
+    const d = deriveCharacterStats(charWith({ race: 'dwarf' }), {})
+    expect(d.rollStates.saves.con).toBe('adv')
+  })
+
+  it('advantage + disadvantage on the same skill net to normal (RAW)', () => {
+    // Boots of Elvenkind → Stealth advantage; Plate → Stealth disadvantage ⇒ normal.
+    const d = deriveCharacterStats(charWith({
+      equipment: [
+        { id: 'b', name: 'Boots of Elvenkind', quantity: 1, equipped: true },
+        { id: 'p', name: 'Plate', quantity: 1, equipped: true },
+      ],
+    }), { catalog: { armor: [plate] } })
+    expect(d.hasStealthDisadvantage).toBe(true)
+    expect(d.rollStates.skills.stealth).toBeUndefined() // netted to normal
+  })
+
+  it('adv/dis sources are labeled for the ledger breakdown', () => {
+    const d = deriveCharacterStats(charWith({ race: 'dwarf' }), {})
+    expect(d.rollStateSources.saves.con?.some(s => s.label === 'Dwarven Resilience' && s.mode === 'adv')).toBe(true)
+  })
+
+  it('data-driven feature advantage (Danger Sense → DEX save) applies + is labeled', () => {
+    const barb = classWith('barbarian', { '2': ['Danger Sense'] })
+    const cfe = { barbarian: { 'Danger Sense': [{ type: 'advantage', target: 'save', ability: 'dex' }] } }
+    const d = deriveCharacterStats(charWith({
+      level: 3, classes: [{ classSlug: 'barbarian', subclassSlug: null, level: 3 }],
+    }), { classes: [barb], classFeatureEffects: cfe as never })
+    expect(d.rollStates.saves.dex).toBe('adv')
+    expect(d.rollStateSources.saves.dex?.some(s => s.label === 'Danger Sense')).toBe(true)
+  })
+})
+
 // ── Step 3: always-on class-feature effects ──────────────────────────────────
 function classWith(slug: string, levels: Record<string, string[]>): ClassData {
   const lv: Record<string, { features: string[] }> = {}

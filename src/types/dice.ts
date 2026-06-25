@@ -16,11 +16,11 @@ export interface ExtraDamageResult {
 }
 
 export type RollKind =
-  | { type: 'raw';    die: DieType }
+  | { type: 'raw';    die: DieType; count?: number }   // count > 1 → roll NdX at once (sum)
   | { type: 'skill';  skill: SkillName;   advantage?: boolean }
   | { type: 'save';   ability: AbilityName; advantage?: boolean }
   | { type: 'ability'; ability: AbilityName; advantage?: boolean }
-  | { type: 'attack'; label: string; modifier: number; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[] }
+  | { type: 'attack'; label: string; modifier: number; advantage?: boolean; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[] }
   | { type: 'damage'; label: string }
   | { type: 'heal';   label: string; die: DieType; modifier: number }
 
@@ -45,8 +45,10 @@ export interface DamageSpec {
 }
 
 export interface RollResult {
-  natural:  number   // the kept die (max when advantage)
+  natural:  number   // the kept die (max when advantage); for multi-die raw, the sum
   natural2?: number  // the dropped die, present only when advantage was used
+  dice?:    number[] // individual dice: a multi-die raw roll (4d6) OR all N d20s of a keep-best/worst roll
+  multi?:   number[] // independent re-roll totals ("roll the check N times" → [17, 4, 11])
   modifier: number
   total:    number
 }

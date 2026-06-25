@@ -209,6 +209,11 @@ function validateFeatureEffects(effects, label) {
       case 'armor_proficiency':
         if (!Array.isArray(e.armor) || !e.armor.every(a => RACE_ARMOR_CLASSES.has(a))) errors.push(`${at} (armor_proficiency): "armor" must be light|medium|heavy|shield values`)
         break
+      case 'advantage': case 'disadvantage':
+        if (e.target !== 'save' && e.target !== 'skill') errors.push(`${at} (${e.type}): "target" must be "save" or "skill"`)
+        if (e.target === 'save' && e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (${e.type}): invalid save ability "${e.ability}"`)
+        if (e.target === 'skill' && !EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (${e.type}): invalid skill "${e.skill}"`)
+        break
       default:
         errors.push(`${at}: unknown feature effect type "${e?.type}"`)
     }

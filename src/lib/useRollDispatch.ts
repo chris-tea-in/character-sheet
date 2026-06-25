@@ -8,6 +8,11 @@ export function useRollDispatch(derived: DerivedStats) {
   const openDamage = useDiceStore(s => s.openDamage)
 
   function dispatch(kind: RollKind) {
+    // Attacks inherit the character's condition-driven advantage/disadvantage
+    // (Poisoned/Prone/Restrained → dis, Invisible → adv, …) unless explicitly set.
+    if (kind.type === 'attack' && kind.advantage === undefined && derived.attackRollState) {
+      kind = { ...kind, advantage: derived.attackRollState === 'adv' }
+    }
     const entry = roll(kind, derived)
 
     if (kind.type === 'attack') {

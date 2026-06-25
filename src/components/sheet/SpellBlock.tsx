@@ -82,6 +82,7 @@ function SpellRow({
   onDamage,
   onHeal,
   onSetDamage,
+  attackRollMode,
 }: {
   spell: SpellData | undefined
   charSpell: CharacterSpell
@@ -95,6 +96,7 @@ function SpellRow({
   onDamage: () => void
   onHeal: () => void
   onSetDamage: (patch: Partial<CharacterSpell>) => void
+  attackRollMode?: 'adv' | 'dis'
 }) {
   const [expanded, setExpanded] = useState(false)
   const level = spell?.level ?? 0
@@ -150,7 +152,7 @@ function SpellRow({
         )}
 
         <div className="flex items-center gap-1 flex-none">
-          <RollButton label="Hit" onClick={onHit} />
+          <RollButton label="Hit" rollMode={attackRollMode} onClick={onHit} />
           {hasDamage ? (
             <RollButton label="Dmg" tone="gold" onClick={onDamage} />
           ) : hasHeal ? (
@@ -612,6 +614,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                         key={cs.slug}
                         charSpell={cs}
                         spell={sp}
+                        attackRollMode={derived.attackRollState}
                         showPreparedToggle={isPreparedCaster}
                         homebrew={spellLevel > maxSlotLevel}
                         catalogDamage={catalog}

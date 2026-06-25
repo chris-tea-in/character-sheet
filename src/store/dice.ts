@@ -12,7 +12,7 @@ function buildLabel(kind: RollKind, modifier: number): string {
   const adv = 'advantage' in kind && kind.advantage === true ? ' [Adv]' : 'advantage' in kind && kind.advantage === false ? ' [Dis]' : ''
   switch (kind.type) {
     case 'raw':
-      return `d${kind.die}`
+      return (kind.count ?? 1) > 1 ? `${kind.count}d${kind.die}` : `d${kind.die}`
     case 'skill':
       return `${SKILL_DISPLAY_MAP[kind.skill]} (${SKILL_ABILITY_MAP[kind.skill].toUpperCase()} ${sign}${modifier})${adv}`
     case 'save':
@@ -20,7 +20,7 @@ function buildLabel(kind: RollKind, modifier: number): string {
     case 'ability':
       return `${kind.ability.toUpperCase()} check (${sign}${modifier})${adv}`
     case 'attack':
-      return `${kind.label} (${sign}${modifier})`
+      return `${kind.label} (${sign}${modifier})${adv}`
     case 'damage':
       return `${kind.label} damage`
     case 'heal':
@@ -53,6 +53,12 @@ interface DiceState {
   roll: (kind: RollKind, derived: DerivedStats) => RollEntry
   clear: () => void
   modal: ModalState | null
+  // Re-roll the current d20 result (attack/skill/save/ability), keeping the best
+  // (advantage) or worst (disadvantage) of `count` d20s — count 2 = normal adv/dis,
+  // 3 = Elven Accuracy, etc. Closes audit #19/#20. Reuses the computed modifier.
+  rerollWithMode: (mode: 'adv' | 'dis', count?: number) => void
+  // Roll the current check `count` independent times (no keep-best), showing all totals.
+  rollIndependent: (count: number) => void
   openModal: (state: ModalState) => void
   openDamage: (spec: DamageSpec) => void
   setCastLevel: (level: number) => void
@@ -76,6 +82,18 @@ export const useDiceStore = create<DiceState>()((set) => ({
   modal: null,
 
   roll: (kind, derived) => {
+    // Multi-die raw roll (freestyle NdX): roll `count` dice and sum them.
+    if (kind.type === 'raw' && (kind.count ?? 1) > 1) {
+      const dice = Array.from({ length: kind.count! }, () => rollDie(kind.die))
+      const total = dice.reduce((a, b) => a + b, 0)
+      const entry: RollEntry = {
+        id: generateId(), kind,
+        result: { natural: total, dice, modifier: 0, total },
+        label: buildLabel(kind, 0), timestamp: Date.now(),
+      }
+      set(s => ({ rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS) }))
+      return entry
+    }
     const d1 = kind.type === 'raw' || kind.type === 'heal' ? rollDie(kind.die) : rollDie(20)
     const hasAdvantage = 'advantage' in kind && kind.advantage === true
     const hasDisadvantage = 'advantage' in kind && kind.advantage === false
@@ -107,6 +125,51 @@ export const useDiceStore = create<DiceState>()((set) => ({
   },
 
   clear: () => set({ rolls: [] }),
+
+  rerollWithMode: (mode, count = 2) => set(s => {
+    const m = s.modal
+    if (!m) return {}
+    const kt = m.entry.kind.type
+    if (kt !== 'attack' && kt !== 'skill' && kt !== 'save' && kt !== 'ability') return {}
+    const n = Math.max(2, count)
+    const adv = mode === 'adv'
+    const dice = Array.from({ length: n }, () => rollDie(20))
+    const natural = adv ? Math.max(...dice) : Math.min(...dice)
+    const natural2 = n === 2 ? (adv ? Math.min(...dice) : Math.max(...dice)) : undefined
+    const modifier = m.entry.result.modifier
+    const kind = { ...m.entry.kind, advantage: adv } as RollKind
+    const entry: RollEntry = {
+      id: generateId(), kind,
+      result: { natural, natural2, dice: n > 2 ? dice : undefined, modifier, total: natural + modifier },
+      label: buildLabel(kind, modifier) + (n > 2 ? ` [${n}d20]` : ''),
+      timestamp: Date.now(),
+    }
+    return {
+      rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS),
+      modal: { ...m, entry, isCrit: kt === 'attack' && natural === 20 },
+    }
+  }),
+
+  rollIndependent: (count) => set(s => {
+    const m = s.modal
+    if (!m) return {}
+    const kt = m.entry.kind.type
+    if (kt !== 'attack' && kt !== 'skill' && kt !== 'save' && kt !== 'ability') return {}
+    const n = Math.max(2, count)
+    const modifier = m.entry.result.modifier
+    const multi = Array.from({ length: n }, () => rollDie(20) + modifier)
+    const kind = { ...m.entry.kind, advantage: undefined } as RollKind
+    const entry: RollEntry = {
+      id: generateId(), kind,
+      result: { natural: multi[0] - modifier, multi, modifier, total: multi[0] },
+      label: buildLabel(kind, modifier) + ` ×${n}`,
+      timestamp: Date.now(),
+    }
+    return {
+      rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS),
+      modal: { ...m, entry, isCrit: false },
+    }
+  }),
 
   openModal: (state) => set({ modal: state }),
 
