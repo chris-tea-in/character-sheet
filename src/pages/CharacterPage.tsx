@@ -907,8 +907,8 @@ export default function CharacterPage() {
 
   return (
     <div className="min-h-dvh flex flex-col pb-[52px] print:pb-0">
-      {/* Sticky header */}
-      <header className="sticky top-0 z-30 border-b border-border bg-background">
+      {/* Page header — sits at the top of the page and scrolls away (not sticky). */}
+      <header className="border-b border-border bg-background">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-start gap-3">
           <button
             onClick={() => navigate('/')}

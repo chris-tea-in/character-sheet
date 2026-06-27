@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, Trash2 } from 'lucide-react'
+import { ChevronUp, ChevronDown, Trash2, Dices } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { useDiceStore } from '@/store/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { formatBonus } from '@/lib/dice'
@@ -7,6 +9,64 @@ import type { DieType } from '@/types/dice'
 import type { DerivedStats } from '@/lib/characterStats'
 
 const DIE_TYPES: DieType[] = [4, 6, 8, 10, 12, 20, 100]
+
+// Freestyle multi-die roller: pick how many of each die type, then roll them all at
+// once (e.g. 4d8 + 2d10 + 3d12). Opened from the dice-tray button so the bottom strip
+// stays uncluttered; the result lands in the standard DiceRollModal.
+function DicePoolDialog({ derived, onClose }: { derived: DerivedStats; onClose: () => void }) {
+  const { dispatch } = useRollDispatch(derived)
+  const [counts, setCounts] = useState<Record<number, number>>({})
+  const total = DIE_TYPES.reduce((s, d) => s + (counts[d] ?? 0), 0)
+  const bump = (die: number, delta: number) =>
+    setCounts(c => ({ ...c, [die]: Math.max(0, Math.min(20, (c[die] ?? 0) + delta)) }))
+
+  function rollPool() {
+    const groups = DIE_TYPES.filter(d => (counts[d] ?? 0) > 0).map(d => ({ die: d, count: counts[d] }))
+    if (groups.length) dispatch({ type: 'pool', groups })
+    onClose()
+  }
+
+  const stepBtn = 'w-7 h-7 rounded-md border border-border text-lg leading-none font-bold hover:bg-secondary disabled:opacity-30 transition-colors'
+
+  return (
+    <Dialog open onOpenChange={o => { if (!o) onClose() }}>
+      <DialogContent className="max-w-xs" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Dice Roller</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-1.5">
+          {DIE_TYPES.map(die => {
+            const n = counts[die] ?? 0
+            return (
+              <div key={die} className="flex items-center justify-between gap-3">
+                <span className="font-bold w-12 tabular-nums" style={{ color: n > 0 ? 'var(--color-accent-gold)' : 'var(--color-text-muted)' }}>
+                  d{die}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => bump(die, -1)} disabled={n <= 0} className={stepBtn} aria-label={`Fewer d${die}`}>−</button>
+                  <span className="w-6 text-center tabular-nums font-bold">{n}</span>
+                  <button onClick={() => bump(die, 1)} disabled={n >= 20} className={stepBtn} aria-label={`More d${die}`}>+</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="flex items-center justify-between mt-3">
+          <button
+            onClick={() => setCounts({})}
+            disabled={total === 0}
+            className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
+          >
+            Clear
+          </button>
+          <Button onClick={rollPool} disabled={total === 0}>
+            Roll{total > 0 ? ` ${total} ${total === 1 ? 'die' : 'dice'}` : ''}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 interface Props {
   derived: DerivedStats
@@ -17,7 +77,7 @@ export function DiceTray({ derived }: Props) {
   const clear = useDiceStore(s => s.clear)
   const { dispatch } = useRollDispatch(derived)
   const [open, setOpen] = useState(false)
-  const [count, setCount] = useState(1)
+  const [poolOpen, setPoolOpen] = useState(false)
   const lastRoll = rolls[0]
 
   return (
@@ -90,38 +150,26 @@ export function DiceTray({ derived }: Props) {
         style={{ background: 'var(--color-surface)', height: '52px' }}
       >
         <div className="max-w-2xl mx-auto h-full flex items-center gap-1 px-2">
-          {/* Count: tap a die to roll `count`d that die at once (e.g. 4d6). */}
-          <div className="flex items-center gap-0.5 flex-none mr-0.5">
-            <button
-              onClick={() => setCount(c => Math.max(1, c - 1))}
-              className="w-6 h-8 rounded-md text-sm font-bold hover:bg-secondary transition-colors border border-border disabled:opacity-30"
-              disabled={count <= 1}
-              aria-label="Fewer dice"
-            >
-              −
-            </button>
-            <span className="w-5 text-center text-xs font-bold tabular-nums" style={{ color: count > 1 ? 'var(--color-accent-gold)' : 'var(--color-text-muted)' }}>
-              ×{count}
-            </span>
-            <button
-              onClick={() => setCount(c => Math.min(20, c + 1))}
-              className="w-6 h-8 rounded-md text-sm font-bold hover:bg-secondary transition-colors border border-border disabled:opacity-30"
-              disabled={count >= 20}
-              aria-label="More dice"
-            >
-              +
-            </button>
-          </div>
+          {/* One tap rolls a single die. Multi-die / counts live in the 🎲 roller. */}
           {DIE_TYPES.map(die => (
             <button
               key={die}
-              onClick={() => dispatch({ type: 'raw', die, count: count > 1 ? count : undefined })}
+              onClick={() => dispatch({ type: 'raw', die })}
               className="flex-1 h-8 rounded-md text-xs font-bold hover:bg-secondary transition-colors border border-border"
               style={{ color: 'var(--color-accent-gold)' }}
             >
               d{die}
             </button>
           ))}
+
+          <button
+            onClick={() => setPoolOpen(true)}
+            className="flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors border border-border ml-1 flex-none"
+            aria-label="Custom dice roller"
+            title="Roll a custom mix of dice (e.g. 4d8 + 2d10)"
+          >
+            <Dices className="h-4 w-4" />
+          </button>
 
           <button
             onClick={() => setOpen(o => !o)}
@@ -138,6 +186,8 @@ export function DiceTray({ derived }: Props) {
           </button>
         </div>
       </div>
+
+      {poolOpen && <DicePoolDialog derived={derived} onClose={() => setPoolOpen(false)} />}
     </>
   )
 }

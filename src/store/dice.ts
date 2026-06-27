@@ -13,6 +13,8 @@ function buildLabel(kind: RollKind, modifier: number): string {
   switch (kind.type) {
     case 'raw':
       return (kind.count ?? 1) > 1 ? `${kind.count}d${kind.die}` : `d${kind.die}`
+    case 'pool':
+      return kind.groups.filter(g => g.count > 0).map(g => `${g.count}d${g.die}`).join(' + ') || 'dice'
     case 'skill':
       return `${SKILL_DISPLAY_MAP[kind.skill]} (${SKILL_ABILITY_MAP[kind.skill].toUpperCase()} ${sign}${modifier})${adv}`
     case 'save':
@@ -39,6 +41,8 @@ export interface ModalState {
   // Reliable Talent eligibility for THIS roll (proficient skill check + Rogue 11+), so
   // rerolls keep flooring the kept d20 at 10.
   reliableTalent?: boolean
+  // Character has the Lucky feat → show the "🍀 Lucky" reroll button on this d20 roll.
+  hasLuckyFeat?: boolean
   // ── Dmg-button (standalone damage) state ───────────────────────────────────
   // When `damageSpec` is set and `damageRolls` is still undefined, the modal is in
   // the damage-SETUP state: it shows the (optional) upcast level stepper and the
@@ -87,6 +91,21 @@ export const useDiceStore = create<DiceState>()((set) => ({
   modal: null,
 
   roll: (kind, derived) => {
+    // Mixed-dice pool (freestyle roller): roll each die-type group, keep per-group
+    // results, and sum everything (no modifier).
+    if (kind.type === 'pool') {
+      const pool = kind.groups
+        .filter(g => g.count > 0)
+        .map(g => ({ die: g.die as number, rolls: Array.from({ length: g.count }, () => rollDie(g.die)) }))
+      const total = pool.reduce((s, g) => s + g.rolls.reduce((a, b) => a + b, 0), 0)
+      const entry: RollEntry = {
+        id: generateId(), kind,
+        result: { natural: total, pool, modifier: 0, total },
+        label: buildLabel(kind, 0), timestamp: Date.now(),
+      }
+      set(s => ({ rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS) }))
+      return entry
+    }
     // Multi-die raw roll (freestyle NdX): roll `count` dice and sum them.
     if (kind.type === 'raw' && (kind.count ?? 1) > 1) {
       const dice = Array.from({ length: kind.count! }, () => rollDie(kind.die))

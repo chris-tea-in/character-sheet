@@ -582,4 +582,33 @@ describe('Lucky (feat) reroll', () => {
     useDiceStore.getState().luckyReroll()
     expect(useDiceStore.getState().modal!.entry.result.natural).toBeGreaterThanOrEqual(10)
   })
+
+  it('derived.hasLuckyFeat gates the button (true only with the Lucky feat)', () => {
+    expect(deriveCharacterStats(charWith({ feats: ['lucky'] }), {}).hasLuckyFeat).toBe(true)
+    expect(deriveCharacterStats(charWith({ feats: [] }), {}).hasLuckyFeat).toBe(false)
+  })
+})
+
+describe('pool roll (freestyle multi-die)', () => {
+  it('rolls each group, returns per-group results that sum to the total', () => {
+    const d = deriveCharacterStats(charWith({}), {})
+    const e = useDiceStore.getState().roll({ type: 'pool', groups: [{ die: 8, count: 4 }, { die: 10, count: 2 }] }, d)
+    expect(e.label).toBe('4d8 + 2d10')
+    expect(e.result.pool).toHaveLength(2)
+    expect(e.result.pool![0]).toMatchObject({ die: 8 })
+    expect(e.result.pool![0].rolls).toHaveLength(4)
+    expect(e.result.pool![1].rolls).toHaveLength(2)
+    expect(e.result.pool![0].rolls.every(r => r >= 1 && r <= 8)).toBe(true)
+    expect(e.result.pool![1].rolls.every(r => r >= 1 && r <= 10)).toBe(true)
+    const sum = e.result.pool!.flatMap(g => g.rolls).reduce((a, b) => a + b, 0)
+    expect(e.result.total).toBe(sum)
+  })
+
+  it('drops zero-count groups', () => {
+    const d = deriveCharacterStats(charWith({}), {})
+    const e = useDiceStore.getState().roll({ type: 'pool', groups: [{ die: 6, count: 0 }, { die: 12, count: 3 }] }, d)
+    expect(e.result.pool).toHaveLength(1)
+    expect(e.result.pool![0].die).toBe(12)
+    expect(e.label).toBe('3d12')
+  })
 })

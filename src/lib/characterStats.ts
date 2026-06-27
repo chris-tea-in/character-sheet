@@ -55,6 +55,9 @@ export interface DerivedStats {
   // Roll-time: Rogue 11+ Reliable Talent — a proficient ability check treats a natural
   // d20 ≤ 9 as 10. Consumed in the dice engine (skill rolls + their rerolls).
   reliableTalent: boolean
+  // Roll-time: has the Lucky feat — gates the modal's "🍀 Lucky" reroll button (the
+  // button performs the Lucky-feat mechanic: roll an extra d20, keep the better).
+  hasLuckyFeat: boolean
   // Netted advantage/disadvantage per save/skill (RAW: adv + dis = normal). Absent
   // key = roll normally. Sources: advantage maps + armor stealth-disadvantage + data effects.
   rollStates: { saves: Partial<Record<AbilityName, RollMode>>; skills: Partial<Record<SkillName, RollMode>> }
@@ -1559,6 +1562,8 @@ export function deriveCharacterStats(
 
   // Roll-time: Reliable Talent at Rogue level ≥ 11 (owning-class level — INV-2).
   const reliableTalent = (character.classes ?? []).some(c => c.classSlug === 'rogue' && c.level >= 11)
+  // Roll-time: the Lucky feat (slug 'lucky') gates the modal's Lucky reroll button.
+  const hasLuckyFeat = (character.feats ?? []).includes('lucky')
 
   return {
     effectiveAC,
@@ -1579,6 +1584,7 @@ export function deriveCharacterStats(
     hasStealthDisadvantage,
     hitDiceType,
     reliableTalent,
+    hasLuckyFeat,
     rollStates,
     rollStateSources,
     attackRollState,

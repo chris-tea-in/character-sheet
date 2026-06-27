@@ -25,11 +25,12 @@ export function useRollDispatch(derived: DerivedStats) {
         damageType: kind.damageType,
         extraDamage: kind.extraDamage,
         isCrit,
+        hasLuckyFeat: derived.hasLuckyFeat,
       })
     } else {
       // Reliable Talent eligibility travels with the modal so rerolls keep flooring at 10.
       const reliableTalent = kind.type === 'skill' && derived.reliableTalent && !!derived.effectiveSkillProficiencies[kind.skill]
-      openModal({ entry, phase: 'result', isCrit: false, reliableTalent })
+      openModal({ entry, phase: 'result', isCrit: false, reliableTalent, hasLuckyFeat: derived.hasLuckyFeat })
     }
   }
 

@@ -53,22 +53,24 @@ function RerollRow() {
   const reroll = useDiceStore(s => s.rerollWithMode)
   const rollN = useDiceStore(s => s.rollIndependent)
   const lucky = useDiceStore(s => s.luckyReroll)
+  const hasLuckyFeat = useDiceStore(s => s.modal?.hasLuckyFeat ?? false)
   const [n, setN] = useState(2)
-  const stepBtn = 'w-5 h-5 rounded border border-border hover:bg-secondary/40 transition-colors disabled:opacity-30 leading-none'
-  const actBtn = 'px-2 py-0.5 rounded border border-border hover:bg-secondary/40 transition-colors'
+  const stepBtn = 'w-6 h-7 rounded border border-border hover:bg-secondary/40 transition-colors disabled:opacity-30 leading-none font-bold'
+  const actBtn = 'px-2 py-1 rounded border border-border hover:bg-secondary/40 transition-colors'
   return (
     <div className="flex flex-col items-center gap-1.5 text-[11px] border-t border-border pt-2 w-full">
-      <div className="flex items-center gap-1.5">
-        <span className="text-muted-foreground">How many:</span>
+      {/* The count lives in the action button, ± on the sides (mirrors the dice tray's ×N control). */}
+      <div className="flex items-center gap-1">
         <button onClick={() => setN(v => Math.max(2, v - 1))} disabled={n <= 2} className={stepBtn} aria-label="Fewer dice">−</button>
-        <span className="w-4 text-center font-bold tabular-nums">{n}</span>
+        <button onClick={() => rollN(n)} className={`${actBtn} font-semibold min-w-[72px]`}>Roll {n}×</button>
         <button onClick={() => setN(v => Math.min(8, v + 1))} disabled={n >= 8} className={stepBtn} aria-label="More dice">+</button>
       </div>
       <div className="flex items-center gap-1.5 flex-wrap justify-center">
-        <button onClick={() => reroll('adv', n)} className={actBtn}>Keep best (Adv)</button>
-        <button onClick={() => reroll('dis', n)} className={actBtn}>Keep worst (Dis)</button>
-        <button onClick={() => rollN(n)} className={actBtn}>Roll {n}×</button>
-        <button onClick={lucky} className={actBtn} title="Lucky: roll one extra d20 and keep the better result">🍀 Lucky</button>
+        <button onClick={() => reroll('adv', n)} className={actBtn}>Adv</button>
+        <button onClick={() => reroll('dis', n)} className={actBtn}>Dis</button>
+        {hasLuckyFeat && (
+          <button onClick={lucky} className={actBtn} title="Lucky (feat): roll one extra d20 and keep the better result">🍀 Lucky</button>
+        )}
       </div>
     </div>
   )
@@ -97,9 +99,9 @@ function ResultBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const { entry } = modal
-  const { natural, natural2, dice, multi, modifier, total } = entry.result
-  // Heal (hit-die) rolls show like a raw die — no crit highlighting
-  const isRaw = entry.kind.type === 'raw' || entry.kind.type === 'heal'
+  const { natural, natural2, dice, multi, pool, modifier, total } = entry.result
+  // Heal (hit-die) and pool rolls show like raw dice — no crit highlighting
+  const isRaw = entry.kind.type === 'raw' || entry.kind.type === 'heal' || entry.kind.type === 'pool'
   const isRawD20 = entry.kind.type === 'raw' && entry.kind.die === 20
   const isNat20 = (!isRaw || isRawD20) && natural === 20
   const isNat1 = (!isRaw || isRawD20) && natural === 1
@@ -122,6 +124,16 @@ function ResultBody() {
             [{dice.join(', ')}]{entry.kind.type !== 'raw' && <> → kept <span className="font-bold">{natural}</span></>}
           </p>
         )}
+        {pool && pool.length > 0 && (
+          <div className="flex flex-col items-center gap-0.5 mb-1">
+            {pool.map((g, i) => (
+              <p key={i} className="text-xs text-muted-foreground tabular-nums">
+                <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>{g.rolls.length}d{g.die}</span>
+                {' '}[{g.rolls.join(', ')}] = {g.rolls.reduce((a, b) => a + b, 0)}
+              </p>
+            ))}
+          </div>
+        )}
         {!multi && entry.kind.type !== 'raw' && modifier !== 0 && (
           <p className="text-xs text-muted-foreground">
             {natural}{modifier >= 0 ? ' + ' : ' − '}{Math.abs(modifier)}
@@ -139,7 +151,7 @@ function ResultBody() {
             {total}
           </span>
         )}
-        {!multi && <CritLabel natural={natural} kind={entry.kind.type} />}
+        {!multi && !pool && <CritLabel natural={natural} kind={entry.kind.type} />}
       </div>
 
       {(entry.kind.type === 'skill' || entry.kind.type === 'save' || entry.kind.type === 'ability') && <RerollRow />}

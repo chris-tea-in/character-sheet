@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **212 pass** (199 +4 5a speed +2 5b AC floor +3 5c ability cap +4 5d Reliable Talent/Lucky). ⚠ Plain `npx vitest run` intermittently
+- **Tests:** `npx vitest run --no-file-parallelism` → **215 pass** (199 +4 5a speed +2 5b AC floor +3 5c ability cap +5 5d Reliable Talent/Lucky/gating +2 freestyle pool roller). ⚠ Plain `npx vitest run` intermittently
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v20** (`conditions`). Next is **v21**.
@@ -327,12 +327,28 @@ Lucky now, defer GWF as its own follow-up; Lucky button-only/untracked, no migra
   + `rollIndependent` keep flooring. 2 tests.
 - **Lucky (feat) — DONE.** `luckyReroll()` store action + a "🍀 Lucky" button in the shared `RerollRow`
   (renders for attack/skill/save/ability — exactly the d20 rolls). Rolls one extra d20, keeps the better
-  (`[Lucky: a→b]`), honors Reliable Talent on the lucky die. **Untracked** (no use-counter, no migration) —
-  matches how the app treats item charges; the button is a generic manual reroll available to all (not gated
-  on the feat, same pattern as the existing Keep-best/worst utilities). 2 tests.
+  (`[Lucky: a→b]`), honors Reliable Talent on the lucky die. **Untracked** (no use-counter, no migration). The
+  button is **gated on the Lucky feat** — `derived.hasLuckyFeat` (`character.feats.includes('lucky')`) rides on
+  `ModalState.hasLuckyFeat` (set in `useRollDispatch`); `RerollRow` shows 🍀 Lucky only when true. The store
+  `luckyReroll()` mechanic stays ungated (UI decides whether to offer it). NOTE: gates on the Lucky *feat* only,
+  not the Halfling *Lucky* racial (different mechanic — reroll a nat 1, not keep-better). 3 tests.
+  RerollRow UX polish: Adv/Dis buttons (was "Keep best/worst (Adv/Dis)"); the count stepper merged into the
+  "Roll N×" action button with ±-on-the-sides (mirrors the dice tray ×N control) — the same `n` still drives
+  keep-best/worst-of-N for Adv/Dis.
 - **Great Weapon Fighting — DEFERRED** to its own focused commit (the invasive weapon→DamageSpec→
   `rollDamageGroups` reroll threading + style detection). BACKLOG C1 ("GWF left to manual") still stands until
   that lands. Plan below preserved.
+
+**Dice/roll-UX tweaks shipped alongside 5d (non-ledger, user-requested 2026-06-25):** freestyle **pool roller**
+— a new `pool` RollKind (`store/dice.ts`), a 🎲 button in the dice tray opening a `DicePoolDialog` to pick
+counts per die type (4d8 + 2d10 + 3d12) and roll together; result shown per-group in `DiceRollModal`
+(`ResultBody`). Dice **tray slimmed**: dropped the inline ×N count stepper (the pool roller supersedes it),
+die buttons are now one-tap single rolls; kept history + the 🎲 launcher. Character-page **header no longer
+sticky** (`CharacterPage.tsx`) — scrolls away at the page top. 2 pool tests.
+
+**STATUS (2026-06-25): moving to Step 6 at the user's direction. Step 5 remainders still OPEN as follow-ups:
+5e (ITEM_ADV → item `advantage` data migration, not started) and 5d-C GWF (deferred). Pick these up after/with
+Step 6 — they are not dropped, just resequenced.**
 
 _Original plan:_
 **5d — Roll-time mechanics (the dice-engine part — user opted in).**

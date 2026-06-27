@@ -17,6 +17,7 @@ export interface ExtraDamageResult {
 
 export type RollKind =
   | { type: 'raw';    die: DieType; count?: number }   // count > 1 → roll NdX at once (sum)
+  | { type: 'pool';   groups: { die: DieType; count: number }[] }  // mixed dice rolled together (4d8 + 2d10 + 3d12)
   | { type: 'skill';  skill: SkillName;   advantage?: boolean }
   | { type: 'save';   ability: AbilityName; advantage?: boolean }
   | { type: 'ability'; ability: AbilityName; advantage?: boolean }
@@ -49,6 +50,7 @@ export interface RollResult {
   natural2?: number  // the dropped die, present only when advantage was used
   dice?:    number[] // individual dice: a multi-die raw roll (4d6) OR all N d20s of a keep-best/worst roll
   multi?:   number[] // independent re-roll totals ("roll the check N times" → [17, 4, 11])
+  pool?:    { die: number; rolls: number[] }[] // per-die-type results of a mixed-dice pool roll
   modifier: number
   total:    number
 }
