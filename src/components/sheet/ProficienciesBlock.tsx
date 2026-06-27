@@ -446,6 +446,9 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
         signed
         sources={openSaveBreakdown ? derived.breakdowns.saves[openSaveBreakdown] : []}
         rollSources={openSaveBreakdown ? derived.rollStateSources.saves[openSaveBreakdown] : undefined}
+        targetKey={openSaveBreakdown ? `save:${openSaveBreakdown}` : undefined}
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
       <StatBreakdown
         open={openSkillBreakdown !== null}
@@ -454,6 +457,9 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
         signed
         sources={openSkillBreakdown ? derived.breakdowns.skills[openSkillBreakdown] : []}
         rollSources={openSkillBreakdown ? derived.rollStateSources.skills[openSkillBreakdown] : undefined}
+        targetKey={openSkillBreakdown ? `skill:${openSkillBreakdown}` : undefined}
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
     </section>
   )

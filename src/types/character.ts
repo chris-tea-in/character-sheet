@@ -60,6 +60,25 @@ export interface CharacterSpell {
   damagePerLevel?: string
 }
 
+// A player-authored modifier added to a stat's breakdown via the Modifier Ledger.
+export interface CustomModifier {
+  id: string
+  label: string
+  amount: number
+}
+
+// Modifier Ledger override layer (P2). Edits the player makes to the auto-derived
+// breakdowns, applied as the LAST step(s) of deriveCharacterStats — still INV-1, no
+// write-time baking. `disabled` suppresses a contributor by its stable id (it still
+// shows in the breakdown, struck-through, and re-enables when the id is dropped).
+// `overrides` replaces a contributor's amount by id. `custom` appends player rows,
+// keyed by TargetKey (e.g. "speed", "ability:str", "skill:stealth").
+export interface LedgerOverrides {
+  disabled: string[]
+  overrides: Record<string, number>
+  custom: Record<string, CustomModifier[]>
+}
+
 export interface Character {
   id: string
   name: string
@@ -107,6 +126,11 @@ export interface Character {
 
   skillProficiencies: Partial<Record<SkillName, SkillProficiency>>
   savingThrowProficiencies: AbilityName[]
+
+  // Modifier Ledger override layer (P2): player edits to the auto-derived breakdowns
+  // (disable a contributor / change its amount / add your own). Applied at render time
+  // in deriveCharacterStats (INV-1). Sheet-managed — the edit merge preserves it.
+  ledgerOverrides: LedgerOverrides
 
   spells: CharacterSpell[]
   spellSlotsUsed: Partial<Record<number, number>>
@@ -193,6 +217,7 @@ export function defaultCharacter(name: string): NewCharacter {
     conditions: { active: [], exhaustion: 0 },
     skillProficiencies: {},
     savingThrowProficiencies: [],
+    ledgerOverrides: { disabled: [], overrides: {}, custom: {} },
     spells: [], spellSlotsUsed: {},
     personalityTraits: '', ideals: '', bonds: '', flaws: '', notes: '',
     equipment: [],

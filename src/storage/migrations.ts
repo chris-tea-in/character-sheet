@@ -261,4 +261,14 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN conditions TEXT NOT NULL DEFAULT '{"active":[],"exhaustion":0}'`)
     },
   },
+  {
+    version: 21,
+    up: (db) => {
+      // Modifier Ledger override layer (P2): player edits to the auto-derived stat
+      // breakdowns — disable a contributor (by stable id), change its amount, or add
+      // a custom one (keyed by target stat). Applied at render time in
+      // deriveCharacterStats (INV-1, no write-time baking). One JSON blob, synced.
+      db.run(`ALTER TABLE characters ADD COLUMN ledger_overrides TEXT NOT NULL DEFAULT '{"disabled":[],"overrides":{},"custom":{}}'`)
+    },
+  },
 ]

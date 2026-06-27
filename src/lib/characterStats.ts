@@ -1,7 +1,7 @@
 import { abilityModifier, proficiencyBonus, SKILL_ABILITY_MAP, SKILL_DISPLAY_MAP, formatBonus } from './dice'
 import { ABILITY_FULL_TO_SHORT, getRacialBonuses, toSubraceSlug } from './racialBonuses'
 import { applicableGroups } from './classFeatures'
-import type { Character, AbilityName, Abilities, SkillName, SkillProficiency, EquipmentItem } from '../types/character'
+import type { Character, AbilityName, Abilities, SkillName, SkillProficiency, EquipmentItem, LedgerOverrides } from '../types/character'
 import type { ArmorItem, WeaponItem, ClassData, FeatData, Race, WondrousItem, ItemEffect, ClassFeatureData, ClassFeatureEffects, FeatureEffect, RaceEffect } from '../types/data'
 
 /** The weapon-conditional fighting-style effects (Archery to-hit, Dueling damage). */
@@ -31,7 +31,53 @@ export interface ModifierSource {
   label: string
   amount: number
   kind: ModifierKind
-  removable: boolean   // base / abilityMod are locked; feats/items/manual become toggleable (P2)
+  removable: boolean   // base / abilityMod are locked; feats/items/manual are toggleable (P2)
+  disabled?: boolean   // P2 ledger: suppressed from the sum but still shown (struck-through), re-enableable
+  rawAmount?: number   // P2 ledger: the original amount when an override replaced it ("was X")
+}
+
+// Identifies which breakdown a custom modifier attaches to (the key into
+// `LedgerOverrides.custom`). Numeric stats only for 6a.
+export type TargetKey =
+  | 'speed' | 'initiative' | 'ac' | 'maxHp' | 'spellAttack' | 'spellSaveDC'
+  | `ability:${AbilityName}` | `save:${AbilityName}` | `skill:${SkillName}`
+
+const EMPTY_LEDGER: LedgerOverrides = { disabled: [], overrides: {}, custom: {} }
+
+export interface LedgerResult {
+  rows: ModifierSource[]  // original rows (disabled/overridden flags applied) + appended custom rows
+  effective: number       // sum of non-disabled rows (using overridden amounts) + customs
+  rawTotal: number        // pre-ledger sum (no disables/overrides/customs) — the "RAW" value
+}
+
+/**
+ * Apply the P2 stored override layer to one stat's breakdown — the LAST derive step
+ * for that stat (INV-1: no write-time baking). Disabled rows stay in the list
+ * (struck-through in the UI, re-enableable) but drop out of the sum; overrides replace
+ * a removable row's amount; customs append player-authored rows. Locked rows
+ * (`removable:false` — base/abilityMod) are never disabled or overridden.
+ */
+export function applyLedger(targetKey: TargetKey, rows: ModifierSource[], ledger?: LedgerOverrides | null): LedgerResult {
+  const l = ledger ?? EMPTY_LEDGER
+  const disabled = new Set(l.disabled ?? [])
+  const overrides = l.overrides ?? {}
+  const customs = l.custom?.[targetKey] ?? []
+  const rawTotal = rows.reduce((t, r) => t + r.amount, 0)
+
+  const applied: ModifierSource[] = rows.map(r => {
+    if (!r.removable) return r // base / abilityMod: locked, never disabled or overridden
+    const isDisabled = disabled.has(r.id)
+    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, r.id)
+    if (hasOverride && overrides[r.id] !== r.amount) {
+      return { ...r, amount: overrides[r.id], rawAmount: r.amount, disabled: isDisabled }
+    }
+    return isDisabled ? { ...r, disabled: true } : r
+  })
+  for (const c of customs) {
+    applied.push({ id: c.id, label: c.label, amount: c.amount, kind: 'custom', removable: true })
+  }
+  const effective = applied.reduce((t, r) => t + (r.disabled ? 0 : r.amount), 0)
+  return { rows: applied, effective, rawTotal }
 }
 
 export interface DerivedStats {
@@ -1139,6 +1185,14 @@ export function deriveCharacterStats(
   for (const ab of ALL_ABILITIES) {
     console.assert(abilityBreakdowns[ab].reduce((t, c) => t + c.amount, 0) === effectiveAbilities[ab], `[ledger] ${ab} breakdown ≠ effective score`)
   }
+  // 6a — apply the ledger override layer to ability scores EARLY: they cascade into
+  // every dependent stat (mods, saves, skills, AC, HP, init, spell DC), so the
+  // disable/override/custom must land before those are read below.
+  for (const ab of ALL_ABILITIES) {
+    const r = applyLedger(`ability:${ab}`, abilityBreakdowns[ab], character.ledgerOverrides)
+    abilityBreakdowns[ab] = r.rows
+    effectiveAbilities[ab] = r.effective
+  }
 
   // ── Combat stats ──────────────────────────────────────────────────────────
   const dexMod = abilityModifier(effectiveAbilities.dex)
@@ -1284,8 +1338,9 @@ export function deriveCharacterStats(
     if (e?.passivePerceptionBonus) passivePercBonus += e.passivePerceptionBonus
     if (e?.passiveInvestigationBonus) passiveInvBonus += e.passiveInvestigationBonus
   }
-  const passivePerception = 10 + skillModifiers.perception + passivePercBonus
-  const passiveInvestigation = 10 + skillModifiers.investigation + passiveInvBonus
+  // Passive Perception/Investigation are recomputed from the post-ledger skill
+  // modifiers in the final ledger block, below (passivePercBonus/passiveInvBonus
+  // carry the feat bonuses there).
 
   // ── Spell stats ───────────────────────────────────────────────────────────
   // First class with a spellcasting ability — the primary class may be a
@@ -1565,22 +1620,48 @@ export function deriveCharacterStats(
   // Roll-time: the Lucky feat (slug 'lucky') gates the modal's Lucky reroll button.
   const hasLuckyFeat = (character.feats ?? []).includes('lucky')
 
+  // 6a — apply the ledger override layer to every LEAF stat as the final derive step
+  // (abilities were applied early — they cascade). Each yields the final breakdown rows
+  // (disabled/overridden flags + custom rows) and effective value; passives recompute
+  // from the post-ledger skill modifiers. AC stays manual (null) when uncomputed.
+  const lo = character.ledgerOverrides
+  const speedL = applyLedger('speed', speedBreakdown, lo)
+  const initL = applyLedger('initiative', initiativeBreakdown, lo)
+  const acL = effectiveAC != null ? applyLedger('ac', acSources, lo) : null
+  const maxHpL = applyLedger('maxHp', maxHpBreakdown, lo)
+  const spellAtkL = applyLedger('spellAttack', spellAttackBreakdown, lo)
+  const spellDcL = applyLedger('spellSaveDC', spellSaveDCBreakdown, lo)
+  const saveBreakdownsFinal = {} as Record<AbilityName, ModifierSource[]>
+  const saveModifiersFinal = {} as Record<AbilityName, number>
+  for (const ab of ALL_ABILITIES) {
+    const r = applyLedger(`save:${ab}`, saveBreakdowns[ab], lo)
+    saveBreakdownsFinal[ab] = r.rows; saveModifiersFinal[ab] = r.effective
+  }
+  const skillBreakdownsFinal = {} as Record<SkillName, ModifierSource[]>
+  const skillModifiersFinal = {} as Record<SkillName, number>
+  for (const sk of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) {
+    const r = applyLedger(`skill:${sk}`, skillBreakdowns[sk], lo)
+    skillBreakdownsFinal[sk] = r.rows; skillModifiersFinal[sk] = r.effective
+  }
+  const passivePerceptionFinal = 10 + skillModifiersFinal.perception + passivePercBonus
+  const passiveInvestigationFinal = 10 + skillModifiersFinal.investigation + passiveInvBonus
+
   return {
-    effectiveAC,
-    adjustedMaxHp,
+    effectiveAC: acL ? acL.effective : effectiveAC,
+    adjustedMaxHp: maxHpL.effective,
     effectiveAbilities,
-    effectiveSpeed,
-    effectiveInitiative,
+    effectiveSpeed: speedL.effective,
+    effectiveInitiative: initL.effective,
     effectiveInitiativeBonus,
     effectiveSaveProficiencies,
     proficiencyBonus: pb,
-    skillModifiers,
-    saveModifiers,
+    skillModifiers: skillModifiersFinal,
+    saveModifiers: saveModifiersFinal,
     flatSkillBonuses,
-    passivePerception,
-    passiveInvestigation,
-    spellAttackBonus,
-    spellSaveDC,
+    passivePerception: passivePerceptionFinal,
+    passiveInvestigation: passiveInvestigationFinal,
+    spellAttackBonus: spellAtkL.effective,
+    spellSaveDC: spellDcL.effective,
     hasStealthDisadvantage,
     hitDiceType,
     reliableTalent,
@@ -1605,16 +1686,16 @@ export function deriveCharacterStats(
     immunities,
     featureWeaponEffects: featureFx.weaponEffects,
     breakdowns: {
-      speed: speedBreakdown,
-      initiative: initiativeBreakdown,
-      ac: acSources,
+      speed: speedL.rows,
+      initiative: initL.rows,
+      ac: acL ? acL.rows : acSources,
       proficiencyBonus: proficiencyBonusBreakdown,
       abilities: abilityBreakdowns,
-      saves: saveBreakdowns,
-      skills: skillBreakdowns,
-      maxHp: maxHpBreakdown,
-      spellAttack: spellAttackBreakdown,
-      spellSaveDC: spellSaveDCBreakdown,
+      saves: saveBreakdownsFinal,
+      skills: skillBreakdownsFinal,
+      maxHp: maxHpL.rows,
+      spellAttack: spellAtkL.rows,
+      spellSaveDC: spellDcL.rows,
     },
   }
 }

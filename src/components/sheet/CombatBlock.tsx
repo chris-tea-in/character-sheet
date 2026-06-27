@@ -600,6 +600,9 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
         title="Speed"
         unit="ft"
         sources={derived.breakdowns.speed}
+        targetKey="speed"
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
       <StatBreakdown
         open={openBreakdown === 'initiative'}
@@ -607,12 +610,18 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
         title="Initiative"
         signed
         sources={derived.breakdowns.initiative}
+        targetKey="initiative"
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
       <StatBreakdown
         open={openBreakdown === 'ac'}
         onClose={() => setOpenBreakdown(null)}
         title="Armor Class"
         sources={derived.breakdowns.ac}
+        targetKey={derived.effectiveAC != null ? 'ac' : undefined}
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
       <StatBreakdown
         open={openBreakdown === 'proficiencyBonus'}
@@ -627,6 +636,9 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
         title="Max HP"
         unit="HP"
         sources={derived.breakdowns.maxHp}
+        targetKey="maxHp"
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
     </section>
   )

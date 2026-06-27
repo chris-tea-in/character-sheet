@@ -324,6 +324,9 @@ export default function CreateCharacterPage() {
           // Preserve the class disguise — also not represented in the wizard.
           disguiseClass: existing.disguiseClass,
           disguiseAs: existing.disguiseAs,
+          // Modifier Ledger overrides are authored on the sheet, not the wizard —
+          // preserve them or a bare merge would wipe the player's edits (INV-4).
+          ledgerOverrides: existing.ledgerOverrides,
         }
         updateCharacter(editId, changes)
         navigate(`/character/${editId}`)

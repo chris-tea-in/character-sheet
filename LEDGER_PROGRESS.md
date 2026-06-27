@@ -24,10 +24,10 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **215 pass** (199 +4 5a speed +2 5b AC floor +3 5c ability cap +5 5d Reliable Talent/Lucky/gating +2 freestyle pool roller). ⚠ Plain `npx vitest run` intermittently
+- **Tests:** `npx vitest run --no-file-parallelism` → **221 pass** (… +6 Step 6a ledger: applyLedger unit + cascade/custom derive). ⚠ Plain `npx vitest run` intermittently
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
-- **Migrations:** last is **v20** (`conditions`). Next is **v21**.
+- **Migrations:** last is **v21** (`ledger_overrides`, Step 6a). Next is **v22**.
 - **data/ is gitignored** (race effects, feature-descriptions/categories, class-feature-effects, feat
   enrichments, the Danger Sense adv demo — all local-only). `public/data/` is also gitignored (rebuild
   with `npm run build:data`).
@@ -376,6 +376,27 @@ Striding/Speed, Belt of Dwarvenkind cap, etc.) and begin migrating the 22 hardco
 (would need an item-level `advantage` ItemEffect variant — add it, mirroring FeatureEffect's). All in
 gitignored `data/equipment/*.json`; rebuild + validate.
 
-**Then Step 6** = the full P2 stored override layer (disable / change / add-your-own) on every breakdown —
-the LAST step. Design sketched in §9: one `Character.ledgerOverrides` field (migration, INV-4) applied as the
-final derive step; wire disable/inline-edit/add-custom into `StatBreakdown` (currently read-only).
+**Step 6 — P2 stored override layer.** Phased: 6a numeric (✅ DONE) → 6b set-membership grants → 6c standing
+adv/dis disable.
+
+**6a — numeric override layer — ✅ DONE (2026-06-25).** `Character.ledgerOverrides { disabled: string[],
+overrides: Record<id,number>, custom: Record<TargetKey, {id,label,amount}[]> }` (migration **v21**
+`ledger_overrides`; full INV-4 round-trip: type + defaultCharacter + draftToNewCharacter + 4 characterRepo
+sites + edit-merge preserve in CreateCharacterPage + repo-test fixture). `applyLedger(targetKey, rows, ledger)`
++ `TargetKey` type exported from characterStats. Applied in derive at TWO points (INV-1, no write-time bake):
+**abilities EARLY** (right after the ability dev-guard — they cascade into mods/saves/skills/AC/HP/init/DC) and
+**all leaf stats at the END** (speed/init/ac/maxHp/saves/skills/spellAttack/spellSaveDC), with passives
+recomputed from the post-ledger skill modifiers. `ModifierSource` gained `disabled?`/`rawAmount?`. `StatBreakdown`
+is now editable (eye-toggle disable that keeps the row struck-through + re-enableable, tap-to-edit override with
+"was X", "+ Add modifier" custom rows, RAW→yours footer); read-only when the targetKey/ledger/onChange props are
+omitted. Mounts wired in AbilityBlock, CombatBlock (speed/init/ac/maxHp; **proficiencyBonus left read-only** —
+excluded from 6a; **manual AC** [effectiveAC null] left read-only — governed by the stepper), ProficienciesBlock
+(saves/skills), SpellBlock (atk/DC). 6 tests; migration head now v21.
+
+**6b/6c — NOT STARTED.** 6b = set-membership grants (proficiencies/languages/resistances/senses: provenance +
+disable/add) reusing the same `disabled`/`customGrants` layer. 6c = disable a *standing* adv/dis source (the
+per-roll situational Adv/Dis toggle already exists in the modal). Also still open from Step 5: **5e** (ITEM_ADV
+→ item `advantage` data migration) and **5d-C** (Great Weapon Fighting).
+
+Design sketched in §9: one `Character.ledgerOverrides` field applied as the final derive step; disable/inline-
+edit/add-custom wired into `StatBreakdown`.

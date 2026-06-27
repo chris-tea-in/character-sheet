@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { computeWeaponBonus, deriveCharacterStats } from './characterStats'
+import { computeWeaponBonus, deriveCharacterStats, applyLedger } from './characterStats'
 import { defaultCharacter } from '../types/character'
 import { useDiceStore } from '../store/dice'
-import type { Character } from '../types/character'
+import type { Character, AbilityName } from '../types/character'
+import type { ModifierSource } from './characterStats'
 import type { RollEntry } from '../types/dice'
 import type { WeaponItem, ArmorItem, WondrousItem, FeatData, ClassData } from '../types/data'
 
@@ -610,5 +611,77 @@ describe('pool roll (freestyle multi-die)', () => {
     expect(e.result.pool).toHaveLength(1)
     expect(e.result.pool![0].die).toBe(12)
     expect(e.label).toBe('3d12')
+  })
+})
+
+// ── Step 6a: Modifier Ledger override layer ──────────────────────────────────
+describe('applyLedger', () => {
+  const rows = (): ModifierSource[] => [
+    { id: 'base', label: 'Base', amount: 30, kind: 'base', removable: false },
+    { id: 'feat:x:speed', label: 'Feat', amount: 10, kind: 'feat', removable: true },
+  ]
+
+  it('disable drops a removable row from the sum but keeps it (flagged) in rows', () => {
+    const r = applyLedger('speed', rows(), { disabled: ['feat:x:speed'], overrides: {}, custom: {} })
+    expect(r.effective).toBe(30)
+    expect(r.rawTotal).toBe(40)
+    expect(r.rows.find(x => x.id === 'feat:x:speed')!.disabled).toBe(true)
+  })
+
+  it('override replaces a removable row amount and records the original as rawAmount', () => {
+    const r = applyLedger('speed', rows(), { disabled: [], overrides: { 'feat:x:speed': 25 }, custom: {} })
+    expect(r.effective).toBe(55)
+    const row = r.rows.find(x => x.id === 'feat:x:speed')!
+    expect(row.amount).toBe(25)
+    expect(row.rawAmount).toBe(10)
+  })
+
+  it('custom rows append and add to the sum', () => {
+    const r = applyLedger('speed', rows(), { disabled: [], overrides: {}, custom: { speed: [{ id: 'c1', label: 'Mount', amount: 5 }] } })
+    expect(r.effective).toBe(45)
+    expect(r.rows.some(x => x.id === 'c1' && x.kind === 'custom')).toBe(true)
+  })
+
+  it('locked (non-removable) rows ignore disable + override', () => {
+    const r = applyLedger('speed', rows(), { disabled: ['base'], overrides: { base: 0 }, custom: {} })
+    expect(r.effective).toBe(40)
+    expect(r.rows.find(x => x.id === 'base')!.disabled).toBeFalsy()
+  })
+})
+
+describe('deriveCharacterStats — ledger overrides applied + cascading', () => {
+  const belt: WondrousItem = {
+    name: 'Belt of Dwarvenkind', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+    effects: [{ type: 'ability_bonus', ability: 'con', amount: 2, cap: 20 }],
+  }
+  const base = {
+    level: 5, // PB +3
+    abilities: { str: 10, dex: 10, con: 14, int: 10, wis: 10, cha: 10 },
+    savingThrowProficiencies: ['con'] as AbilityName[],
+    equipment: [{ id: 'b', name: 'Belt of Dwarvenkind', quantity: 1, attuned: true }],
+  }
+
+  it('disabling an item ability bonus cascades to the dependent CON save', () => {
+    const on = deriveCharacterStats(charWith(base), { catalog: { wondrous_items: [belt] } })
+    expect(on.effectiveAbilities.con).toBe(16)      // 14 + 2
+    expect(on.saveModifiers.con).toBe(6)            // CON +3 + PB +3
+
+    const off = deriveCharacterStats(charWith({
+      ...base,
+      ledgerOverrides: { disabled: ['item:belt-of-dwarvenkind:con'], overrides: {}, custom: {} },
+    }), { catalog: { wondrous_items: [belt] } })
+    expect(off.effectiveAbilities.con).toBe(14)     // bonus suppressed
+    expect(off.saveModifiers.con).toBe(5)           // CON +2 + PB +3 — cascade
+    // the disabled row still appears in the breakdown so it can be re-enabled
+    expect(off.breakdowns.abilities.con.some(s => s.id === 'item:belt-of-dwarvenkind:con' && s.disabled)).toBe(true)
+  })
+
+  it('a custom speed modifier adds to the breakdown and effective speed', () => {
+    const d = deriveCharacterStats(charWith({
+      speed: 30,
+      ledgerOverrides: { disabled: [], overrides: {}, custom: { speed: [{ id: 'c1', label: 'Mount', amount: 10 }] } },
+    }), {})
+    expect(d.effectiveSpeed).toBe(40)
+    expect(d.breakdowns.speed.some(s => s.id === 'c1' && s.kind === 'custom')).toBe(true)
   })
 })

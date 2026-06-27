@@ -693,12 +693,18 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         title="Spell Attack"
         signed
         sources={derived.breakdowns.spellAttack}
+        targetKey="spellAttack"
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
       <StatBreakdown
         open={openBreakdown === 'dc'}
         onClose={() => setOpenBreakdown(null)}
         title="Spell Save DC"
         sources={derived.breakdowns.spellSaveDC}
+        targetKey="spellSaveDC"
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
     </section>
   )

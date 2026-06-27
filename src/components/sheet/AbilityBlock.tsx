@@ -98,6 +98,9 @@ export function AbilityBlock({ character, derived, onSave }: Props) {
         onClose={() => setOpenBreakdown(null)}
         title={openBreakdown ? ABILITY_SHORT[openBreakdown] : ''}
         sources={openBreakdown ? derived.breakdowns.abilities[openBreakdown] : []}
+        targetKey={openBreakdown ? `ability:${openBreakdown}` : undefined}
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
     </section>
   )
