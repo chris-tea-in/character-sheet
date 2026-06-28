@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { specToItemEffect, specLabel } from './effectSpec'
+import { specToItemEffect, specToLedgerCustom, specLabel } from './effectSpec'
 
 describe('specToItemEffect', () => {
   it('maps numeric targets to their ItemEffect', () => {
@@ -34,5 +34,29 @@ describe('specToItemEffect', () => {
     expect(specLabel({ kind: 'number', target: { t: 'ability', ability: 'con' }, amount: 1 })).toBe('+1 CON')
     expect(specLabel({ kind: 'number', target: { t: 'save', ability: 'all' }, amount: 1 })).toBe('+1 all saves')
     expect(specLabel({ kind: 'advdis', target: { t: 'save', ability: 'dex' }, mode: 'adv' })).toBe('Advantage on DEX save')
+  })
+})
+
+describe('specToLedgerCustom', () => {
+  it('maps a numeric ability spec to a custom modifier on its TargetKey', () => {
+    expect(specToLedgerCustom({ kind: 'number', target: { t: 'ability', ability: 'con' }, amount: 1 }, 'x'))
+      .toEqual([{ kind: 'number', targetKey: 'ability:con', mod: { id: 'x', label: '+1 CON', amount: 1 } }])
+  })
+
+  it('expands "all saves" numeric into one grant per save, sharing the id', () => {
+    const g = specToLedgerCustom({ kind: 'number', target: { t: 'save', ability: 'all' }, amount: 1 }, 'x')
+    expect(g.map(x => (x.kind === 'number' ? x.targetKey : null)))
+      .toEqual(['save:str', 'save:dex', 'save:con', 'save:int', 'save:wis', 'save:cha'])
+    expect(g.every(x => x.kind === 'number' && x.mod.id === 'x')).toBe(true)
+  })
+
+  it('maps an adv/dis spec to a CustomAdvDis entry', () => {
+    expect(specToLedgerCustom({ kind: 'advdis', target: { t: 'save', ability: 'dex' }, mode: 'adv' }, 'x'))
+      .toEqual([{ kind: 'advdis', entry: { id: 'x', label: 'Advantage on DEX save', target: 'save', ability: 'dex', mode: 'adv' } }])
+  })
+
+  it('returns [] for item-only targets (no ledger breakdown)', () => {
+    expect(specToLedgerCustom({ kind: 'number', target: { t: 'weaponAttack' }, amount: 1 }, 'x')).toEqual([])
+    expect(specToLedgerCustom({ kind: 'number', target: { t: 'spellDamage' }, amount: 1 }, 'x')).toEqual([])
   })
 })

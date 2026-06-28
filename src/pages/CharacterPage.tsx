@@ -24,6 +24,7 @@ import { campaignItems as fetchCampaignItems } from '@/lib/syncApi'
 import type { CampaignItem } from '@/lib/syncApi'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { FeaturesBlock } from '@/components/sheet/FeaturesBlock'
+import { CustomEffectsBlock } from '@/components/sheet/CustomEffectsBlock'
 import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
 import { useCharacterStore } from '@/store/characters'
 import { useSyncStore } from '@/store/sync'
@@ -974,6 +975,7 @@ export default function CharacterPage() {
             />
           )}
           <DescriptionBlock character={character} derived={derived} onSave={save} />
+          <CustomEffectsBlock character={character} onSave={save} />
 
         </div>
       </main>

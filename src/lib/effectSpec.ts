@@ -1,6 +1,7 @@
 import { SKILL_DISPLAY_MAP } from './dice'
-import type { AbilityName, SkillName } from '../types/character'
+import type { AbilityName, SkillName, CustomModifier, CustomAdvDis } from '../types/character'
 import type { ItemEffect } from '../types/data'
+import type { TargetKey } from './characterStats'
 
 // Neutral "effect intent" emitted by <EffectBuilder>: a target + either a numeric
 // amount or an advantage/disadvantage on a roll. Each consumer translates it to its
@@ -45,6 +46,55 @@ export function specLabel(spec: EffectSpec): string {
     NUMBER_TARGET_LABEL[t.t]
   if (spec.kind === 'advdis') return `${spec.mode === 'adv' ? 'Advantage' : 'Disadvantage'} on ${targetText}`
   return `${fmt(spec.amount)} ${targetText}`
+}
+
+// ── Ledger (always-on character grant) translation ───────────────────────────
+
+const ALL_SAVE_ABILITIES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
+
+// Item-only targets — no ledger breakdown to attach an always-on custom to.
+const LEDGER_UNSUPPORTED = new Set<NumberTarget['t']>(['weaponAttack', 'damage', 'spellDamage'])
+
+/** Whether a number target can be authored as an always-on ledger grant. */
+export function ledgerTargetSupported(t: NumberTarget['t']): boolean {
+  return !LEDGER_UNSUPPORTED.has(t)
+}
+
+export type LedgerGrant =
+  | { kind: 'number'; targetKey: TargetKey; mod: CustomModifier }
+  | { kind: 'advdis'; entry: CustomAdvDis }
+
+/**
+ * Translate an EffectSpec into always-on ledger grant(s). Numeric → a custom modifier
+ * on the matching TargetKey (6a applies it); adv/dis → a CustomAdvDis (6c). "All saves"
+ * numeric expands to one grant per save, sharing the `id` so disable/remove acts on all.
+ * Item-only targets (weapon to-hit/damage, spell damage) return [].
+ */
+export function specToLedgerCustom(spec: EffectSpec, id: string): LedgerGrant[] {
+  const label = specLabel(spec)
+  if (spec.kind === 'advdis') {
+    const entry: CustomAdvDis = spec.target.t === 'save'
+      ? { id, label, target: 'save', ability: spec.target.ability, mode: spec.mode }
+      : { id, label, target: 'skill', skill: spec.target.skill, mode: spec.mode }
+    return [{ kind: 'advdis', entry }]
+  }
+  const { target, amount } = spec
+  const mod: CustomModifier = { id, label, amount }
+  switch (target.t) {
+    case 'ability': return [{ kind: 'number', targetKey: `ability:${target.ability}`, mod }]
+    case 'ac': return [{ kind: 'number', targetKey: 'ac', mod }]
+    case 'speed': return [{ kind: 'number', targetKey: 'speed', mod }]
+    case 'initiative': return [{ kind: 'number', targetKey: 'initiative', mod }]
+    case 'maxHp': return [{ kind: 'number', targetKey: 'maxHp', mod }]
+    case 'spellAttack': return [{ kind: 'number', targetKey: 'spellAttack', mod }]
+    case 'spellSaveDC': return [{ kind: 'number', targetKey: 'spellSaveDC', mod }]
+    case 'skill': return [{ kind: 'number', targetKey: `skill:${target.skill}`, mod }]
+    case 'save':
+      return target.ability === 'all'
+        ? ALL_SAVE_ABILITIES.map(ab => ({ kind: 'number' as const, targetKey: `save:${ab}` as TargetKey, mod }))
+        : [{ kind: 'number', targetKey: `save:${target.ability}`, mod }]
+    case 'weaponAttack': case 'damage': case 'spellDamage': return [] // item-only, no ledger home
+  }
 }
 
 /** Translate an EffectSpec into the item's structured ItemEffect. */

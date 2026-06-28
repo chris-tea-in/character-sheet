@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **231 pass** (… +6 6a ledger; +1 custom-disable fix; +9 Effect Builder: specToItemEffect, item adv/dis 5e, weapon to-hit + spell-damage effects). ⚠ Plain `npx vitest run` intermittently
+- **Tests:** `npx vitest run --no-file-parallelism` → **238 pass** (… Effect Builder P1 items +9; P2 grants +7: specToLedgerCustom + custom adv/dis 6c). ⚠ Plain `npx vitest run` intermittently
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v21** (`ledger_overrides`, Step 6a). Next is **v22**.
@@ -360,7 +360,18 @@ Step 6 — they are not dropped, just resequenced.**
   item-level `advantage`/`disadvantage` `ItemEffect` variant → build validation + `computeActiveItemEffects.advDis`
   accumulator + a derive loop feeding `rollStateSources` (mirrors `featureFx.advDis`). 6 tests. Note: the legacy
   hardcoded `ITEM_ADV_ENTRIES` still exist — migrating those 22 to data effects is the remaining 5e data chore.
-- **Phase 2 (always-on character grant) — NOT STARTED.** Wire the SAME `<EffectBuilder>` into a sheet "grant" panel →
+- **Phase 2 (always-on character grant) — ✅ DONE.** New `CustomEffectsBlock` sheet panel (mounted after
+  DescriptionBlock) uses the SAME `<EffectBuilder>` in **grant mode** (`onAdd` callback; hides the item-only
+  weapon-to-hit/weapon-damage/spell-damage targets that have no ledger breakdown). `specToLedgerCustom(spec, id)`:
+  numeric → a `ledgerOverrides.custom[targetKey]` modifier (applied by 6a), "all saves" numeric → 6 grants sharing
+  one id; adv/dis → a `CustomAdvDis` entry. **Step 6c done:** `LedgerOverrides.customAdvDis?` (optional sub-field on
+  the existing `ledger_overrides` JSON blob — **no migration**, rides INV-4 automatically; `?? []` for old rows;
+  edit-merge already preserves the whole `ledgerOverrides`); derive loop feeds non-disabled `customAdvDis` into
+  `rollStateSources` (kind `custom`, honoring the `disabled` set). The panel lists all grants (dedup by id) with
+  eye-disable + remove. 7 tests. STILL deferred: **attack/damage targets for the ledger path** (no breakdown) and
+  **resistances** as a target (set-membership = 6b).
+
+_(superseded)_ **Phase 2 (always-on character grant) — design notes.** Wire the SAME `<EffectBuilder>` into a sheet "grant" panel →
   numeric goes into `ledgerOverrides.custom` (6a, done); add the **adv/dis custom channel to the ledger (= Step 6c)**.
   Then a `specToLedgerCustom` adapter. **Item attack/damage targets now done:** weapon **to-hit** (new `attack`
   ItemEffect → `itemEffects.attack` → `derived.itemAttackBonus` → `computeWeaponBonus`), spell **to-hit**

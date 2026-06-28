@@ -682,6 +682,31 @@ describe('deriveCharacterStats — item advantage/disadvantage effects', () => {
   })
 })
 
+// ── Step 6c: custom always-on advantage/disadvantage grants ──────────────────
+describe('deriveCharacterStats — custom adv/dis grants (6c)', () => {
+  it('a custom advantage grant shows on the targeted save', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [{ id: 'g1', label: 'Blessed', target: 'save', ability: 'dex', mode: 'adv' }] },
+    }), {})
+    expect(d.rollStates.saves.dex).toBe('adv')
+  })
+
+  it('a custom disadvantage on all saves applies to every save', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [{ id: 'g1', label: 'Cursed', target: 'save', ability: 'all', mode: 'dis' }] },
+    }), {})
+    expect(d.rollStates.saves.con).toBe('dis')
+    expect(d.rollStates.saves.cha).toBe('dis')
+  })
+
+  it('a disabled custom grant is suppressed', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: ['g1'], overrides: {}, custom: {}, customAdvDis: [{ id: 'g1', label: 'Blessed', target: 'save', ability: 'dex', mode: 'adv' }] },
+    }), {})
+    expect(d.rollStates.saves.dex).toBeUndefined()
+  })
+})
+
 // ── Step 6a: Modifier Ledger override layer ──────────────────────────────────
 describe('applyLedger', () => {
   const rows = (): ModifierSource[] => [

@@ -1627,6 +1627,21 @@ export function deriveCharacterStats(
       (rollStateSources.skills[a.skill] ??= []).push(src)
     }
   }
+  // Player/DM custom adv/dis grants (Modifier Ledger, always-on — Step 6c). Disabled
+  // ones (id in ledgerOverrides.disabled) are suppressed, like any ledger row.
+  {
+    const disabled = new Set(character.ledgerOverrides?.disabled ?? [])
+    for (const a of character.ledgerOverrides?.customAdvDis ?? []) {
+      if (disabled.has(a.id)) continue
+      const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'custom' }
+      if (a.target === 'save') {
+        const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
+        for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
+      } else if (a.skill) {
+        (rollStateSources.skills[a.skill] ??= []).push(src)
+      }
+    }
+  }
   // Armor stealth disadvantage.
   if (hasStealthDisadvantage) {
     (rollStateSources.skills.stealth ??= []).push({ mode: 'dis', label: `${bodyArmorName || 'Armor'} (stealth)`, kind: 'item' })

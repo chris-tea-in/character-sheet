@@ -67,6 +67,17 @@ export interface CustomModifier {
   amount: number
 }
 
+// A player/DM-authored standing advantage or disadvantage on a save or skill
+// (Modifier Ledger, always-on grant). Disabled (suppressed) by id via `disabled`.
+export interface CustomAdvDis {
+  id: string
+  label: string
+  target: 'save' | 'skill'
+  ability?: AbilityName | 'all'
+  skill?: SkillName
+  mode: 'adv' | 'dis'
+}
+
 // Modifier Ledger override layer (P2). Edits the player makes to the auto-derived
 // breakdowns, applied as the LAST step(s) of deriveCharacterStats — still INV-1, no
 // write-time baking. `disabled` suppresses a contributor by its stable id (it still
@@ -77,6 +88,9 @@ export interface LedgerOverrides {
   disabled: string[]
   overrides: Record<string, number>
   custom: Record<string, CustomModifier[]>
+  // Always-on adv/dis grants (Step 6c). Optional: rows written before this field
+  // existed simply lack it — read with `?? []`.
+  customAdvDis?: CustomAdvDis[]
 }
 
 export interface Character {
@@ -217,7 +231,7 @@ export function defaultCharacter(name: string): NewCharacter {
     conditions: { active: [], exhaustion: 0 },
     skillProficiencies: {},
     savingThrowProficiencies: [],
-    ledgerOverrides: { disabled: [], overrides: {}, custom: {} },
+    ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [] },
     spells: [], spellSlotsUsed: {},
     personalityTraits: '', ideals: '', bonds: '', flaws: '', notes: '',
     equipment: [],

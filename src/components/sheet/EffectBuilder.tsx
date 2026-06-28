@@ -26,13 +26,21 @@ function parseTarget(v: string): NumberTarget {
  * Emits a list of neutral EffectSpecs; the parent translates them (e.g. specToItemEffect).
  */
 export function EffectBuilder({
-  effects,
+  effects = [],
   onChange,
+  onAdd,
   caption = 'Effects (while equipped)',
+  mode = 'item',
 }: {
-  effects: EffectSpec[]
-  onChange: (next: EffectSpec[]) => void
+  // Accumulation mode (item dialog): bind effects + onChange; the builder shows the list.
+  effects?: EffectSpec[]
+  onChange?: (next: EffectSpec[]) => void
+  // Immediate mode (grant panel): each Add fires onAdd; the parent renders its own list.
+  onAdd?: (spec: EffectSpec) => void
   caption?: string
+  // 'grant' hides item-only targets (weapon to-hit/damage, spell damage) that have no
+  // always-on ledger home.
+  mode?: 'item' | 'grant'
 }) {
   const [target, setTarget] = useState('ability:str')
   const [valueKind, setValueKind] = useState<'number' | 'adv' | 'dis'>('number')
@@ -47,14 +55,19 @@ export function EffectBuilder({
     if (!(p.t === 'save' || p.t === 'skill')) setValueKind('number')
   }
 
+  function emit(spec: EffectSpec) {
+    if (onAdd) onAdd(spec)
+    else onChange?.([...effects, spec])
+  }
+
   function add() {
     if (advDisAllowed && valueKind !== 'number') {
-      onChange([...effects, { kind: 'advdis', target: parsed as RollTarget, mode: valueKind === 'adv' ? 'adv' : 'dis' }])
+      emit({ kind: 'advdis', target: parsed as RollTarget, mode: valueKind === 'adv' ? 'adv' : 'dis' })
       return
     }
     const n = Math.trunc(Number(amount))
     if (!Number.isFinite(n) || n === 0) return
-    onChange([...effects, { kind: 'number', target: parsed, amount: n }])
+    emit({ kind: 'number', target: parsed, amount: n })
   }
 
   return (
@@ -68,7 +81,7 @@ export function EffectBuilder({
               <span style={{ color: 'var(--color-accent-gold)' }}>{specLabel(e)}</span>
               <button
                 type="button"
-                onClick={() => onChange(effects.filter((_, idx) => idx !== i))}
+                onClick={() => onChange?.(effects.filter((_, idx) => idx !== i))}
                 className="text-muted-foreground hover:text-destructive transition-colors"
                 aria-label="Remove effect"
               >
@@ -89,13 +102,13 @@ export function EffectBuilder({
             <option value="speed">Speed</option>
             <option value="initiative">Initiative</option>
             <option value="maxHp">Max HP</option>
-            <option value="weaponAttack">Weapon attack (to-hit)</option>
-            <option value="damage">Weapon damage</option>
+            {mode === 'item' && <option value="weaponAttack">Weapon attack (to-hit)</option>}
+            {mode === 'item' && <option value="damage">Weapon damage</option>}
           </optgroup>
           <optgroup label="Spellcasting">
             <option value="spellAttack">Spell attack (to-hit)</option>
             <option value="spellSaveDC">Spell save DC</option>
-            <option value="spellDamage">Spell damage</option>
+            {mode === 'item' && <option value="spellDamage">Spell damage</option>}
           </optgroup>
           <optgroup label="Saving throw">
             {ABILITIES.map(a => <option key={a} value={`save:${a}`}>{a.toUpperCase()} save</option>)}

@@ -145,6 +145,7 @@ function fullCharacter(): NewCharacter {
       disabled: ['item:belt-of-dwarvenkind:con'],
       overrides: { 'feat:lucky:speed': 5 },
       custom: { speed: [{ id: 'custom:1', label: 'Mount', amount: 10 }] },
+      customAdvDis: [{ id: 'g1', label: 'Blessed', target: 'save', ability: 'dex', mode: 'adv' }],
     },
     spells: [{ slug: 'fireball', prepared: true, damageDice: '8d6', damageType: 'fire', damagePerLevel: '1d6' }],
     spellSlotsUsed: { 1: 2, 3: 1 },

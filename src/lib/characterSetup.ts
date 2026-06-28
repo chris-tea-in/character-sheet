@@ -796,7 +796,7 @@ export function draftToNewCharacter(
     hitDiceUsedByClass: {},
     inspiration: false,
     conditions: { active: [], exhaustion: 0 },
-    ledgerOverrides: { disabled: [], overrides: {}, custom: {} },
+    ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [] },
     skillProficiencies,
     savingThrowProficiencies,
     spells: [
