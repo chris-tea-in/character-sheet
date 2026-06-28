@@ -26,11 +26,13 @@ export function CustomEffectsBlock({
     if (!grants.length) return
     const custom = { ...lo.custom }
     const customAdvDis = [...(lo.customAdvDis ?? [])]
+    const customGrants = [...(lo.customGrants ?? [])]
     for (const g of grants) {
       if (g.kind === 'number') custom[g.targetKey] = [...(custom[g.targetKey] ?? []), g.mod]
-      else customAdvDis.push(g.entry)
+      else if (g.kind === 'advdis') customAdvDis.push(g.entry)
+      else customGrants.push(g.entry)
     }
-    onSave({ ledgerOverrides: { ...lo, custom, customAdvDis } })
+    onSave({ ledgerOverrides: { ...lo, custom, customAdvDis, customGrants } })
   }
 
   // Distinct grants (dedup by id — a single "all saves" numeric grant spans 6 targets).
@@ -41,6 +43,9 @@ export function CustomEffectsBlock({
   }
   for (const a of lo.customAdvDis ?? []) {
     if (!seen.has(a.id)) { seen.add(a.id); grants.push({ id: a.id, label: a.label }) }
+  }
+  for (const g of lo.customGrants ?? []) {
+    if (!seen.has(g.id)) { seen.add(g.id); grants.push({ id: g.id, label: g.label }) }
   }
 
   function toggleDisable(id: string) {
@@ -59,6 +64,7 @@ export function CustomEffectsBlock({
         ...lo,
         custom,
         customAdvDis: (lo.customAdvDis ?? []).filter(a => a.id !== id),
+        customGrants: (lo.customGrants ?? []).filter(g => g.id !== id),
         disabled: lo.disabled.filter(d => d !== id),
       },
     })
@@ -107,8 +113,8 @@ export function CustomEffectsBlock({
         <EffectBuilder mode="grant" caption="Add an always-on effect" onAdd={handleAdd} />
 
         <p className="text-[11px] text-muted-foreground">
-          Always-on bonuses + advantage/disadvantage applied directly to this character (e.g. a DM buff).
-          Each also shows in the affected stat’s breakdown; toggle off to suppress it or remove it here.
+          Always-on bonuses, advantage/disadvantage, resistances + languages applied directly to this
+          character (e.g. a DM buff). Toggle off to suppress a grant or remove it here.
         </p>
       </div>
     </section>

@@ -26,6 +26,16 @@ export type ModifierKind =
 // Per-roll advantage state, netted per RAW (any advantage + any disadvantage = normal).
 export type RollMode = 'adv' | 'dis'
 
+// One granted set-membership entry (resistance/immunity/…) with provenance — Step 6b.
+// `disabled` = suppressed via the ledger (kept in the list, struck-through, re-enableable).
+export interface SetGrantSource {
+  id: string
+  value: string       // the damage type (lowercased)
+  label: string       // source label (Item / Racial / Feat / a feature or custom name)
+  kind: ModifierKind
+  disabled: boolean
+}
+
 export interface ModifierSource {
   id: string          // stable + deterministic: `${kind}:${sourceSlug}:${targetKey}`
   label: string
@@ -126,6 +136,8 @@ export interface DerivedStats {
   featSkillGrants: { proficient: SkillName[]; expertise: SkillName[] }
   // Skills granted by the character's race — shown filled+locked like feat grants.
   raceSkillGrants: SkillName[]
+  // Skills granted via the ledger's custom set-grants (Step 6b) — also filled+locked.
+  customSkillGrants: SkillName[]
   weaponProficiencies: string[]
   // Armor proficiency union (class + racial), lowercased. Used for feat prereqs/display.
   armorProficiencies: string[]
@@ -147,6 +159,10 @@ export interface DerivedStats {
   // Damage resistances / immunities granted by active items — derived, read-only display
   resistances: string[]
   immunities: string[]
+  // Provenance for resistances/immunities (Step 6b): each granted type with its source +
+  // a disabled flag. The string lists above are the EFFECTIVE (non-disabled) values.
+  resistanceSources: SetGrantSource[]
+  immunitySources: SetGrantSource[]
   // Weapon-conditional fighting-style effects — applied per-weapon in computeWeaponBonus
   featureWeaponEffects: FeatureWeaponEffect[]
   // Provenance for the Modifier Ledger. Each list (or per-key list) sums to its
@@ -237,7 +253,15 @@ export function hasFeatStatEffect(feat: FeatData): boolean {
 // carries a `label` so the source is visible in the ledger breakdown (4b).
 
 // One advantage/disadvantage source on a roll (for ledger provenance).
-export interface RollAdvSource { mode: 'adv' | 'dis'; label: string; kind: ModifierKind }
+export interface RollAdvSource {
+  mode: 'adv' | 'dis'
+  label: string
+  kind: ModifierKind
+  // Step 6b-3: stable id for ledger disable (absent for conditions — not disableable);
+  // `disabled` = suppressed from netting but still shown struck-through.
+  id?: string
+  disabled?: boolean
+}
 
 type AdvantageEntry = { saves?: AbilityName[]; skills?: SkillName[]; label: string; kind: ModifierKind }
 
@@ -1182,6 +1206,22 @@ export function deriveCharacterStats(
     }
   }
 
+  // ── Modifier Ledger set-membership grants (Step 6b), computed once ─────────
+  // Always-on custom grants (resistance/immunity/language/sense/skill+save prof),
+  // minus any the player disabled. Skill/save prof grants fold into the effective
+  // proficiencies (locked in the UI like racial grants); the rest apply below.
+  const ledgerDisabled = new Set(character.ledgerOverrides?.disabled ?? [])
+  const allSetGrants = character.ledgerOverrides?.customGrants ?? []
+  const activeSetGrants = allSetGrants.filter(g => !ledgerDisabled.has(g.id))
+  const customSenseGrants = activeSetGrants.filter(g => g.target === 'sense')
+  const customLangs = activeSetGrants.filter(g => g.target === 'language').map(g => g.value)
+  const customSkillGrants: SkillName[] = []
+  for (const g of activeSetGrants.filter(g => g.target === 'skillProf')) {
+    const sk = g.value as SkillName
+    if (!effectiveSkillProficiencies[sk]) effectiveSkillProficiencies[sk] = 'proficient'
+    customSkillGrants.push(sk)
+  }
+
   // ── Active magic-item effects ──────────────────────────────────────────────
   // Applied on top of base + racial + feat. Item ability changes are uncapped
   // (RAW: items can raise a score above 20). Skill bonuses reuse the feat channel.
@@ -1293,8 +1333,9 @@ export function deriveCharacterStats(
     if (sp.ability === 'all') ALL_ABILITIES.forEach(a => featureSaveProfs.push(a))
     else featureSaveProfs.push(sp.ability)
   }
+  const customSaveProfGrants = activeSetGrants.filter(g => g.target === 'saveProf').map(g => g.value as AbilityName)
   const effectiveSaveProficiencies: AbilityName[] = [
-    ...new Set([...character.savingThrowProficiencies, ...featDerivedSaves, ...featureSaveProfs]),
+    ...new Set([...character.savingThrowProficiencies, ...featDerivedSaves, ...featureSaveProfs, ...customSaveProfGrants]),
   ]
 
   // ── Skill and save modifiers (pre-computed for display and dice rolls) ─────
@@ -1598,9 +1639,37 @@ export function deriveCharacterStats(
     ]),
   ]
 
-  // ── Damage resistances / immunities (items + racial + always-on features + feats) ──
-  const resistances = [...new Set([...itemEffects.resistances, ...raceEffects.resistances, ...featureFx.resistances.map(r => r.damageType), ...featResistances])]
-  const immunities = [...new Set([...itemEffects.immunities, ...raceEffects.immunities, ...featureFx.immunities.map(r => r.damageType)])]
+  // ── Damage resistances / immunities — with provenance + ledger disable (Step 6b) ──
+  // Each granting source becomes a SetGrantSource (id keyed by kind+type so it can be
+  // disabled); the EFFECTIVE lists are the non-disabled values, deduped. Custom set
+  // grants ride the same path (ledgerDisabled / allSetGrants computed earlier).
+  const buildSetSources = (
+    tag: 'resist' | 'immune',
+    items: string[], race: string[], feats: string[],
+    features: { label: string; damageType: string }[],
+    customs: { id: string; label: string; value: string }[],
+  ): SetGrantSource[] => {
+    const out: SetGrantSource[] = []
+    const add = (id: string, value: string, label: string, kind: ModifierKind) =>
+      out.push({ id, value, label, kind, disabled: ledgerDisabled.has(id) })
+    for (const t of items) add(`item:${tag}:${t}`, t, 'Item', 'item')
+    for (const t of race) add(`race:${tag}:${t}`, t, 'Racial', 'race')
+    for (const t of feats) add(`feat:${tag}:${t}`, t, 'Feat', 'feat')
+    for (const f of features) add(`feature:${slugifyName(f.label)}:${tag}:${f.damageType}`, f.damageType, f.label, 'feature')
+    for (const c of customs) add(c.id, c.value.toLowerCase(), c.label, 'custom')
+    return out
+  }
+
+  const resistanceSources = buildSetSources(
+    'resist', itemEffects.resistances, raceEffects.resistances, featResistances,
+    featureFx.resistances, allSetGrants.filter(g => g.target === 'resistance'),
+  )
+  const immunitySources = buildSetSources(
+    'immune', itemEffects.immunities, raceEffects.immunities, [],
+    featureFx.immunities, allSetGrants.filter(g => g.target === 'immunity'),
+  )
+  const resistances = [...new Set(resistanceSources.filter(s => !s.disabled).map(s => s.value))]
+  const immunities = [...new Set(immunitySources.filter(s => !s.disabled).map(s => s.value))]
 
   // ── Advantages / disadvantages (labeled sources, netted per RAW) ──────────
   // Collect every adv/dis source with its label (ledger provenance), then net per
@@ -1630,10 +1699,10 @@ export function deriveCharacterStats(
   // Player/DM custom adv/dis grants (Modifier Ledger, always-on — Step 6c). Disabled
   // ones (id in ledgerOverrides.disabled) are suppressed, like any ledger row.
   {
-    const disabled = new Set(character.ledgerOverrides?.disabled ?? [])
     for (const a of character.ledgerOverrides?.customAdvDis ?? []) {
-      if (disabled.has(a.id)) continue
-      const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'custom' }
+      // Pushed even when disabled (struck-through in the breakdown); the tag pass below
+      // sets the `disabled` flag from its id, and netSources skips it.
+      const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'custom', id: a.id }
       if (a.target === 'save') {
         const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
         for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
@@ -1644,7 +1713,7 @@ export function deriveCharacterStats(
   }
   // Armor stealth disadvantage.
   if (hasStealthDisadvantage) {
-    (rollStateSources.skills.stealth ??= []).push({ mode: 'dis', label: `${bodyArmorName || 'Armor'} (stealth)`, kind: 'item' })
+    (rollStateSources.skills.stealth ??= []).push({ mode: 'dis', label: `${bodyArmorName || 'Armor'} (stealth)`, kind: 'item', id: 'advdis:item:armor-stealth' })
   }
   // Conditions: disadvantage on EVERY ability check / saving throw (Poisoned,
   // Frightened, Exhaustion, …).
@@ -1657,8 +1726,22 @@ export function deriveCharacterStats(
     const abs = e.ability === 'all' ? ALL_ABILITIES : [e.ability]
     for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(e.src)
   }
+  // 6b-3: tag every standing source with a stable id (except conditions — not
+  // disableable) + a `disabled` flag from the ledger, so each can be toggled off and
+  // still render struck-through. The same source object shared across targets is tagged
+  // once. netSources then nets only the ENABLED sources.
+  const tagAdvSource = (s: RollAdvSource) => {
+    if (s.id === undefined && s.kind !== 'condition') {
+      s.id = `advdis:${s.kind}:${s.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+    }
+    s.disabled = s.id ? ledgerDisabled.has(s.id) : false
+  }
+  for (const ab of ALL_ABILITIES) rollStateSources.saves[ab]?.forEach(tagAdvSource)
+  for (const sk of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) rollStateSources.skills[sk]?.forEach(tagAdvSource)
+
   const netSources = (srcs?: RollAdvSource[]): RollMode | undefined => {
-    const a = !!srcs?.some(s => s.mode === 'adv'), d = !!srcs?.some(s => s.mode === 'dis')
+    const live = srcs?.filter(s => !s.disabled)
+    const a = !!live?.some(s => s.mode === 'adv'), d = !!live?.some(s => s.mode === 'dis')
     return a === d ? undefined : a ? 'adv' : 'dis'
   }
   const rollStates: { saves: Partial<Record<AbilityName, RollMode>>; skills: Partial<Record<SkillName, RollMode>> } = { saves: {}, skills: {} }
@@ -1731,8 +1814,12 @@ export function deriveCharacterStats(
     weaponProficiencies,
     armorProficiencies,
     raceToolGrants: [...new Set([...raceEffects.toolProficiencies, ...featureFx.toolProf, ...featToolProf])],
-    raceGrantedLanguages: [...new Set([...raceEffects.languages, ...featLanguages])],
-    senses: raceEffects.senses,
+    raceGrantedLanguages: [...new Set([...raceEffects.languages, ...featLanguages, ...customLangs])],
+    senses: customSenseGrants.reduce(
+      (acc, g) => { const k = g.value.toLowerCase(); acc[k] = Math.max(acc[k] ?? 0, g.amount ?? 0); return acc },
+      { ...raceEffects.senses },
+    ),
+    customSkillGrants,
     itemDamageBonus: itemEffects.damage,
     itemAttackBonus: itemEffects.attack,
     itemSpellDamageBonus: itemEffects.spellDamage,
@@ -1740,6 +1827,8 @@ export function deriveCharacterStats(
     itemGrantedLanguages: itemEffects.languages,
     resistances,
     immunities,
+    resistanceSources,
+    immunitySources,
     featureWeaponEffects: featureFx.weaponEffects,
     breakdowns: {
       speed: speedL.rows,

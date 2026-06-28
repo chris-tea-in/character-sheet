@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **238 pass** (… Effect Builder P1 items +9; P2 grants +7: specToLedgerCustom + custom adv/dis 6c). ⚠ Plain `npx vitest run` intermittently
+- **Tests:** **250 pass** (… 6b set grants for all types; 6b-2 resistance provenance+disable; 6b-3(A) standing adv/dis disable). ⚠ The Windows worker-fork flake is BAD lately — most full runs show 16/17 files + a partial count, NEVER a real `FAIL`/`✗`. Verify by running changed files alone (`npx vitest run <file>`); they pass clean. `--reporter=verbose` sometimes catches a full 249.
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v21** (`ledger_overrides`, Step 6a). Next is **v22**.
@@ -368,8 +368,42 @@ Step 6 — they are not dropped, just resequenced.**
   the existing `ledger_overrides` JSON blob — **no migration**, rides INV-4 automatically; `?? []` for old rows;
   edit-merge already preserves the whole `ledgerOverrides`); derive loop feeds non-disabled `customAdvDis` into
   `rollStateSources` (kind `custom`, honoring the `disabled` set). The panel lists all grants (dedup by id) with
-  eye-disable + remove. 7 tests. STILL deferred: **attack/damage targets for the ledger path** (no breakdown) and
-  **resistances** as a target (set-membership = 6b).
+  eye-disable + remove. 7 tests.
+- **6b-1 (set-membership: add-your-own) — ✅ DONE.** EffectBuilder gained a `grant` EffectSpec kind +
+  "Defenses & languages" optgroup (Resistance / Immunity / Language → a text/damage-type input instead of a
+  number). `specToItemEffect` maps grants to the existing `resistance`/`immunity`/`language` ItemEffects (so the
+  **item dialog** can now author those too); `specToLedgerCustom` maps to a `CustomGrant`. New
+  `LedgerOverrides.customGrants?` (optional, same JSON blob — no migration); derive folds non-disabled grants into
+  `derived.resistances`/`immunities`/`raceGrantedLanguages`. CustomEffectsBlock lists/disables/removes them. 5 tests.
+- **6b-2 (provenance + disable for derived resistances/immunities) — ✅ DONE.** `derived.resistanceSources` /
+  `immunitySources`: `SetGrantSource[]` (`{id, value, label, kind, disabled}`), built in derive from item/race/feat
+  (kind-level labels) + feature/custom (named). Effective `resistances`/`immunities` are the **non-disabled** values.
+  CombatBlock **Defenses** chips now render every source (struck-through when disabled) and **tap-to-disable**
+  (toggles the id in `ledgerOverrides.disabled`). Custom resistance grants appear here too (same id as the panel, so
+  disabling syncs). 1 test. NOTE: item/race/feat provenance is kind-level (label "Item"/"Racial"/"Feat", id keyed by
+  kind+type) — item-NAME granularity would need threading names through `computeActiveItemEffects` (refinement).
+- **6b set add-your-own COMPLETED for all set types.** Extended the `grant` system to **sense** (Darkvision + a
+  range), **skill proficiency**, **save proficiency** (grant-mode-only — no ItemEffect, so `specToItemEffect`
+  returns `null` and CustomItemDialog filters; `CustomGrant.target` + optional `amount`). Derive folds non-disabled
+  grants in: skill prof → `effectiveSkillProficiencies` + `derived.customSkillGrants` (ProficienciesBlock locks
+  those dots, merged into `raceProficientSkills`); save prof → `effectiveSaveProficiencies` (auto-locks via the
+  existing `!isStored && effective.includes` check); sense → `derived.senses`. All listed/disabled/removed in the
+  Custom Effects panel. `ledgerDisabled`/`allSetGrants`/`activeSetGrants` now computed ONCE early in derive.
+- **6b-3 (disable DERIVED grants) — PARTIAL.**
+  - **(A) Standing adv/dis sources — ✅ DONE.** `RollAdvSource` gained `id?`/`disabled?`. Each standing
+    feat/race/subrace/item/custom adv-dis source is tagged with a stable id (conditions excluded — not
+    disableable) + a `disabled` flag from `ledgerDisabled`; `netSources` nets only ENABLED sources. The
+    StatBreakdown **Roll** section (saves/skills) now shows an eye-toggle per source (struck-through when off).
+    Custom adv-dis grants reuse their own id (synced with the panel). 1 test.
+  - **(B) Senses — N/A.** `derived.senses` is no longer rendered as a sheet list (it moved into the Features &
+    Traits text; custom sense grants are managed in the Custom Effects panel). Nothing to add a disable to.
+  - **(C) Racial/derived LANGUAGES + (D) class/race-granted PROFICIENCIES — NOT DONE.** Each needs a provenance
+    refactor (languageSources / proficiency-grant ids) THREADED into a complex, already-working block (the
+    DescriptionBlock language grid / the ProficienciesBlock dots, where the prof + the modifier must stay in
+    sync). Higher regression risk than the resistance chips — best done as a focused follow-on. Custom language
+    + custom skill/save-prof grants are ALREADY disableable via the Custom Effects panel; only the
+    class/race/feat-DERIVED ones lack an in-place disable.
+  - STILL deferred elsewhere: ledger-path attack/damage targets; **GWF (5d-C)**; the **ITEM_ADV data migration**.
 
 _(superseded)_ **Phase 2 (always-on character grant) — design notes.** Wire the SAME `<EffectBuilder>` into a sheet "grant" panel →
   numeric goes into `ledgerOverrides.custom` (6a, done); add the **adv/dis custom channel to the ledger (= Step 6c)**.

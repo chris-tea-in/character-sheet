@@ -2,11 +2,15 @@ import { useState } from 'react'
 import { X } from 'lucide-react'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
 import { specLabel } from '@/lib/effectSpec'
-import type { EffectSpec, NumberTarget, RollTarget } from '@/lib/effectSpec'
+import type { EffectSpec, NumberTarget, RollTarget, GrantTarget } from '@/lib/effectSpec'
 import type { AbilityName, SkillName } from '@/types/character'
 
 const ABILITIES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 const SKILLS = Object.keys(SKILL_DISPLAY_MAP) as SkillName[]
+const DAMAGE_TYPES = [
+  'acid', 'bludgeoning', 'cold', 'fire', 'force', 'lightning', 'necrotic',
+  'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder',
+]
 
 const fieldClass =
   'bg-[var(--color-surface-2)] text-foreground border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-ring'
@@ -45,14 +49,26 @@ export function EffectBuilder({
   const [target, setTarget] = useState('ability:str')
   const [valueKind, setValueKind] = useState<'number' | 'adv' | 'dis'>('number')
   const [amount, setAmount] = useState('1')
+  const [grantValue, setGrantValue] = useState('')
+  const [grantAmount, setGrantAmount] = useState('60')
 
-  const parsed = parseTarget(target)
-  const advDisAllowed = parsed.t === 'save' || parsed.t === 'skill'
+  const isGrant = target.startsWith('grant:')
+  const grantTarget = isGrant ? (target.split(':')[1] as GrantTarget) : null
+  const parsed = isGrant ? null : parseTarget(target)
+  const advDisAllowed = !!parsed && (parsed.t === 'save' || parsed.t === 'skill')
+  // skill/save proficiency + sense pick from a dropdown / typed name, not a free text field.
+  const grantUsesSelect = grantTarget === 'skillProf' || grantTarget === 'saveProf'
 
   function pickTarget(v: string) {
     setTarget(v)
-    const p = parseTarget(v)
-    if (!(p.t === 'save' || p.t === 'skill')) setValueKind('number')
+    if (v === 'grant:skillProf') setGrantValue(SKILLS[0])
+    else if (v === 'grant:saveProf') setGrantValue('con')
+    else if (v === 'grant:sense') setGrantValue('Darkvision')
+    else if (v.startsWith('grant:')) setGrantValue('')
+    else {
+      const p = parseTarget(v)
+      if (!(p.t === 'save' || p.t === 'skill')) setValueKind('number')
+    }
   }
 
   function emit(spec: EffectSpec) {
@@ -61,13 +77,25 @@ export function EffectBuilder({
   }
 
   function add() {
+    if (isGrant) {
+      if (grantTarget === 'sense') {
+        const r = Math.trunc(Number(grantAmount))
+        emit({ kind: 'grant', target: 'sense', value: grantValue.trim() || 'Darkvision', amount: Number.isFinite(r) && r > 0 ? r : undefined })
+        return
+      }
+      const v = grantValue.trim()
+      if (!v) return
+      emit({ kind: 'grant', target: grantTarget!, value: v })
+      if (!grantUsesSelect) setGrantValue('')
+      return
+    }
     if (advDisAllowed && valueKind !== 'number') {
       emit({ kind: 'advdis', target: parsed as RollTarget, mode: valueKind === 'adv' ? 'adv' : 'dis' })
       return
     }
     const n = Math.trunc(Number(amount))
     if (!Number.isFinite(n) || n === 0) return
-    emit({ kind: 'number', target: parsed, amount: n })
+    emit({ kind: 'number', target: parsed!, amount: n })
   }
 
   return (
@@ -117,9 +145,63 @@ export function EffectBuilder({
           <optgroup label="Skill">
             {SKILLS.map(s => <option key={s} value={`skill:${s}`}>{SKILL_DISPLAY_MAP[s]}</option>)}
           </optgroup>
+          <optgroup label="Defenses & languages">
+            <option value="grant:resistance">Resistance</option>
+            <option value="grant:immunity">Immunity</option>
+            <option value="grant:language">Language</option>
+          </optgroup>
+          {mode === 'grant' && (
+            <optgroup label="Proficiency & senses">
+              <option value="grant:skillProf">Skill proficiency</option>
+              <option value="grant:saveProf">Save proficiency</option>
+              <option value="grant:sense">Sense (darkvision …)</option>
+            </optgroup>
+          )}
         </select>
 
-        {advDisAllowed && (
+        {/* Grant value control varies by grant target */}
+        {grantUsesSelect && (
+          <select value={grantValue} onChange={e => setGrantValue(e.target.value)} className={`${selectClass} flex-1 min-w-[6rem]`} aria-label="Grant">
+            {grantTarget === 'skillProf'
+              ? SKILLS.map(s => <option key={s} value={s}>{SKILL_DISPLAY_MAP[s]}</option>)
+              : ABILITIES.map(a => <option key={a} value={a}>{a.toUpperCase()} save</option>)}
+          </select>
+        )}
+        {isGrant && grantTarget === 'sense' && (
+          <>
+            <input
+              value={grantValue}
+              onChange={e => setGrantValue(e.target.value)}
+              placeholder="Sense"
+              className={`${fieldClass} flex-1 min-w-[5rem]`}
+              aria-label="Sense"
+            />
+            <input
+              type="number" min={0}
+              value={grantAmount}
+              onChange={e => setGrantAmount(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') add() }}
+              className={`${fieldClass} w-16 text-right [color-scheme:dark] flex-none`}
+              aria-label="Range (ft)"
+            />
+          </>
+        )}
+        {isGrant && !grantUsesSelect && grantTarget !== 'sense' && (
+          <input
+            value={grantValue}
+            onChange={e => setGrantValue(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') add() }}
+            list={grantTarget === 'language' ? undefined : 'effect-damage-types'}
+            placeholder={grantTarget === 'language' ? 'Language' : 'Damage type'}
+            className={`${fieldClass} flex-1 min-w-[6rem]`}
+            aria-label={grantTarget === 'language' ? 'Language' : 'Damage type'}
+          />
+        )}
+        <datalist id="effect-damage-types">
+          {DAMAGE_TYPES.map(t => <option key={t} value={t} />)}
+        </datalist>
+
+        {!isGrant && advDisAllowed && (
           <div className="flex rounded border border-border overflow-hidden text-xs flex-none">
             {(['number', 'adv', 'dis'] as const).map(k => (
               <button
@@ -135,7 +217,7 @@ export function EffectBuilder({
           </div>
         )}
 
-        {(!advDisAllowed || valueKind === 'number') && (
+        {!isGrant && (!advDisAllowed || valueKind === 'number') && (
           <input
             type="number"
             value={amount}

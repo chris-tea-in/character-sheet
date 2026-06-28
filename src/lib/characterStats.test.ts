@@ -422,6 +422,18 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
     expect(d.rollStates.saves.con).toBe('adv')
   })
 
+  it('6b-3: disabling a standing race save-advantage source nets it away (still shown)', () => {
+    const on = deriveCharacterStats(charWith({ race: 'dwarf' }), {})
+    const src = on.rollStateSources.saves.con!.find(s => s.id)!
+    expect(src.id).toBeTruthy()
+    const off = deriveCharacterStats(charWith({
+      race: 'dwarf',
+      ledgerOverrides: { disabled: [src.id!], overrides: {}, custom: {} },
+    }), {})
+    expect(off.rollStates.saves.con).toBeUndefined()
+    expect(off.rollStateSources.saves.con!.find(s => s.id === src.id)!.disabled).toBe(true)
+  })
+
   it('advantage + disadvantage on the same skill net to normal (RAW)', () => {
     // Boots of Elvenkind → Stealth advantage; Plate → Stealth disadvantage ⇒ normal.
     const d = deriveCharacterStats(charWith({
@@ -679,6 +691,77 @@ describe('deriveCharacterStats — item advantage/disadvantage effects', () => {
       equipment: [{ id: 'c', name: 'Cloak of Grit', quantity: 1, attuned: false }],
     }), { catalog: { wondrous_items: [cloak] } })
     expect(d.rollStates.saves.con).toBeUndefined()
+  })
+})
+
+// ── Step 6b: custom set-membership grants (resistance/immunity/language) ──────
+describe('deriveCharacterStats — custom set grants (6b)', () => {
+  it('a custom resistance grant appears in derived.resistances (lowercased)', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customGrants: [{ id: 'r1', label: 'Resistance to Fire', target: 'resistance', value: 'Fire' }] },
+    }), {})
+    expect(d.resistances).toContain('fire')
+  })
+
+  it('a custom language grant appears in the granted languages', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customGrants: [{ id: 'l1', label: 'Language Draconic', target: 'language', value: 'Draconic' }] },
+    }), {})
+    expect(d.raceGrantedLanguages).toContain('Draconic')
+  })
+
+  it('a disabled custom grant is suppressed', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: ['r1'], overrides: {}, custom: {}, customGrants: [{ id: 'r1', label: 'Resistance to Fire', target: 'resistance', value: 'Fire' }] },
+    }), {})
+    expect(d.resistances).not.toContain('fire')
+  })
+
+  it('a custom skill-proficiency grant makes the skill proficient + locks it (customSkillGrants)', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customGrants: [{ id: 's1', label: 'Stealth proficiency', target: 'skillProf', value: 'stealth' }] },
+    }), {})
+    expect(d.effectiveSkillProficiencies.stealth).toBe('proficient')
+    expect(d.customSkillGrants).toContain('stealth')
+  })
+
+  it('a custom save-proficiency grant adds the save; a custom sense grant adds darkvision', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customGrants: [
+        { id: 'sv', label: 'DEX save proficiency', target: 'saveProf', value: 'dex' },
+        { id: 'se', label: 'Darkvision 60 ft', target: 'sense', value: 'Darkvision', amount: 60 },
+      ] },
+    }), {})
+    expect(d.effectiveSaveProficiencies).toContain('dex')
+    expect(d.senses.darkvision).toBe(60)
+  })
+
+  it('a disabled skill-proficiency grant is not applied', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: ['s1'], overrides: {}, custom: {}, customGrants: [{ id: 's1', label: 'Stealth proficiency', target: 'skillProf', value: 'stealth' }] },
+    }), {})
+    expect(d.effectiveSkillProficiencies.stealth).toBeUndefined()
+    expect(d.customSkillGrants).not.toContain('stealth')
+  })
+
+  // 6b-2 — provenance + disable for derived resistances
+  it('an item resistance is listed with a source; disabling its id removes the effective resistance', () => {
+    const ring: WondrousItem = {
+      name: 'Ring of Fire Warding', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      effects: [{ type: 'resistance', damageType: 'fire' }],
+    }
+    const equip = [{ id: 'c', name: 'Ring of Fire Warding', quantity: 1, attuned: true }]
+    const on = deriveCharacterStats(charWith({ equipment: equip }), { catalog: { wondrous_items: [ring] } })
+    expect(on.resistances).toContain('fire')
+    const src = on.resistanceSources.find(s => s.value === 'fire')!
+    expect(src.kind).toBe('item')
+
+    const off = deriveCharacterStats(charWith({
+      equipment: equip,
+      ledgerOverrides: { disabled: [src.id], overrides: {}, custom: {} },
+    }), { catalog: { wondrous_items: [ring] } })
+    expect(off.resistances).not.toContain('fire')
+    expect(off.resistanceSources.find(s => s.value === 'fire')!.disabled).toBe(true)
   })
 })
 

@@ -159,7 +159,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
   // derived at render time; the breakdown pencil shows which source granted it.
   const featProficientSkills = new Set(derived.featSkillGrants.proficient)
   const featExpertiseSkills = new Set(derived.featSkillGrants.expertise)
-  const raceProficientSkills = new Set(derived.raceSkillGrants)
+  const raceProficientSkills = new Set([...derived.raceSkillGrants, ...derived.customSkillGrants])
   const bgSkillSet = new Set(backgroundSkills ?? [])
 
   // Per-class (record, level) pairs for expertise/skill caps — falls back to the

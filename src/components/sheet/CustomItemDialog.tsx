@@ -7,7 +7,7 @@ import { buildCustomWeapon, buildCustomArmor, buildCustomWondrous, buildAcFormul
 import { EffectBuilder } from './EffectBuilder'
 import { specToItemEffect } from '@/lib/effectSpec'
 import type { EffectSpec } from '@/lib/effectSpec'
-import type { WeaponItem, ArmorItem, WondrousItem } from '@/types/data'
+import type { WeaponItem, ArmorItem, WondrousItem, ItemEffect } from '@/types/data'
 
 const WEAPON_TYPES: WeaponItem['weapon_type'][] = [
   'Simple Melee', 'Simple Ranged', 'Martial Melee', 'Martial Ranged',
@@ -107,7 +107,7 @@ export function CustomItemDialog({
 
   function submit() {
     if (!valid) return
-    const itemEffects = effects.map(specToItemEffect)
+    const itemEffects = effects.map(specToItemEffect).filter((e): e is ItemEffect => e !== null)
     if (kind === 'weapon') {
       onCreate(buildCustomWeapon({ name, weaponType, damageDice, damageType, properties, description, effects: itemEffects }))
     } else if (kind === 'armor') {

@@ -1,5 +1,5 @@
 import { SKILL_DISPLAY_MAP } from './dice'
-import type { AbilityName, SkillName, CustomModifier, CustomAdvDis } from '../types/character'
+import type { AbilityName, SkillName, CustomModifier, CustomAdvDis, CustomGrant } from '../types/character'
 import type { ItemEffect } from '../types/data'
 import type { TargetKey } from './characterStats'
 
@@ -25,9 +25,15 @@ export type RollTarget =
   | { t: 'save'; ability: AbilityName | 'all' }
   | { t: 'skill'; skill: SkillName }
 
+// Set-membership grant target (Step 6b): resistance/immunity to a damage type, a
+// language, a sense (with a range), or a skill/save proficiency. The first three map
+// to ItemEffects (authorable on items); the rest are ledger-only (always-on grants).
+export type GrantTarget = 'resistance' | 'immunity' | 'language' | 'sense' | 'skillProf' | 'saveProf'
+
 export type EffectSpec =
   | { kind: 'number'; target: NumberTarget; amount: number }
   | { kind: 'advdis'; target: RollTarget; mode: 'adv' | 'dis' }
+  | { kind: 'grant'; target: GrantTarget; value: string; amount?: number }
 
 const fmt = (n: number) => (n >= 0 ? `+${n}` : `${n}`)
 
@@ -38,6 +44,16 @@ const NUMBER_TARGET_LABEL: Record<NumberTarget['t'], string> = {
 
 /** Human-readable summary of one effect, for the builder list + item display. */
 export function specLabel(spec: EffectSpec): string {
+  if (spec.kind === 'grant') {
+    switch (spec.target) {
+      case 'resistance': return `Resistance to ${spec.value}`
+      case 'immunity': return `Immunity to ${spec.value}`
+      case 'language': return `Language ${spec.value}`
+      case 'sense': return `${spec.value}${spec.amount ? ` ${spec.amount} ft` : ''}`
+      case 'skillProf': return `${SKILL_DISPLAY_MAP[spec.value as SkillName] ?? spec.value} proficiency`
+      case 'saveProf': return `${spec.value.toUpperCase()} save proficiency`
+    }
+  }
   const t = spec.target
   const targetText =
     t.t === 'ability' ? t.ability.toUpperCase() :
@@ -63,6 +79,7 @@ export function ledgerTargetSupported(t: NumberTarget['t']): boolean {
 export type LedgerGrant =
   | { kind: 'number'; targetKey: TargetKey; mod: CustomModifier }
   | { kind: 'advdis'; entry: CustomAdvDis }
+  | { kind: 'grant'; entry: CustomGrant }
 
 /**
  * Translate an EffectSpec into always-on ledger grant(s). Numeric → a custom modifier
@@ -72,6 +89,9 @@ export type LedgerGrant =
  */
 export function specToLedgerCustom(spec: EffectSpec, id: string): LedgerGrant[] {
   const label = specLabel(spec)
+  if (spec.kind === 'grant') {
+    return [{ kind: 'grant', entry: { id, label, target: spec.target, value: spec.value, ...(spec.amount != null ? { amount: spec.amount } : {}) } }]
+  }
   if (spec.kind === 'advdis') {
     const entry: CustomAdvDis = spec.target.t === 'save'
       ? { id, label, target: 'save', ability: spec.target.ability, mode: spec.mode }
@@ -97,8 +117,16 @@ export function specToLedgerCustom(spec: EffectSpec, id: string): LedgerGrant[] 
   }
 }
 
-/** Translate an EffectSpec into the item's structured ItemEffect. */
-export function specToItemEffect(spec: EffectSpec): ItemEffect {
+/**
+ * Translate an EffectSpec into the item's structured ItemEffect, or null when the
+ * effect has no item representation (sense / proficiency grants are ledger-only).
+ */
+export function specToItemEffect(spec: EffectSpec): ItemEffect | null {
+  if (spec.kind === 'grant') {
+    if (spec.target === 'resistance' || spec.target === 'immunity') return { type: spec.target, damageType: spec.value }
+    if (spec.target === 'language') return { type: 'language', name: spec.value }
+    return null // sense / skillProf / saveProf — no ItemEffect
+  }
   if (spec.kind === 'advdis') {
     if (spec.mode === 'adv') {
       return spec.target.t === 'save'

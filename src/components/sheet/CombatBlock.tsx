@@ -474,37 +474,35 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
         </StatCard>
       </div>
 
-      {/* Defenses — damage resistances / immunities from active items (read-only) */}
-      {(derived.resistances.length > 0 || derived.immunities.length > 0) && (
+      {/* Defenses — resistances / immunities with provenance; tap a chip to disable it (Step 6b) */}
+      {(derived.resistanceSources.length > 0 || derived.immunitySources.length > 0) && (
         <div className="rounded-lg border border-border bg-card px-3 py-2 space-y-1.5">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Defenses
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {derived.resistances.map(d => (
-              <span
-                key={`res-${d}`}
-                className="px-2 py-0.5 rounded-full text-[11px] font-medium border border-border capitalize"
-                style={{ color: 'var(--color-accent-gold)' }}
-                title="Resistance"
+            {[
+              ...derived.resistanceSources.map(s => ({ ...s, kindLabel: 'Resistance', color: 'var(--color-accent-gold)' })),
+              ...derived.immunitySources.map(s => ({ ...s, kindLabel: 'Immunity', color: 'var(--color-accent-red)' })),
+            ].map(s => (
+              <button
+                key={`${s.kindLabel}-${s.id}`}
+                onClick={() => {
+                  const lo = character.ledgerOverrides
+                  const has = lo.disabled.includes(s.id)
+                  onSave({ ledgerOverrides: { ...lo, disabled: has ? lo.disabled.filter(d => d !== s.id) : [...lo.disabled, s.id] } })
+                }}
+                className={`px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize transition-colors ${s.disabled ? 'opacity-40 line-through' : ''}`}
+                style={{ color: s.color, borderColor: s.kindLabel === 'Immunity' ? s.color : undefined }}
+                title={`${s.kindLabel} · ${s.label}${s.disabled ? ' (off)' : ''} — tap to ${s.disabled ? 'enable' : 'disable'}`}
               >
-                {d}
-              </span>
-            ))}
-            {derived.immunities.map(d => (
-              <span
-                key={`imm-${d}`}
-                className="px-2 py-0.5 rounded-full text-[11px] font-semibold border capitalize"
-                style={{ color: 'var(--color-accent-red)', borderColor: 'var(--color-accent-red)' }}
-                title="Immunity"
-              >
-                {d}
-              </span>
+                {s.value}
+              </button>
             ))}
           </div>
           <p className="text-[10px] text-muted-foreground">
             <span style={{ color: 'var(--color-accent-gold)' }}>Gold</span> = resistance ·{' '}
-            <span style={{ color: 'var(--color-accent-red)' }}>Red</span> = immunity
+            <span style={{ color: 'var(--color-accent-red)' }}>Red</span> = immunity · tap to disable
           </p>
         </div>
       )}

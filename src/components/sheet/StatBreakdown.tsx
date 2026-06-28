@@ -51,8 +51,8 @@ export function StatBreakdown({ open, onClose, title, sources, signed, unit, rol
   const totalText = signed ? fmt(effective) : `${effective}${unit ? ` ${unit}` : ''}`
   const rawText = signed ? fmt(rawTotal) : `${rawTotal}${unit ? ` ${unit}` : ''}`
 
-  const hasAdv = !!rollSources?.some(s => s.mode === 'adv')
-  const hasDis = !!rollSources?.some(s => s.mode === 'dis')
+  const hasAdv = !!rollSources?.some(s => s.mode === 'adv' && !s.disabled)
+  const hasDis = !!rollSources?.some(s => s.mode === 'dis' && !s.disabled)
   const net = hasAdv === hasDis ? 'Normal' : hasAdv ? 'Advantage' : 'Disadvantage'
 
   function toggleDisable(id: string) {
@@ -226,17 +226,31 @@ export function StatBreakdown({ open, onClose, title, sources, signed, unit, rol
                 {net}
               </span>
             </div>
-            {rollSources.map((s, i) => (
-              <div key={i} className="flex items-center justify-between text-xs">
-                <span className="truncate">{s.label}</span>
-                <span
-                  className="text-[10px] uppercase tracking-wide flex-none"
-                  style={{ color: s.mode === 'adv' ? 'var(--color-accent-gold)' : 'var(--color-accent-red)' }}
-                >
-                  {s.mode === 'adv' ? 'Adv' : 'Dis'}
-                </span>
-              </div>
-            ))}
+            {rollSources.map((s, i) => {
+              const canToggle = editable && !!s.id
+              return (
+                <div key={i} className="flex items-center justify-between text-xs gap-2">
+                  <span className={cn('flex items-center gap-1.5 min-w-0', s.disabled && 'opacity-40')}>
+                    {canToggle && (
+                      <button
+                        onClick={() => toggleDisable(s.id!)}
+                        className="flex-none text-muted-foreground hover:text-foreground transition-colors"
+                        title={s.disabled ? 'Re-enable' : 'Disable'}
+                      >
+                        {s.disabled ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      </button>
+                    )}
+                    <span className={cn('truncate', s.disabled && 'line-through')}>{s.label}</span>
+                  </span>
+                  <span
+                    className={cn('text-[10px] uppercase tracking-wide flex-none', s.disabled && 'line-through opacity-40')}
+                    style={{ color: s.mode === 'adv' ? 'var(--color-accent-gold)' : 'var(--color-accent-red)' }}
+                  >
+                    {s.mode === 'adv' ? 'Adv' : 'Dis'}
+                  </span>
+                </div>
+              )
+            })}
             {hasAdv && hasDis && (
               <p className="text-[10px] text-muted-foreground italic">
                 Advantage and disadvantage cancel → roll normally (RAW).

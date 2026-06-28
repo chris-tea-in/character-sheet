@@ -30,6 +30,21 @@ describe('specToItemEffect', () => {
       .toEqual({ type: 'disadvantage', target: 'skill', skill: 'stealth' })
   })
 
+  it('maps grant targets to resistance / immunity / language effects', () => {
+    expect(specToItemEffect({ kind: 'grant', target: 'resistance', value: 'fire' }))
+      .toEqual({ type: 'resistance', damageType: 'fire' })
+    expect(specToItemEffect({ kind: 'grant', target: 'immunity', value: 'poison' }))
+      .toEqual({ type: 'immunity', damageType: 'poison' })
+    expect(specToItemEffect({ kind: 'grant', target: 'language', value: 'Draconic' }))
+      .toEqual({ type: 'language', name: 'Draconic' })
+  })
+
+  it('returns null for ledger-only grant targets (sense / proficiency)', () => {
+    expect(specToItemEffect({ kind: 'grant', target: 'sense', value: 'Darkvision', amount: 60 })).toBeNull()
+    expect(specToItemEffect({ kind: 'grant', target: 'skillProf', value: 'stealth' })).toBeNull()
+    expect(specToItemEffect({ kind: 'grant', target: 'saveProf', value: 'dex' })).toBeNull()
+  })
+
   it('labels effects readably', () => {
     expect(specLabel({ kind: 'number', target: { t: 'ability', ability: 'con' }, amount: 1 })).toBe('+1 CON')
     expect(specLabel({ kind: 'number', target: { t: 'save', ability: 'all' }, amount: 1 })).toBe('+1 all saves')
@@ -58,5 +73,17 @@ describe('specToLedgerCustom', () => {
   it('returns [] for item-only targets (no ledger breakdown)', () => {
     expect(specToLedgerCustom({ kind: 'number', target: { t: 'weaponAttack' }, amount: 1 }, 'x')).toEqual([])
     expect(specToLedgerCustom({ kind: 'number', target: { t: 'spellDamage' }, amount: 1 }, 'x')).toEqual([])
+  })
+
+  it('maps a grant spec to a CustomGrant entry', () => {
+    expect(specToLedgerCustom({ kind: 'grant', target: 'resistance', value: 'fire' }, 'x'))
+      .toEqual([{ kind: 'grant', entry: { id: 'x', label: 'Resistance to fire', target: 'resistance', value: 'fire' } }])
+  })
+
+  it('maps a sense grant (with range) and a proficiency grant', () => {
+    expect(specToLedgerCustom({ kind: 'grant', target: 'sense', value: 'Darkvision', amount: 60 }, 'x'))
+      .toEqual([{ kind: 'grant', entry: { id: 'x', label: 'Darkvision 60 ft', target: 'sense', value: 'Darkvision', amount: 60 } }])
+    expect(specToLedgerCustom({ kind: 'grant', target: 'skillProf', value: 'stealth' }, 'y'))
+      .toEqual([{ kind: 'grant', entry: { id: 'y', label: 'Stealth proficiency', target: 'skillProf', value: 'stealth' } }])
   })
 })

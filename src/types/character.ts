@@ -78,6 +78,17 @@ export interface CustomAdvDis {
   mode: 'adv' | 'dis'
 }
 
+// A player/DM-authored set-membership grant (Modifier Ledger, Step 6b), applied
+// always-on. `value` is the free-form damage type / language / sense name / skill /
+// ability; `amount` carries a sense range (ft). Disabled (suppressed) by id via `disabled`.
+export interface CustomGrant {
+  id: string
+  label: string
+  target: 'resistance' | 'immunity' | 'language' | 'sense' | 'skillProf' | 'saveProf'
+  value: string
+  amount?: number
+}
+
 // Modifier Ledger override layer (P2). Edits the player makes to the auto-derived
 // breakdowns, applied as the LAST step(s) of deriveCharacterStats — still INV-1, no
 // write-time baking. `disabled` suppresses a contributor by its stable id (it still
@@ -91,6 +102,9 @@ export interface LedgerOverrides {
   // Always-on adv/dis grants (Step 6c). Optional: rows written before this field
   // existed simply lack it — read with `?? []`.
   customAdvDis?: CustomAdvDis[]
+  // Always-on set-membership grants — resistances/immunities/languages (Step 6b).
+  // Optional; read with `?? []`.
+  customGrants?: CustomGrant[]
 }
 
 export interface Character {
@@ -231,7 +245,7 @@ export function defaultCharacter(name: string): NewCharacter {
     conditions: { active: [], exhaustion: 0 },
     skillProficiencies: {},
     savingThrowProficiencies: [],
-    ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [] },
+    ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [], customGrants: [] },
     spells: [], spellSlotsUsed: {},
     personalityTraits: '', ideals: '', bonds: '', flaws: '', notes: '',
     equipment: [],
