@@ -24,6 +24,7 @@ export function useRollDispatch(derived: DerivedStats) {
         damageBonus: kind.damageBonus,
         damageType: kind.damageType,
         extraDamage: kind.extraDamage,
+        rerollBelow: kind.rerollBelow,
         isCrit,
         hasLuckyFeat: derived.hasLuckyFeat,
       })

@@ -165,6 +165,9 @@ export interface DerivedStats {
   immunitySources: SetGrantSource[]
   // Weapon-conditional fighting-style effects — applied per-weapon in computeWeaponBonus
   featureWeaponEffects: FeatureWeaponEffect[]
+  // Great Weapon Fighting style selected → reroll 1s/2s on a two-handed/versatile melee
+  // weapon's damage dice (applied at roll time in the damage pipeline).
+  greatWeaponFighting: boolean
   // Provenance for the Modifier Ledger. Each list (or per-key list) sums to its
   // effective value (dev assertions guard this); later phases add the stored
   // disable/override/custom layer. `abilities` totals reconstruct the score; the
@@ -886,6 +889,7 @@ interface FeatureEffectAccum {
   armorProf: string[]
   toolProf: string[]
   advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string }[]
+  greatWeaponFighting: boolean   // selected the Great Weapon Fighting style (reroll 1s/2s)
 }
 
 function newFeatureAccum(): FeatureEffectAccum {
@@ -893,6 +897,7 @@ function newFeatureAccum(): FeatureEffectAccum {
     acAlways: 0, acArmored: 0, acUnarmored: 0, acFloor: [], weaponEffects: [],
     saveProf: [], saveBonus: [], derivedSave: [], resistances: [], immunities: [],
     speed: [], speedSet: [], speedMult: [], maxHp: [], skillProf: [], weaponProf: [], armorProf: [], toolProf: [], advDis: [],
+    greatWeaponFighting: false,
   }
 }
 
@@ -943,6 +948,7 @@ function collectFeatureEffects(
       if (!selected.length) continue
       const bySlug = new Map(group.options.map(o => [o.slug, o]))
       for (const slug of selected) {
+        if (slug === 'great-weapon-fighting') acc.greatWeaponFighting = true
         const opt = bySlug.get(slug)
         if (opt) for (const e of (opt.effects ?? [])) applyFeatureEffect(e, opt.name, acc, character.level)
       }
@@ -1830,6 +1836,7 @@ export function deriveCharacterStats(
     resistanceSources,
     immunitySources,
     featureWeaponEffects: featureFx.weaponEffects,
+    greatWeaponFighting: featureFx.greatWeaponFighting,
     breakdowns: {
       speed: speedL.rows,
       initiative: initL.rows,

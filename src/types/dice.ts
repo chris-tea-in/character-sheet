@@ -21,7 +21,7 @@ export type RollKind =
   | { type: 'skill';  skill: SkillName;   advantage?: boolean }
   | { type: 'save';   ability: AbilityName; advantage?: boolean }
   | { type: 'ability'; ability: AbilityName; advantage?: boolean }
-  | { type: 'attack'; label: string; modifier: number; advantage?: boolean; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[] }
+  | { type: 'attack'; label: string; modifier: number; advantage?: boolean; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[]; rerollBelow?: number }
   | { type: 'damage'; label: string }
   | { type: 'heal';   label: string; die: DieType; modifier: number }
 
@@ -43,6 +43,9 @@ export interface DamageSpec {
   // 'heal' reuses the whole damage pipeline (dice + upcast scaling) but the modal
   // and history present it as healing ("HP restored"), with no crit doubling.
   mode?: 'damage' | 'heal'
+  // Great Weapon Fighting: reroll the weapon's own damage dice showing ≤ this (2) once.
+  // Applies to the base dice only, not riders.
+  rerollBelow?: number
 }
 
 export interface RollResult {

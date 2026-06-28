@@ -1,5 +1,21 @@
 import { describe, it, expect } from 'vitest'
-import { parseDiceGroup, cantripTier, computeDamageGroups, groupsToText } from './damage'
+import { parseDiceGroup, cantripTier, computeDamageGroups, groupsToText, rollDamageGroups } from './damage'
+
+describe('rollDamageGroups — Great Weapon Fighting reroll', () => {
+  it('rerolls 1s/2s once but keeps the same number of dice (crit still doubles)', () => {
+    expect(rollDamageGroups([{ count: 4, sides: 6 }], false, 2).rolls).toHaveLength(4)
+    expect(rollDamageGroups([{ count: 2, sides: 6 }], true, 2).rolls).toHaveLength(4)
+  })
+  it('every die is within 1..sides after the reroll', () => {
+    const r = rollDamageGroups([{ count: 50, sides: 6 }], false, 2)
+    expect(r.rolls.every(d => d >= 1 && d <= 6)).toBe(true)
+    expect(r.total).toBe(r.rolls.reduce((a, b) => a + b, 0))
+  })
+  it('reports how many dice were rerolled', () => {
+    expect(rollDamageGroups([{ count: 4, sides: 6 }], false, 6).rerolled).toBe(4) // every d6 ≤ 6 → all rerolled once
+    expect(rollDamageGroups([{ count: 4, sides: 6 }], false, 0).rerolled).toBe(0) // GWF off
+  })
+})
 
 describe('parseDiceGroup', () => {
   it('parses NdM, whitespace tolerant', () => {

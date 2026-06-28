@@ -61,12 +61,21 @@ export function groupsToText(groups: DiceGroup[]): string {
   return groups.map(g => `${g.count}d${g.sides}`).join(' + ')
 }
 
-/** Roll dice groups, doubling every die count on a crit (RAW: crit doubles dice). */
-export function rollDamageGroups(groups: DiceGroup[], crit: boolean): { rolls: number[]; total: number } {
+/**
+ * Roll dice groups, doubling every die count on a crit (RAW: crit doubles dice).
+ * `rerollBelow` (Great Weapon Fighting) rerolls any die showing ≤ that value ONCE,
+ * keeping the new roll.
+ */
+export function rollDamageGroups(groups: DiceGroup[], crit: boolean, rerollBelow = 0): { rolls: number[]; total: number; rerolled: number } {
   const rolls: number[] = []
+  let rerolled = 0
   for (const g of groups) {
     const n = crit ? g.count * 2 : g.count
-    for (let i = 0; i < n; i++) rolls.push(rollDie(g.sides as DieType))
+    for (let i = 0; i < n; i++) {
+      let r = rollDie(g.sides as DieType)
+      if (rerollBelow > 0 && r <= rerollBelow) { r = rollDie(g.sides as DieType); rerolled++ }
+      rolls.push(r)
+    }
   }
-  return { rolls, total: rolls.reduce((s, r) => s + r, 0) }
+  return { rolls, total: rolls.reduce((s, r) => s + r, 0), rerolled }
 }

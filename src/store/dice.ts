@@ -37,6 +37,7 @@ export interface ModalState {
   damageBonus?: number
   damageType?: string
   extraDamage?: ExtraDamage[]   // rider damage of other types (Flame Tongue → +2d6 fire)
+  rerollBelow?: number          // Great Weapon Fighting: reroll the weapon's damage dice ≤ this once
   isCrit: boolean
   // Reliable Talent eligibility for THIS roll (proficient skill check + Rogue 11+), so
   // rerolls keep flooring the kept d20 at 10.
@@ -53,6 +54,7 @@ export interface ModalState {
   damageRolls?: number[]
   damageTotal?: number
   extraDamageResults?: ExtraDamageResult[]
+  gwfRerolled?: number   // Great Weapon Fighting: how many damage dice were rerolled (≥0 when GWF applied)
 }
 
 interface DiceState {
@@ -73,7 +75,7 @@ interface DiceState {
   setCastLevel: (level: number) => void
   rollModalDamage: (crit: boolean) => void
   closeModal: () => void
-  setModalDamage: (rolls: number[], total: number, extraResults?: ExtraDamageResult[]) => void
+  setModalDamage: (rolls: number[], total: number, extraResults?: ExtraDamageResult[], gwfRerolled?: number) => void
 }
 
 function synthEntry(label: string): RollEntry {
@@ -249,7 +251,7 @@ export const useDiceStore = create<DiceState>()((set) => ({
     const spec = s.modal?.damageSpec
     if (!s.modal || !spec) return {}
     const groups = computeDamageGroups(spec.baseDice, spec.scaling, s.modal.castLevel)
-    const main = rollDamageGroups(groups, crit)
+    const main = rollDamageGroups(groups, crit, spec.rerollBelow)
     const mainTotal = main.total + spec.damageBonus
     const extraResults = (spec.extraDamage ?? []).map(ed => {
       const r = rollDamageGroups(computeDamageGroups(ed.dice, undefined, undefined), crit)
@@ -275,12 +277,13 @@ export const useDiceStore = create<DiceState>()((set) => ({
         damageRolls: main.rolls,
         damageTotal: mainTotal,
         extraDamageResults: extraResults,
+        gwfRerolled: spec.rerollBelow ? main.rerolled : undefined,
       },
     }
   }),
 
   closeModal: () => set({ modal: null }),
 
-  setModalDamage: (rolls, total, extraResults) =>
-    set(s => s.modal ? { modal: { ...s.modal, phase: 'damage', damageRolls: rolls, damageTotal: total, extraDamageResults: extraResults } } : {}),
+  setModalDamage: (rolls, total, extraResults, gwfRerolled) =>
+    set(s => s.modal ? { modal: { ...s.modal, phase: 'damage', damageRolls: rolls, damageTotal: total, extraDamageResults: extraResults, gwfRerolled } } : {}),
 }))

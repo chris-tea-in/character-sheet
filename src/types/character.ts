@@ -42,6 +42,7 @@ export interface EquipmentItem {
   attuned?: boolean      // attune-required items: when true the catalog `effects` apply at render time and the item shows in Active Items
   equipped?: boolean     // non-attune items: when true the catalog `effects` apply at render time (the equip gate, parallel to `attuned`)
   chargesUsed?: number   // limited-use items: charges spent (catalog `charges.max` − chargesUsed = remaining); usage tracker only, no stat effect
+  gwf?: boolean          // homebrew override: force Great Weapon Fighting (reroll 1s/2s) on this weapon even if it isn't two-handed/versatile
   baseWeapon?: string    // for "any sword/any weapon" magic weapons: the chosen mundane base weapon name; its damage/type/properties drive the stats
   baseArmor?: string     // for "any armor / Varies" magic armors: the chosen mundane base armor name; its ac_formula/type/stealth/STR drive the AC
   containerId?: string   // when set, this item is stored INSIDE the container item with this id (a bag of holding etc.); it is hidden from the main sheet sections and can't be active. undefined = carried on person

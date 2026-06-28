@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** **250 pass** (… 6b set grants for all types; 6b-2 resistance provenance+disable; 6b-3(A) standing adv/dis disable). ⚠ The Windows worker-fork flake is BAD lately — most full runs show 16/17 files + a partial count, NEVER a real `FAIL`/`✗`. Verify by running changed files alone (`npx vitest run <file>`); they pass clean. `--reporter=verbose` sometimes catches a full 249.
+- **Tests:** **255 pass** (… 5d-C Great Weapon Fighting; weapon Roll→Dmg flow; GWF visibility + homebrew override). ⚠ The Windows worker-fork flake is BAD lately — most full runs show 16/17 files + a partial count, NEVER a real `FAIL`/`✗`. Verify by running changed files alone (`npx vitest run <file>`); they pass clean. `--reporter=verbose` sometimes catches a full 249.
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v21** (`ledger_overrides`, Step 6a). Next is **v22**.

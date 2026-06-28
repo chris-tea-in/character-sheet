@@ -14,15 +14,20 @@ function parseDamageDice(notation: string): { count: number; sides: number } {
   return { count: parseInt(match[1], 10), sides: parseInt(match[2], 10) }
 }
 
-function rollDamage(damageDice: string, damageBonus: number, isCrit: boolean) {
+function rollDamage(damageDice: string, damageBonus: number, isCrit: boolean, rerollBelow = 0) {
   // Flat, no-die damage (e.g. Unarmed Strike = 1 + STR): nothing to roll, crit
   // doubles dice only — so the total is just the bonus.
-  if (!damageDice) return { rolls: [] as number[], total: damageBonus }
+  if (!damageDice) return { rolls: [] as number[], total: damageBonus, rerolled: 0 }
   const { count, sides } = parseDamageDice(damageDice)
   const dieCount = isCrit ? count * 2 : count
-  const rolls = Array.from({ length: dieCount }, () => rollDie(sides as DieType))
+  let rerolled = 0
+  const rolls = Array.from({ length: dieCount }, () => {
+    let r = rollDie(sides as DieType)
+    if (rerollBelow > 0 && r <= rerollBelow) { r = rollDie(sides as DieType); rerolled++ } // Great Weapon Fighting
+    return r
+  })
   const total = rolls.reduce((s, r) => s + r, 0) + damageBonus
-  return { rolls, total }
+  return { rolls, total, rerolled }
 }
 
 // ── Crit/fumble label ────────────────────────────────────────────────────────
@@ -164,7 +169,7 @@ function HitBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const setModalDamage = useDiceStore(s => s.setModalDamage)
-  const { entry, damageDice, damageBonus = 0, damageType, extraDamage = [], isCrit } = modal
+  const { entry, damageDice, damageBonus = 0, damageType, extraDamage = [], isCrit, rerollBelow } = modal
   const { natural, natural2, dice, modifier, total } = entry.result
   const hasAdvantage = natural2 !== undefined
   const isNat20 = natural === 20
@@ -177,13 +182,13 @@ function HitBody() {
     : undefined
 
   function handleRollDamage(crit: boolean) {
-    const { rolls, total: dmgTotal } = rollDamage(damageDice ?? '', damageBonus, crit)
-    // Each rider (e.g. Flame Tongue +2d6 fire) rolls its own dice, crit doubles them
+    // GWF reroll applies to the weapon's own dice only, not riders.
+    const { rolls, total: dmgTotal, rerolled } = rollDamage(damageDice ?? '', damageBonus, crit, rerollBelow)
     const extraResults = extraDamage.map(ed => {
       const r = rollDamage(ed.dice, 0, crit)
       return { damageType: ed.damageType, rolls: r.rolls, total: r.total }
     })
-    setModalDamage(rolls, dmgTotal, extraResults)
+    setModalDamage(rolls, dmgTotal, extraResults, rerollBelow ? rerolled : undefined)
   }
 
   // Damage phase applies to any attack that has a die OR a flat typed amount
@@ -246,7 +251,7 @@ function HitBody() {
 function DamageBody() {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
-  const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, extraDamageResults = [], isCrit } = modal
+  const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, extraDamageResults = [], isCrit, gwfRerolled } = modal
   const isHeal = modal.damageSpec?.mode === 'heal'
 
   const grandTotal = damageTotal + extraDamageResults.reduce((s, e) => s + e.total, 0)
@@ -263,6 +268,11 @@ function DamageBody() {
           <p className="text-xs text-muted-foreground">
             [{damageRolls.join(', ')}]{damageBonus !== 0 ? (damageBonus > 0 ? ` + ${damageBonus}` : ` − ${Math.abs(damageBonus)}`) : ''}
             {isCrit ? ' (crit)' : ''}
+          </p>
+        )}
+        {gwfRerolled !== undefined && (
+          <p className="text-[10px] font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+            🔄 Great Weapon Fighting{gwfRerolled > 0 ? ` — rerolled ${gwfRerolled} die${gwfRerolled > 1 ? 's' : ''}` : ' (no 1s or 2s)'}
           </p>
         )}
         <span className="text-6xl font-black tabular-nums" style={{ color: 'var(--color-accent-gold)' }}>

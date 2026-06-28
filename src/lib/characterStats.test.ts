@@ -694,6 +694,32 @@ describe('deriveCharacterStats — item advantage/disadvantage effects', () => {
   })
 })
 
+// ── Step 5d-C: Great Weapon Fighting ─────────────────────────────────────────
+describe('Great Weapon Fighting (5d-C)', () => {
+  const gwfFeatures = {
+    'fighter:fighting-style': {
+      key: 'fighter:fighting-style', label: 'Fighting Style', source: { classSlug: 'fighter' },
+      known: [{ level: 1, count: 1 }],
+      options: [{ slug: 'great-weapon-fighting', name: 'Great Weapon Fighting', description: 'x' }],
+    },
+  } as never
+
+  it('derived.greatWeaponFighting is true when the style is selected', () => {
+    const d = deriveCharacterStats(charWith({
+      classes: [{ classSlug: 'fighter', subclassSlug: null, level: 1 }],
+      classFeatureChoices: { 'fighter:fighting-style': ['great-weapon-fighting'] },
+    }), { classFeatures: gwfFeatures })
+    expect(d.greatWeaponFighting).toBe(true)
+  })
+
+  it('is false without the style selected', () => {
+    const d = deriveCharacterStats(charWith({
+      classes: [{ classSlug: 'fighter', subclassSlug: null, level: 1 }],
+    }), { classFeatures: gwfFeatures })
+    expect(d.greatWeaponFighting).toBe(false)
+  })
+})
+
 // ── Step 6b: custom set-membership grants (resistance/immunity/language) ──────
 describe('deriveCharacterStats — custom set grants (6b)', () => {
   it('a custom resistance grant appears in derived.resistances (lowercased)', () => {

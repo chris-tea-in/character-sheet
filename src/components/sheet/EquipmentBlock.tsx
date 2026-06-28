@@ -246,7 +246,7 @@ function UnarmedRow({ derived }: { derived: DerivedStats }) {
           <RollButton
             label="Hit"
             rollMode={derived.attackRollState}
-            onClick={() => dispatch({ type: 'attack', label: 'Unarmed Strike', modifier: toHitModifier })}
+            onClick={() => dispatch({ type: 'attack', label: 'Unarmed Strike', modifier: toHitModifier, damageDice, damageBonus, damageType })}
           />
           <RollButton
             label="Dmg"
@@ -306,6 +306,16 @@ function WeaponRow({
   const rollDamageDice = customDmg?.damageDice ?? calc.damageDice
   const rollDamageBonus = customDmg?.damageBonus ?? calc.damageBonus
   const rollDamageType = customDmg?.damageType || calc.damageType
+  // Great Weapon Fighting: reroll 1s/2s on a two-handed (or versatile) melee weapon's
+  // damage dice. "Versatile used two-handed" isn't app-knowable, so versatile qualifies
+  // (same simplification as the other fighting styles).
+  const wProps = weapon.properties.map(p => p.toLowerCase())
+  const gwfAuto = derived.greatWeaponFighting
+    && weapon.weapon_type.toLowerCase().includes('melee')
+    && (wProps.includes('two-handed') || wProps.includes('versatile'))
+  // Homebrew per-weapon override (item.gwf) forces GWF on any weapon.
+  const gwfActive = gwfAuto || !!item.gwf
+  const gwfReroll = gwfActive ? 2 : undefined
   const [expanded, setExpanded] = useState(false)
   const [editingStats, setEditingStats] = useState(false)
   const [toHitDraft, setToHitDraft] = useState(displayToHit)
@@ -339,18 +349,27 @@ function WeaponRow({
               {displayToHit}
             </span>
             <span className="text-muted-foreground">{displayDamage}</span>
+            {gwfActive && (
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px] font-semibold border border-border"
+                style={{ color: 'var(--color-accent-gold)' }}
+                title={item.gwf ? 'Great Weapon Fighting (homebrew override): damage dice showing 1 or 2 are rerolled once' : 'Great Weapon Fighting: damage dice showing 1 or 2 are rerolled once'}
+              >
+                GWF
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1 flex-none">
           <RollButton
             label="Hit"
             rollMode={derived.attackRollState}
-            onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier })}
+            onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage, rerollBelow: gwfReroll })}
           />
           <RollButton
             label="Dmg"
             tone="gold"
-            onClick={() => dispatchDamage({ label: item.name, baseDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage })}
+            onClick={() => dispatchDamage({ label: item.name, baseDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage, rerollBelow: gwfReroll })}
           />
         </div>
       </div>
@@ -389,6 +408,20 @@ function WeaponRow({
               <span className="text-[10px]">(custom stats)</span>
             )}
           </div>
+
+          {/* Homebrew: a GWF fighter can extend Great Weapon Fighting to a melee weapon
+              that doesn't auto-qualify (not two-handed/versatile). */}
+          {derived.greatWeaponFighting && weapon.weapon_type.toLowerCase().includes('melee') && !gwfAuto && (
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!!item.gwf}
+                onChange={e => onUpdate({ gwf: e.target.checked || undefined })}
+                className="h-3.5 w-3.5 accent-[var(--color-accent-gold)]"
+              />
+              <span className="text-foreground">Great Weapon Fighting (reroll 1s/2s) — homebrew</span>
+            </label>
+          )}
 
           {charges && (
             <ChargesTracker charges={charges} used={item.chargesUsed ?? 0} onSetCharges={u => onUpdate({ chargesUsed: u })} />
@@ -1049,6 +1082,10 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
     if (addTargetContainerId) newItem.containerId = addTargetContainerId
     onSave({ equipment: [...character.equipment, newItem] })
     setAddTargetContainerId(null)
+    // A variable-base ("any sword / any armor") magic item has no fixed stats until
+    // the player picks the mundane base it's forged from. Prompt for that the moment
+    // it's added — not just when it's later equipped/attuned (the toggleActive path).
+    if (needsBase(newItem)) setBasePrompt(newItem)
   }
   // Move an item into a container: tag it and clear active flags (a stored item can't
   // be worn/wielded). Used by the per-row "Move to bag" control.
