@@ -47,6 +47,34 @@ describe('computeWeaponBonus — homebrew all-weapons-proficient', () => {
     const calc = computeWeaponBonus(greatsword, char, ['martial weapons'], char.abilities)
     expect(calc.toHitModifier).toBe(6) // STR +3 + PB +3
   })
+
+  it('adds a flat item attack bonus to the to-hit modifier (to-hit effect)', () => {
+    const char = lvl5Str16()
+    const calc = computeWeaponBonus(greatsword, char, ['martial weapons'], char.abilities, 0, [], 3)
+    expect(calc.toHitModifier).toBe(9) // STR +3 + PB +3 + item attack +3
+  })
+
+  it('surfaces an item attack effect as derived.itemAttackBonus', () => {
+    const belt: WondrousItem = {
+      name: 'Belt of Aim', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      effects: [{ type: 'attack', amount: 1 }],
+    }
+    const d = deriveCharacterStats(charWith({
+      equipment: [{ id: 'b', name: 'Belt of Aim', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [belt] } })
+    expect(d.itemAttackBonus).toBe(1)
+  })
+
+  it('surfaces an item spell-damage effect as derived.itemSpellDamageBonus', () => {
+    const rod: WondrousItem = {
+      name: 'Rod of Spell Power', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      effects: [{ type: 'spell_damage', amount: 2 }],
+    }
+    const d = deriveCharacterStats(charWith({
+      equipment: [{ id: 'r', name: 'Rod of Spell Power', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [rod] } })
+    expect(d.itemSpellDamageBonus).toBe(2)
+  })
 })
 
 // ── AC ledger (Modifier Ledger P1.5) ─────────────────────────────────────────
@@ -614,6 +642,46 @@ describe('pool roll (freestyle multi-die)', () => {
   })
 })
 
+// ── Step 5e: item advantage/disadvantage effects ─────────────────────────────
+describe('deriveCharacterStats — item advantage/disadvantage effects', () => {
+  it('an item granting advantage on a save shows it on that save', () => {
+    const cloak: WondrousItem = {
+      name: 'Cloak of Grit', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      effects: [{ type: 'advantage', target: 'save', ability: 'con' }],
+    }
+    const d = deriveCharacterStats(charWith({
+      equipment: [{ id: 'c', name: 'Cloak of Grit', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [cloak] } })
+    expect(d.rollStates.saves.con).toBe('adv')
+  })
+
+  it('item disadvantage on a skill nets with a standing advantage to normal (RAW)', () => {
+    const ring: WondrousItem = {
+      name: 'Clumsy Ring', category: 'wondrous_item', rarity: 'Common', attunement: true,
+      effects: [{ type: 'disadvantage', target: 'skill', skill: 'stealth' }],
+    }
+    // Boots of Elvenkind grant a standing Stealth advantage → adv + dis = normal.
+    const d = deriveCharacterStats(charWith({
+      equipment: [
+        { id: 'r', name: 'Clumsy Ring', quantity: 1, attuned: true },
+        { id: 'b', name: 'Boots of Elvenkind', quantity: 1, equipped: true },
+      ],
+    }), { catalog: { wondrous_items: [ring] } })
+    expect(d.rollStates.skills.stealth).toBeUndefined()
+  })
+
+  it('an unequipped item grants nothing', () => {
+    const cloak: WondrousItem = {
+      name: 'Cloak of Grit', category: 'wondrous_item', rarity: 'Rare', attunement: true,
+      effects: [{ type: 'advantage', target: 'save', ability: 'con' }],
+    }
+    const d = deriveCharacterStats(charWith({
+      equipment: [{ id: 'c', name: 'Cloak of Grit', quantity: 1, attuned: false }],
+    }), { catalog: { wondrous_items: [cloak] } })
+    expect(d.rollStates.saves.con).toBeUndefined()
+  })
+})
+
 // ── Step 6a: Modifier Ledger override layer ──────────────────────────────────
 describe('applyLedger', () => {
   const rows = (): ModifierSource[] => [
@@ -640,6 +708,12 @@ describe('applyLedger', () => {
     const r = applyLedger('speed', rows(), { disabled: [], overrides: {}, custom: { speed: [{ id: 'c1', label: 'Mount', amount: 5 }] } })
     expect(r.effective).toBe(45)
     expect(r.rows.some(x => x.id === 'c1' && x.kind === 'custom')).toBe(true)
+  })
+
+  it('a custom row can be disabled (kept + flagged, dropped from the sum)', () => {
+    const r = applyLedger('speed', rows(), { disabled: ['c1'], overrides: {}, custom: { speed: [{ id: 'c1', label: 'Mount', amount: 5 }] } })
+    expect(r.effective).toBe(40)  // custom suppressed
+    expect(r.rows.find(x => x.id === 'c1')!.disabled).toBe(true)
   })
 
   it('locked (non-removable) rows ignore disable + override', () => {

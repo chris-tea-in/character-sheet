@@ -625,7 +625,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                         onDamage={() => dispatchDamage({
                           label,
                           baseDice: dmgDice,
-                          damageBonus: 0,
+                          damageBonus: derived.itemSpellDamageBonus,
                           damageType: dmgType,
                           scaling: spellLevel === 0
                             ? { kind: 'cantrip', characterLevel: character.level }

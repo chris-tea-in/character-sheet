@@ -38,7 +38,7 @@ function validateEffects(item, label) {
   item.effects.forEach((e, i) => {
     const at = `${label}: effects[${i}]`
     switch (e?.type) {
-      case 'speed': case 'initiative': case 'damage': case 'spell_attack': case 'spell_save_dc':
+      case 'speed': case 'initiative': case 'damage': case 'attack': case 'spell_attack': case 'spell_save_dc': case 'spell_damage':
         if (!isNum(e.amount)) errors.push(`${at} (${e.type}): "amount" must be a number`)
         break
       case 'speed_set':
@@ -90,6 +90,11 @@ function validateEffects(item, label) {
         break
       case 'language':
         if (typeof e.name !== 'string' || e.name.trim() === '') errors.push(`${at} (language): "name" must be a non-empty string`)
+        break
+      case 'advantage': case 'disadvantage':
+        if (e.target !== 'save' && e.target !== 'skill') errors.push(`${at} (${e.type}): "target" must be "save" or "skill"`)
+        if (e.target === 'save' && e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (${e.type}): invalid save ability "${e.ability}"`)
+        if (e.target === 'skill' && !EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (${e.type}): invalid skill "${e.skill}"`)
         break
       case 'unarmed':
         if (e.dice !== undefined && typeof e.dice !== 'string') errors.push(`${at} (unarmed): "dice" must be a string`)

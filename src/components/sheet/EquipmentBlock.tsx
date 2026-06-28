@@ -289,7 +289,7 @@ function WeaponRow({
   moveControl?: ReactNode
 }) {
   const { dispatch, dispatchDamage } = useRollDispatch(derived)
-  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects)
+  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects, derived.itemAttackBonus)
   // Rider damage of another type (Flame Tongue → +2d6 fire) applies only while the
   // weapon is active (equipped/attuned per its requirement); crit doubles it.
   const riderDamage = active

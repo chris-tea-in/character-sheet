@@ -74,7 +74,12 @@ export function applyLedger(targetKey: TargetKey, rows: ModifierSource[], ledger
     return isDisabled ? { ...r, disabled: true } : r
   })
   for (const c of customs) {
-    applied.push({ id: c.id, label: c.label, amount: c.amount, kind: 'custom', removable: true })
+    // Custom rows honor the disable set too (toggle off without deleting); their amount
+    // is edited in place via ledger.custom, so there is no separate override path.
+    applied.push({
+      id: c.id, label: c.label, amount: c.amount, kind: 'custom', removable: true,
+      ...(disabled.has(c.id) ? { disabled: true } : {}),
+    })
   }
   const effective = applied.reduce((t, r) => t + (r.disabled ? 0 : r.amount), 0)
   return { rows: applied, effective, rawTotal }
@@ -131,6 +136,10 @@ export interface DerivedStats {
   senses: Record<string, number>
   // Flat damage bonus from attuned items — added to weapon and unarmed damage
   itemDamageBonus: number
+  // Flat bonus to weapon attack rolls (to-hit) from active items
+  itemAttackBonus: number
+  // Flat bonus to spell damage rolls from active items
+  itemSpellDamageBonus: number
   // Unarmed-strike override from attuned items (e.g. Demon Armor → 1d8 slashing)
   unarmedStrike: { dice?: string; damageType?: string; attackBonus: number; damageBonus: number }
   // Languages granted by active items (e.g. Demon Armor → Abyssal) — derived, never stored
@@ -558,6 +567,7 @@ export function computeWeaponBonus(
   effectiveAbilities?: Abilities,
   itemDamageBonus = 0,
   featureWeaponEffects: FeatureWeaponEffect[] = [],
+  itemAttackBonus = 0,
 ): WeaponBonus {
   const abilities = effectiveAbilities ?? character.abilities
   const strMod = abilityModifier(abilities.str)
@@ -574,7 +584,7 @@ export function computeWeaponBonus(
   const magicBonus = weapon.bonus ?? 0
   // Fighting-style weapon bonuses (Archery to-hit, Dueling damage)
   const featureBonus = computeFeatureWeaponBonus(weapon, featureWeaponEffects)
-  const toHitModifier = mod + pb + magicBonus + featureBonus.toHit
+  const toHitModifier = mod + pb + magicBonus + featureBonus.toHit + itemAttackBonus
   // Flat item damage bonus adds to damage only, not to-hit
   const damageBonus = mod + magicBonus + itemDamageBonus + featureBonus.damage
   const dmgBonusStr = damageBonus !== 0 ? (damageBonus > 0 ? `+${damageBonus}` : `${damageBonus}`) : ''
@@ -622,6 +632,7 @@ interface ActiveItemEffects {
   abilitySetSources: { name: string; ability: AbilityName; value: number; cap?: number }[]
   skillBonuses: Partial<Record<SkillName, number>>
   skillBonusSources: { name: string; skill: SkillName; amount: number }[]
+  attack: number                // flat bonus to weapon attack rolls (to-hit)
   speed: number
   speedSources: { name: string; amount: number }[]
   speedSet: { name: string; value: number }[]      // floor: set speed to value if higher (Boots of Striding)
@@ -637,6 +648,8 @@ interface ActiveItemEffects {
   spellAttackSources: { name: string; amount: number }[]
   spellSaveDC: number
   spellSaveDCSources: { name: string; amount: number }[]
+  spellDamage: number           // flat bonus to spell damage rolls
+  advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string }[]
   languages: string[]
   unarmed: { dice?: string; damageType?: string; attackBonus: number; damageBonus: number }
 }
@@ -649,10 +662,10 @@ function computeActiveItemEffects(
     acBonus: 0, acFloor: [], unarmoredAcBonus: 0, unarmoredAcBase: null,
     saveBonuses: {}, saveBonusSources: [], abilitySets: {}, abilityBonuses: {},
     abilityBonusSources: [], abilitySetSources: [],
-    skillBonuses: {}, skillBonusSources: [], speed: 0, speedSources: [], speedSet: [], speedMult: [], initiative: 0, initiativeSources: [],
+    skillBonuses: {}, skillBonusSources: [], attack: 0, speed: 0, speedSources: [], speedSet: [], speedMult: [], initiative: 0, initiativeSources: [],
     damage: 0, maxHp: 0, maxHpSources: [],
     resistances: [], immunities: [], spellAttack: 0, spellAttackSources: [], spellSaveDC: 0, spellSaveDCSources: [],
-    languages: [], unarmed: { attackBonus: 0, damageBonus: 0 },
+    spellDamage: 0, advDis: [], languages: [], unarmed: { attackBonus: 0, damageBonus: 0 },
   }
   if (!catalog) return acc
 
@@ -738,6 +751,9 @@ function computeActiveItemEffects(
         case 'damage':
           acc.damage += e.amount
           break
+        case 'attack':
+          acc.attack += e.amount
+          break
         case 'language':
           if (!acc.languages.includes(e.name)) acc.languages.push(e.name)
           break
@@ -755,6 +771,15 @@ function computeActiveItemEffects(
         case 'spell_save_dc':
           acc.spellSaveDC += e.amount
           acc.spellSaveDCSources.push({ name: item.name, amount: e.amount })
+          break
+        case 'spell_damage':
+          acc.spellDamage += e.amount
+          break
+        case 'advantage':
+          acc.advDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label: item.name })
+          break
+        case 'disadvantage':
+          acc.advDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label: item.name })
           break
       }
     }
@@ -793,11 +818,15 @@ export function summarizeItemEffects(effects: ItemEffect[] | undefined): string 
       case 'speed_multiplier': parts.push(`×${e.factor} speed`); break
       case 'initiative':   parts.push(`${formatBonus(e.amount)} initiative`); break
       case 'damage':       parts.push(`${formatBonus(e.amount)} damage`); break
+      case 'attack':       parts.push(`${formatBonus(e.amount)} attack`); break
       case 'damage_dice':  parts.push(`+${e.dice} ${e.damageType}`); break
       case 'language':     parts.push(e.name); break
       case 'unarmed':      parts.push(`unarmed ${[e.dice, e.damageType].filter(Boolean).join(' ') || 'override'}`); break
       case 'spell_attack': parts.push(`${formatBonus(e.amount)} spell atk`); break
       case 'spell_save_dc':parts.push(`${formatBonus(e.amount)} spell DC`); break
+      case 'spell_damage': parts.push(`${formatBonus(e.amount)} spell dmg`); break
+      case 'advantage':    parts.push(`adv ${e.target === 'save' ? `${e.ability === 'all' ? 'all' : e.ability?.toUpperCase()} save` : SKILL_DISPLAY_MAP[e.skill!]}`); break
+      case 'disadvantage': parts.push(`dis ${e.target === 'save' ? `${e.ability === 'all' ? 'all' : e.ability?.toUpperCase()} save` : SKILL_DISPLAY_MAP[e.skill!]}`); break
     }
   }
   return parts.join(' · ')
@@ -1588,6 +1617,16 @@ export function deriveCharacterStats(
       (rollStateSources.skills[a.skill] ??= []).push(src)
     }
   }
+  // Active-item adv/dis (data-driven `advantage`/`disadvantage` ItemEffects — Step 5e).
+  for (const a of itemEffects.advDis) {
+    const src: RollAdvSource = { mode: a.mode, label: `${a.label} (item)`, kind: 'item' }
+    if (a.target === 'save') {
+      const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
+      for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
+    } else if (a.skill) {
+      (rollStateSources.skills[a.skill] ??= []).push(src)
+    }
+  }
   // Armor stealth disadvantage.
   if (hasStealthDisadvantage) {
     (rollStateSources.skills.stealth ??= []).push({ mode: 'dis', label: `${bodyArmorName || 'Armor'} (stealth)`, kind: 'item' })
@@ -1680,6 +1719,8 @@ export function deriveCharacterStats(
     raceGrantedLanguages: [...new Set([...raceEffects.languages, ...featLanguages])],
     senses: raceEffects.senses,
     itemDamageBonus: itemEffects.damage,
+    itemAttackBonus: itemEffects.attack,
+    itemSpellDamageBonus: itemEffects.spellDamage,
     unarmedStrike: itemEffects.unarmed,
     itemGrantedLanguages: itemEffects.languages,
     resistances,

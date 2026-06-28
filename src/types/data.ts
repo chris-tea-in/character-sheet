@@ -32,6 +32,7 @@ export type ItemEffect =
   | { type: 'speed_multiplier'; factor: number }
   | { type: 'initiative'; amount: number }
   | { type: 'damage'; amount: number }                              // flat bonus to weapon & unarmed damage
+  | { type: 'attack'; amount: number }                              // flat bonus to weapon attack rolls (to-hit)
   // Rider damage dice of another type on the weapon that carries it (Flame Tongue →
   // +2d6 fire). Applies to that weapon's attacks while it is active; crit doubles
   // the dice. Weapon-specific (read from the weapon's own effects), not global.
@@ -42,6 +43,11 @@ export type ItemEffect =
   | { type: 'unarmored_ac'; base: number }                          // sets unarmored AC base (Robe of the Archmagi → 15 + DEX); applies only when no body armor
   | { type: 'spell_attack'; amount: number }
   | { type: 'spell_save_dc'; amount: number }
+  | { type: 'spell_damage'; amount: number }                        // flat bonus to spell damage rolls
+  // Roll advantage/disadvantage on a save (one ability or 'all') or a skill, granted
+  // while the item is active. Mirrors the FeatureEffect variant (Step 5e).
+  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
   | { type: 'language'; name: string }                              // grants a known language while active (Demon Armor → Abyssal)
   // Overrides the unarmed strike (Demon Armor: 1d8 slashing, +1 atk/dmg). Any
   // field omitted keeps the unarmed default (1 + STR bludgeoning, no bonus).

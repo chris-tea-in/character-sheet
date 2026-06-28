@@ -1,6 +1,6 @@
 import { generateId } from './uuid'
 import type { AbilityName, Character } from '@/types/character'
-import type { EquipmentData, WeaponItem, ArmorItem, FeatData, WondrousItem, ToolItem, SpellData, Race } from '@/types/data'
+import type { EquipmentData, WeaponItem, ArmorItem, FeatData, WondrousItem, ToolItem, SpellData, Race, ItemEffect } from '@/types/data'
 
 // Homebrew custom content: per-character, catalog-shaped weapon/armor/feat
 // definitions stored on the Character (customWeapons/customArmor/customFeats).
@@ -144,6 +144,7 @@ export interface CustomWeaponInput {
   damageType: string
   properties: string[]
   description?: string
+  effects?: ItemEffect[]
 }
 
 export function buildCustomWeapon(input: CustomWeaponInput): WeaponItem {
@@ -157,6 +158,7 @@ export function buildCustomWeapon(input: CustomWeaponInput): WeaponItem {
     magical: false,
     source: 'Custom',
     ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+    ...(input.effects?.length ? { effects: input.effects } : {}),
   }
 }
 
@@ -166,6 +168,7 @@ export interface CustomArmorInput {
   acFormula: string
   stealthDisadvantage: boolean
   description?: string
+  effects?: ItemEffect[]
 }
 
 export function buildCustomArmor(input: CustomArmorInput): ArmorItem {
@@ -179,6 +182,7 @@ export function buildCustomArmor(input: CustomArmorInput): ArmorItem {
     magical: false,
     source: 'Custom',
     ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+    ...(input.effects?.length ? { effects: input.effects } : {}),
   }
 }
 
@@ -203,6 +207,7 @@ export interface CustomItemInput {
   rarity?: WondrousItem['rarity']
   attunement?: boolean
   description: string
+  effects?: ItemEffect[]
 }
 
 export function buildCustomWondrous(input: CustomItemInput): WondrousItem {
@@ -213,6 +218,7 @@ export function buildCustomWondrous(input: CustomItemInput): WondrousItem {
     attunement: input.attunement ?? false,
     source: 'Custom',
     ...(input.description.trim() ? { description: input.description.trim() } : {}),
+    ...(input.effects?.length ? { effects: input.effects } : {}),
   }
 }
 

@@ -24,7 +24,7 @@ spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MAT
   - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
   - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
 - **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** `npx vitest run --no-file-parallelism` → **221 pass** (… +6 Step 6a ledger: applyLedger unit + cascade/custom derive). ⚠ Plain `npx vitest run` intermittently
+- **Tests:** `npx vitest run --no-file-parallelism` → **231 pass** (… +6 6a ledger; +1 custom-disable fix; +9 Effect Builder: specToItemEffect, item adv/dis 5e, weapon to-hit + spell-damage effects). ⚠ Plain `npx vitest run` intermittently
   reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
   `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
 - **Migrations:** last is **v21** (`ledger_overrides`, Step 6a). Next is **v22**.
@@ -349,6 +349,25 @@ sticky** (`CharacterPage.tsx`) — scrolls away at the page top. 2 pool tests.
 **STATUS (2026-06-25): moving to Step 6 at the user's direction. Step 5 remainders still OPEN as follow-ups:
 5e (ITEM_ADV → item `advantage` data migration, not started) and 5d-C GWF (deferred). Pick these up after/with
 Step 6 — they are not dropped, just resequenced.**
+
+**EFFECT-BUILDER FEATURE (2026-06-25, user-requested "DM can add +1 CON / adv-dis"). Decided: ONE shared
+`<EffectBuilder>` wired into BOTH items (equip-gated) and direct character grants (always-on). Phased:**
+- **Phase 1 (items) — ✅ DONE.** New `src/lib/effectSpec.ts` (`EffectSpec` = number-target | advdis-target, `specLabel`,
+  `specToItemEffect`) + `src/components/sheet/EffectBuilder.tsx` (target dropdown + value: numeric stepper, or
+  Bonus/Adv/Dis for saves & skills). Wired into `CustomItemDialog` → **covers BOTH** player custom items (EquipmentBlock)
+  AND DM campaign items (CampaignPage reuses the same dialog; `handleCreate` already passes the full def). Custom
+  builders (`buildCustomWeapon/Armor/Wondrous`) gained `effects?: ItemEffect[]`. **This also closed Step 5e**: added the
+  item-level `advantage`/`disadvantage` `ItemEffect` variant → build validation + `computeActiveItemEffects.advDis`
+  accumulator + a derive loop feeding `rollStateSources` (mirrors `featureFx.advDis`). 6 tests. Note: the legacy
+  hardcoded `ITEM_ADV_ENTRIES` still exist — migrating those 22 to data effects is the remaining 5e data chore.
+- **Phase 2 (always-on character grant) — NOT STARTED.** Wire the SAME `<EffectBuilder>` into a sheet "grant" panel →
+  numeric goes into `ledgerOverrides.custom` (6a, done); add the **adv/dis custom channel to the ledger (= Step 6c)**.
+  Then a `specToLedgerCustom` adapter. **Item attack/damage targets now done:** weapon **to-hit** (new `attack`
+  ItemEffect → `itemEffects.attack` → `derived.itemAttackBonus` → `computeWeaponBonus`), spell **to-hit**
+  (`spell_attack`, pre-existing), weapon **damage** (`damage`, pre-existing), and spell **damage** (new `spell_damage`
+  ItemEffect → `derived.itemSpellDamageBonus` → fed into the spell `onDamage` DamageSpec in SpellBlock; NOT applied to
+  healing) — all in the builder. Still deferred: attack targets for the **ledger/always-on** path (no attack breakdown
+  there yet) and **resistances** as a builder target (set-membership = 6b).
 
 _Original plan:_
 **5d — Roll-time mechanics (the dice-engine part — user opted in).**

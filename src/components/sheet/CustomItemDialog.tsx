@@ -4,6 +4,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { buildCustomWeapon, buildCustomArmor, buildCustomWondrous, buildAcFormula } from '@/lib/customContent'
+import { EffectBuilder } from './EffectBuilder'
+import { specToItemEffect } from '@/lib/effectSpec'
+import type { EffectSpec } from '@/lib/effectSpec'
 import type { WeaponItem, ArmorItem, WondrousItem } from '@/types/data'
 
 const WEAPON_TYPES: WeaponItem['weapon_type'][] = [
@@ -72,6 +75,8 @@ export function CustomItemDialog({
   // generic item
   const [rarity, setRarity] = useState<WondrousItem['rarity']>('Uncommon')
   const [attunement, setAttunement] = useState(false)
+  // structured effects (apply while equipped/attuned) — armor + generic items
+  const [effects, setEffects] = useState<EffectSpec[]>([])
 
   // Reset every time it opens so a previous draft never leaks in.
   useEffect(() => {
@@ -81,6 +86,7 @@ export function CustomItemDialog({
       setArmorType('Medium'); setBaseAc(14); setAddsDex(true); setHasCap(true); setDexCap(2)
       setFlatBonus(0); setStealthDisadvantage(false)
       setRarity('Uncommon'); setAttunement(false)
+      setEffects([])
     }
   }, [open])
 
@@ -101,12 +107,13 @@ export function CustomItemDialog({
 
   function submit() {
     if (!valid) return
+    const itemEffects = effects.map(specToItemEffect)
     if (kind === 'weapon') {
-      onCreate(buildCustomWeapon({ name, weaponType, damageDice, damageType, properties, description }))
+      onCreate(buildCustomWeapon({ name, weaponType, damageDice, damageType, properties, description, effects: itemEffects }))
     } else if (kind === 'armor') {
-      onCreate(buildCustomArmor({ name, armorType, acFormula: acPreview, stealthDisadvantage, description }))
+      onCreate(buildCustomArmor({ name, armorType, acFormula: acPreview, stealthDisadvantage, description, effects: itemEffects }))
     } else {
-      onCreate(buildCustomWondrous({ name, rarity, attunement, description }))
+      onCreate(buildCustomWondrous({ name, rarity, attunement, description, effects: itemEffects }))
     }
     onClose()
   }
@@ -278,6 +285,14 @@ export function CustomItemDialog({
               </label>
             </div>
           )}
+
+          <div className="rounded-md border border-border p-2.5">
+            <EffectBuilder effects={effects} onChange={setEffects} />
+            <p className="text-[10px] text-muted-foreground mt-1.5">
+              Bonuses apply while the item is {attunement && kind === 'item' ? 'attuned' : 'equipped'}.
+              {kind === 'armor' ? ' (Separate from the armor’s own AC above.)' : ''}
+            </p>
+          </div>
 
           <label className="block">
             <span className="text-xs font-semibold text-muted-foreground">Description</span>
