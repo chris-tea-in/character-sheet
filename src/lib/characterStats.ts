@@ -15,6 +15,11 @@ export interface WeaponBonus {
   damageType: string
   abilityLabel: string
   toHitModifier: number
+  // Per-weapon ledger provenance (P4): the contributor rows summing to `toHitModifier`
+  // and `damageBonus`. Row ids are scoped by the EquipmentItem id so the ledger can
+  // disable/augment a specific weapon's contributors independently.
+  attackBreakdown: ModifierSource[]
+  damageBreakdown: ModifierSource[]
 }
 
 /** One contributor to a derived stat — provenance for the Modifier Ledger (see BACKLOG).
@@ -49,8 +54,10 @@ export interface ModifierSource {
 // Identifies which breakdown a custom modifier attaches to (the key into
 // `LedgerOverrides.custom`). Numeric stats only for 6a.
 export type TargetKey =
-  | 'speed' | 'initiative' | 'ac' | 'maxHp' | 'spellAttack' | 'spellSaveDC'
+  | 'speed' | 'initiative' | 'ac' | 'maxHp' | 'spellAttack' | 'spellSaveDC' | 'proficiencyBonus'
   | `ability:${AbilityName}` | `save:${AbilityName}` | `skill:${SkillName}`
+  // Per-weapon attack / damage breakdowns (P4) — keyed by the EquipmentItem id.
+  | `weaponAttack:${string}` | `weaponDamage:${string}`
 
 const EMPTY_LEDGER: LedgerOverrides = { disabled: [], overrides: {}, custom: {} }
 
@@ -138,12 +145,24 @@ export interface DerivedStats {
   raceSkillGrants: SkillName[]
   // Skills granted via the ledger's custom set-grants (Step 6b) — also filled+locked.
   customSkillGrants: SkillName[]
+  // Provenance for DERIVED proficiency grants (Step 6b-3 D) — feat/race/feature/custom,
+  // each with a stable id + disabled flag. The effective records above already reflect
+  // the non-disabled ones; ProficienciesBlock renders these as tap-to-disable dots.
+  // `value` holds the skill or ability name. Custom grants reuse their panel id (synced).
+  skillProfSources: SetGrantSource[]
+  skillExpertiseSources: SetGrantSource[]
+  saveProfSources: SetGrantSource[]
   weaponProficiencies: string[]
   // Armor proficiency union (class + racial), lowercased. Used for feat prereqs/display.
   armorProficiencies: string[]
   // Tool proficiencies granted by race (display) and racial languages (DescriptionBlock grid).
   raceToolGrants: string[]
   raceGrantedLanguages: string[]
+  // Provenance for granted languages (Step 6b-3 C): each language with its source
+  // (race/feat/item/custom) + a disabled flag. raceGrantedLanguages/itemGrantedLanguages
+  // above are the EFFECTIVE (non-disabled) values; the DescriptionBlock renders these
+  // with tap-to-disable.
+  languageSources: SetGrantSource[]
   // Senses granted by race (e.g. { darkvision: 60 }) — display.
   senses: Record<string, number>
   // Flat damage bonus from attuned items — added to weapon and unarmed damage
@@ -300,38 +319,18 @@ const SUBRACE_ADVANTAGES: Partial<Record<string, AdvantageEntry>> = {
   'stout': { saves: ['con'], label: 'Stout Resilience', kind: 'subrace' },
 }
 
-const ITEM_ADV_ENTRIES: Array<{ name: string; skills?: SkillName[]; saves?: AbilityName[] }> = [
-  { name: 'Boots of Elvenkind',          skills: ['stealth'] },
-  { name: 'Cloak of Elvenkind',          skills: ['stealth'] },
-  { name: 'Cloak of the Bat',            skills: ['stealth'] },
-  { name: 'Shadowfell Brand Tattoo',     skills: ['stealth'] },
-  { name: 'Piwafwi',                     skills: ['stealth'] },
-  { name: 'Piwafwi of Fire Resistance',  skills: ['stealth'] },
-  { name: 'Kagonesti Forest Shroud',     skills: ['stealth'] },
-  { name: "Nature's Mantle",             skills: ['stealth'] },
-  { name: 'Rod of Alertness',            skills: ['perception'] },
-  { name: 'Sentinel Shield',             skills: ['perception'] },
-  { name: 'Robe of Eyes',                skills: ['perception'] },
-  { name: 'Eyes of the Eagle',           skills: ['perception'] },
-  { name: 'Watchful Helm',               skills: ['perception'] },
-  { name: 'Ring of Truth Telling',       skills: ['insight'] },
-  { name: "Inquisitive's Goggles",       skills: ['insight'] },
-  { name: 'Gavel of the Venn Rune',      skills: ['persuasion'] },
-  { name: 'Crown of the Wrath Bringer',  skills: ['intimidation'] },
-  { name: 'Skull Helm',                  skills: ['intimidation'] },
-  { name: "Reveler's Concertina",        skills: ['performance'] },
-  { name: 'Orb of the Stein Rune',       saves: ['str'] },
-  { name: 'Platinum Scarf',              saves: ALL_SAVES },
-]
-
-const ITEM_ADV_MAP = new Map<string, AdvantageEntry>(
-  ITEM_ADV_ENTRIES.map(({ name, skills, saves }) => [name.toLowerCase(), { skills, saves, label: name, kind: 'item' }]),
-)
+// NOTE (2026-06-27): the old hardcoded `ITEM_ADV_ENTRIES`/`ITEM_ADV_MAP` (22 magic items
+// granting skill/save advantage by mere ownership) were retired. Those advantages are now
+// authored as data-driven `advantage` ItemEffects in `data/equipment/*.json` and applied by
+// `computeActiveItemEffects.advDis` → the item adv/dis loop in `deriveCharacterStats`. That
+// path gates on the item being ACTIVE (equipped/attuned) — RAW-correct ("while you wear it")
+// rather than merely owned — so an item must be worn/held for its advantage to apply.
 
 interface AdvSources { saves: Partial<Record<AbilityName, RollAdvSource[]>>; skills: Partial<Record<SkillName, RollAdvSource[]>> }
 
-// Labeled advantage sources from the hardcoded registries (feats, race/subrace, items).
-// Disadvantage sources (armor stealth, data effects) are merged in deriveCharacterStats.
+// Labeled advantage sources from the hardcoded registries (feats, race/subrace).
+// Item advantages are data-driven (see note above); disadvantage sources (armor stealth,
+// data effects) are merged in deriveCharacterStats.
 export function getCharacterAdvantages(character: Character): AdvSources {
   const out: AdvSources = { saves: {}, skills: {} }
   const add = (entry: AdvantageEntry) => {
@@ -342,7 +341,6 @@ export function getCharacterAdvantages(character: Character): AdvSources {
   for (const slug of character.feats) { const e = FEAT_ADVANTAGES[slug]; if (e) add(e) }
   const raceEntry = RACE_ADVANTAGES[character.race]; if (raceEntry) add(raceEntry)
   if (character.subrace) { const s = SUBRACE_ADVANTAGES[character.subrace.toLowerCase()]; if (s) add(s) }
-  for (const item of character.equipment) { const e = ITEM_ADV_MAP.get(item.name.toLowerCase()); if (e) add(e) }
   return out
 }
 
@@ -595,6 +593,7 @@ export function computeWeaponBonus(
   itemDamageBonus = 0,
   featureWeaponEffects: FeatureWeaponEffect[] = [],
   itemAttackBonus = 0,
+  itemId = '',
 ): WeaponBonus {
   const abilities = effectiveAbilities ?? character.abilities
   const strMod = abilityModifier(abilities.str)
@@ -616,6 +615,24 @@ export function computeWeaponBonus(
   const damageBonus = mod + magicBonus + itemDamageBonus + featureBonus.damage
   const dmgBonusStr = damageBonus !== 0 ? (damageBonus > 0 ? `+${damageBonus}` : `${damageBonus}`) : ''
 
+  // Per-weapon ledger breakdowns (P4). Ability mod + proficiency are locked (removable:false);
+  // magic/feature/item contributors are removable (disable-able). Ids are scoped by item id.
+  const slug = `weapon-${itemId || slugifyWeapon(weapon.name)}`
+  const attackBreakdown: ModifierSource[] = [
+    { id: `abilityMod:${slug}:attack`, label: `${abilityLabel} modifier`, amount: mod, kind: 'abilityMod', removable: false },
+  ]
+  if (pb) attackBreakdown.push({ id: `proficiency:${slug}:attack`, label: 'Proficiency (PB)', amount: pb, kind: 'proficiency', removable: false })
+  if (magicBonus) attackBreakdown.push({ id: `item:${slug}-magic:attack`, label: 'Magic weapon', amount: magicBonus, kind: 'item', removable: true })
+  if (featureBonus.toHit) attackBreakdown.push({ id: `feature:${slug}-style:attack`, label: 'Fighting style', amount: featureBonus.toHit, kind: 'feature', removable: true })
+  if (itemAttackBonus) attackBreakdown.push({ id: `item:${slug}-bonus:attack`, label: 'Item to-hit bonus', amount: itemAttackBonus, kind: 'item', removable: true })
+
+  const damageBreakdown: ModifierSource[] = [
+    { id: `abilityMod:${slug}:damage`, label: `${abilityLabel} modifier`, amount: mod, kind: 'abilityMod', removable: false },
+  ]
+  if (magicBonus) damageBreakdown.push({ id: `item:${slug}-magic:damage`, label: 'Magic weapon', amount: magicBonus, kind: 'item', removable: true })
+  if (featureBonus.damage) damageBreakdown.push({ id: `feature:${slug}-style:damage`, label: 'Fighting style', amount: featureBonus.damage, kind: 'feature', removable: true })
+  if (itemDamageBonus) damageBreakdown.push({ id: `item:${slug}-bonus:damage`, label: 'Item damage bonus', amount: itemDamageBonus, kind: 'item', removable: true })
+
   return {
     toHit: toHitModifier >= 0 ? `+${toHitModifier}` : `${toHitModifier}`,
     damage: `${weapon.damage_dice ?? '—'}${dmgBonusStr} ${weapon.damage_type ?? ''}`.trim(),
@@ -624,7 +641,14 @@ export function computeWeaponBonus(
     damageType: weapon.damage_type ?? '',
     abilityLabel,
     toHitModifier,
+    attackBreakdown,
+    damageBreakdown,
   }
+}
+
+// Local slug helper for weapon-row ids when no item id is supplied (e.g. unit tests).
+function slugifyWeapon(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 }
 
 export function computeFeatHpBonus(feats: string[], level: number): number {
@@ -1083,7 +1107,15 @@ export function deriveCharacterStats(
   const { race, catalog, featData, classFeatures } = ctx
   const classRecords = (ctx.classes ?? []).filter((c): c is ClassData => c != null)
   const classData = ctx.classes?.[0] ?? null
-  const pb = proficiencyBonus(character.level)
+  // Proficiency bonus is editable via the ledger (Step P4 follow-on): the level-derived
+  // base is locked (removable), but a player can add custom modifiers; the override is
+  // applied HERE — before pb feeds saves/skills/spell atk+DC/passives — so it cascades.
+  const rawPb = proficiencyBonus(character.level)
+  const proficiencyBonusBreakdown: ModifierSource[] = [
+    { id: 'base:level:proficiencyBonus', label: `Level ${character.level}`, amount: rawPb, kind: 'base', removable: false },
+  ]
+  const pbLedger = applyLedger('proficiencyBonus', proficiencyBonusBreakdown, character.ledgerOverrides)
+  const pb = pbLedger.effective
   // Selected feature options + always-on class features, in one accumulator.
   const featureFx = collectFeatureEffects(character, ctx.classes ?? [], classFeatures, ctx.classFeatureEffects)
 
@@ -1117,7 +1149,7 @@ export function deriveCharacterStats(
   let featInitiativeBonus = 0
   const featSpeedSources: { slug: string; name: string; amount: number }[] = []
   const featInitSources: { slug: string; name: string; amount: number }[] = []
-  const featDerivedSaves: AbilityName[] = []
+  const featDerivedSaves: { ability: AbilityName; slug: string; name: string }[] = []
   const flatSkillBonuses: Partial<Record<SkillName, number>> = {}
   // Provenance for flat skill bonuses (feats + items), filtered per skill below.
   const flatSkillBonusSources: { skill: SkillName; id: string; label: string; kind: ModifierKind; amount: number }[] = []
@@ -1150,7 +1182,7 @@ export function deriveCharacterStats(
       if (delta.speed) featSpeedSources.push({ slug, name: feat.name, amount: delta.speed })
       if (delta.initiativeBonus) featInitSources.push({ slug, name: feat.name, amount: delta.initiativeBonus })
       if (delta.saveProficiency && !character.savingThrowProficiencies.includes(delta.saveProficiency)) {
-        featDerivedSaves.push(delta.saveProficiency)
+        featDerivedSaves.push({ ability: delta.saveProficiency, slug, name: feat.name })
       }
 
       const registryEffect = FEAT_EFFECTS[slug]
@@ -1176,11 +1208,40 @@ export function deriveCharacterStats(
     }
   }
 
-  // ── Effective skill proficiencies (base + feat-granted choices) ───────────
+  // ── Modifier Ledger set-membership grants (Step 6b) — sets computed once, early ──
+  // Moved ahead of the proficiency loops so each derived grant can gate on the ledger's
+  // `disabled` set (Step 6b-3 D). `activeSetGrants` are the non-disabled custom grants.
+  const ledgerDisabled = new Set(character.ledgerOverrides?.disabled ?? [])
+  const allSetGrants = character.ledgerOverrides?.customGrants ?? []
+  const activeSetGrants = allSetGrants.filter(g => !ledgerDisabled.has(g.id))
+  const customSenseGrants = activeSetGrants.filter(g => g.target === 'sense')
+  // Custom-granted languages flow through `languageSources` below (provenance + disable).
+
+  // ── Effective skill proficiencies (stored + derived grants) ───────────────
+  // Derived grants (feat/race/feature/custom) apply at render time and are exposed as
+  // `skillProfSources` / `skillExpertiseSources` (provenance + ledger disable, Step 6b-3 D).
+  // A disabled grant is registered in the source list (so the UI can re-enable it) but
+  // NOT folded into the effective record — the dot un-fills and the modifier drops PB,
+  // keeping proficiency and modifier in sync. A grant is registered only when it actually
+  // takes effect (the skill isn't already proficient from an earlier/stored source), so
+  // there is at most one *active* proficiency source per skill. Custom grants reuse their
+  // Custom-Effects-panel id so the in-place toggle and the panel stay in sync.
   const effectiveSkillProficiencies: Partial<Record<SkillName, SkillProficiency>> = {
     ...character.skillProficiencies,
   }
-  const featSkillGrants: { proficient: SkillName[]; expertise: SkillName[] } = { proficient: [], expertise: [] }
+  const skillProfSources: SetGrantSource[] = []
+  const skillExpertiseSources: SetGrantSource[] = []
+  const addSkillProf = (skill: SkillName, id: string, label: string, kind: ModifierKind) => {
+    if (effectiveSkillProficiencies[skill]) return  // shadowed by a stored/earlier grant
+    const disabled = ledgerDisabled.has(id)
+    skillProfSources.push({ id, value: skill, label, kind, disabled })
+    if (!disabled) effectiveSkillProficiencies[skill] = 'proficient'
+  }
+  const addSkillExpertise = (skill: SkillName, id: string, label: string, kind: ModifierKind) => {
+    const disabled = ledgerDisabled.has(id)
+    skillExpertiseSources.push({ id, value: skill, label, kind, disabled })
+    if (!disabled) effectiveSkillProficiencies[skill] = 'expertise'
+  }
   if (featData) {
     for (const slug of character.feats) {
       const feat = featData[slug]
@@ -1189,44 +1250,25 @@ export function deriveCharacterStats(
       const hasSkillProf = (feat.effects ?? []).some(e => e.type === 'skill_proficiency')
       const hasExpertise = (feat.effects ?? []).some(e => e.type === 'expertise')
       if (hasSkillProf && choices?.skillChoices) {
-        for (const sk of choices.skillChoices) {
-          if (!effectiveSkillProficiencies[sk]) {
-            effectiveSkillProficiencies[sk] = 'proficient'
-            featSkillGrants.proficient.push(sk)
-          }
-        }
+        for (const sk of choices.skillChoices) addSkillProf(sk, `skillprof:feat:${slug}:${sk}`, `${feat.name} (feat)`, 'feat')
       }
       if (hasExpertise && choices?.expertiseSkill) {
-        effectiveSkillProficiencies[choices.expertiseSkill] = 'expertise'
-        featSkillGrants.expertise.push(choices.expertiseSkill)
+        addSkillExpertise(choices.expertiseSkill, `skillexp:feat:${slug}:${choices.expertiseSkill}`, `${feat.name} (feat)`, 'feat')
       }
     }
   }
-  // Racial + always-on-feature skill proficiencies — granted at render time and shown
-  // filled+locked in the UI (the BUG-30 pattern) so a dot click can't write a duplicate.
-  const raceSkillGrants: SkillName[] = []
-  for (const sk of [...raceEffects.skillProficiencies, ...featureFx.skillProf.map(s => s.skill)]) {
-    if (!effectiveSkillProficiencies[sk]) {
-      effectiveSkillProficiencies[sk] = 'proficient'
-      raceSkillGrants.push(sk)
-    }
-  }
+  // Racial + always-on-feature + custom skill proficiencies.
+  for (const sk of raceEffects.skillProficiencies) addSkillProf(sk, `skillprof:race:${sk}`, 'Racial', 'race')
+  for (const f of featureFx.skillProf) addSkillProf(f.skill, `skillprof:feature:${slugifyName(f.label)}:${f.skill}`, f.label, 'feature')
+  for (const g of allSetGrants.filter(g => g.target === 'skillProf')) addSkillProf(g.value as SkillName, g.id, g.label, 'custom')
 
-  // ── Modifier Ledger set-membership grants (Step 6b), computed once ─────────
-  // Always-on custom grants (resistance/immunity/language/sense/skill+save prof),
-  // minus any the player disabled. Skill/save prof grants fold into the effective
-  // proficiencies (locked in the UI like racial grants); the rest apply below.
-  const ledgerDisabled = new Set(character.ledgerOverrides?.disabled ?? [])
-  const allSetGrants = character.ledgerOverrides?.customGrants ?? []
-  const activeSetGrants = allSetGrants.filter(g => !ledgerDisabled.has(g.id))
-  const customSenseGrants = activeSetGrants.filter(g => g.target === 'sense')
-  const customLangs = activeSetGrants.filter(g => g.target === 'language').map(g => g.value)
-  const customSkillGrants: SkillName[] = []
-  for (const g of activeSetGrants.filter(g => g.target === 'skillProf')) {
-    const sk = g.value as SkillName
-    if (!effectiveSkillProficiencies[sk]) effectiveSkillProficiencies[sk] = 'proficient'
-    customSkillGrants.push(sk)
+  // Active-only derived fields the UI/caps still consume (locks, tags, class-cap exclusion).
+  const featSkillGrants: { proficient: SkillName[]; expertise: SkillName[] } = {
+    proficient: skillProfSources.filter(s => s.kind === 'feat' && !s.disabled).map(s => s.value as SkillName),
+    expertise: skillExpertiseSources.filter(s => s.kind === 'feat' && !s.disabled).map(s => s.value as SkillName),
   }
+  const raceSkillGrants: SkillName[] = skillProfSources.filter(s => (s.kind === 'race' || s.kind === 'feature') && !s.disabled).map(s => s.value as SkillName)
+  const customSkillGrants: SkillName[] = skillProfSources.filter(s => s.kind === 'custom' && !s.disabled).map(s => s.value as SkillName)
 
   // ── Active magic-item effects ──────────────────────────────────────────────
   // Applied on top of base + racial + feat. Item ability changes are uncapped
@@ -1333,15 +1375,29 @@ export function deriveCharacterStats(
   console.assert(sumModifiers(speedBreakdown) === effectiveSpeed, '[ledger] speed breakdown ≠ effectiveSpeed', sumModifiers(speedBreakdown), effectiveSpeed)
   console.assert(sumModifiers(initiativeBreakdown) === effectiveInitiative, '[ledger] initiative breakdown ≠ effectiveInitiative', sumModifiers(initiativeBreakdown), effectiveInitiative)
 
-  // ── Effective save proficiencies (class + feat + always-on feature) ───────
-  const featureSaveProfs: AbilityName[] = []
-  for (const sp of featureFx.saveProf) {
-    if (sp.ability === 'all') ALL_ABILITIES.forEach(a => featureSaveProfs.push(a))
-    else featureSaveProfs.push(sp.ability)
+  // ── Effective save proficiencies (class/stored + derived: feat + feature + custom) ──
+  // Class saves are STORED (baked at creation) and toggle via the dot already, so only the
+  // DERIVED grants need provenance + an in-place disable (Step 6b-3 D). A stored save short-
+  // circuits — no derived toggle for it. A disabled derived grant stays in `saveProfSources`
+  // (re-enableable) but drops out of the effective list, keeping proficiency + modifier in sync.
+  const storedSaveSet = new Set(character.savingThrowProficiencies)
+  const saveProfSources: SetGrantSource[] = []
+  const addSaveProf = (ability: AbilityName, id: string, label: string, kind: ModifierKind) => {
+    if (storedSaveSet.has(ability)) return            // stored save drives it; no derived toggle
+    if (saveProfSources.some(s => s.id === id)) return // dedup identical source
+    saveProfSources.push({ id, value: ability, label, kind, disabled: ledgerDisabled.has(id) })
   }
-  const customSaveProfGrants = activeSetGrants.filter(g => g.target === 'saveProf').map(g => g.value as AbilityName)
+  for (const fs of featDerivedSaves) addSaveProf(fs.ability, `saveprof:feat:${fs.slug}:${fs.ability}`, `${fs.name} (feat)`, 'feat')
+  for (const sp of featureFx.saveProf) {
+    const abs = sp.ability === 'all' ? ALL_ABILITIES : [sp.ability]
+    for (const ab of abs) addSaveProf(ab, `saveprof:feature:${slugifyName(sp.label)}:${ab}`, sp.label, 'feature')
+  }
+  for (const g of allSetGrants.filter(g => g.target === 'saveProf')) addSaveProf(g.value as AbilityName, g.id, g.label, 'custom')
   const effectiveSaveProficiencies: AbilityName[] = [
-    ...new Set([...character.savingThrowProficiencies, ...featDerivedSaves, ...featureSaveProfs, ...customSaveProfGrants]),
+    ...new Set([
+      ...character.savingThrowProficiencies,
+      ...saveProfSources.filter(s => !s.disabled).map(s => s.value as AbilityName),
+    ]),
   ]
 
   // ── Skill and save modifiers (pre-computed for display and dice rolls) ─────
@@ -1581,10 +1637,8 @@ export function deriveCharacterStats(
   // INV: when AC is auto-computed, the itemized list reconstructs it exactly.
   console.assert(effectiveAC === null || acSources.reduce((t, c) => t + c.amount, 0) === effectiveAC, '[ledger] AC breakdown ≠ effectiveAC')
 
-  // Proficiency bonus is a single derived value (by total level) — itemized for ledger parity.
-  const proficiencyBonusBreakdown: ModifierSource[] = [
-    { id: 'base:level:proficiencyBonus', label: `Level ${character.level}`, amount: pb, kind: 'base', removable: false },
-  ]
+  // (Proficiency-bonus breakdown + ledger override built once at the top, where `pb` is
+  // defined, so the override cascades into every pb consumer. `pbLedger.rows` is returned.)
 
   // ── Adjusted Max HP ───────────────────────────────────────────────────────
   const maxHpBreakdown: ModifierSource[] = [
@@ -1676,6 +1730,26 @@ export function deriveCharacterStats(
   )
   const resistances = [...new Set(resistanceSources.filter(s => !s.disabled).map(s => s.value))]
   const immunities = [...new Set(immunitySources.filter(s => !s.disabled).map(s => s.value))]
+
+  // ── Granted languages — provenance + ledger disable (Step 6b-3 C) ──────────
+  // Mirror the resistance pattern: each granting source (race/feat/item/custom) is a
+  // SetGrantSource keyed `lang:<kind>:<name>` (custom reuses its grant id so disabling
+  // syncs with the Custom Effects panel). Language values keep their display case (proper
+  // nouns), unlike lowercased damage types. Deduped by id so a language granted twice by
+  // the same kind collapses, while distinct sources of the same language each show.
+  const languageSources: SetGrantSource[] = []
+  {
+    const seen = new Set<string>()
+    const addLang = (id: string, value: string, label: string, kind: ModifierKind) => {
+      if (seen.has(id)) return
+      seen.add(id)
+      languageSources.push({ id, value, label, kind, disabled: ledgerDisabled.has(id) })
+    }
+    for (const l of raceEffects.languages) addLang(`lang:race:${l}`, l, 'Racial', 'race')
+    for (const l of featLanguages) addLang(`lang:feat:${l}`, l, 'Feat', 'feat')
+    for (const l of itemEffects.languages) addLang(`lang:item:${l}`, l, 'Item', 'item')
+    for (const c of allSetGrants.filter(g => g.target === 'language')) addLang(c.id, c.value, c.label, 'custom')
+  }
 
   // ── Advantages / disadvantages (labeled sources, netted per RAW) ──────────
   // Collect every adv/dis source with its label (ledger provenance), then net per
@@ -1817,10 +1891,13 @@ export function deriveCharacterStats(
     effectiveSkillProficiencies,
     featSkillGrants,
     raceSkillGrants,
+    skillProfSources,
+    skillExpertiseSources,
+    saveProfSources,
     weaponProficiencies,
     armorProficiencies,
     raceToolGrants: [...new Set([...raceEffects.toolProficiencies, ...featureFx.toolProf, ...featToolProf])],
-    raceGrantedLanguages: [...new Set([...raceEffects.languages, ...featLanguages, ...customLangs])],
+    raceGrantedLanguages: [...new Set(languageSources.filter(s => !s.disabled && s.kind !== 'item').map(s => s.value))],
     senses: customSenseGrants.reduce(
       (acc, g) => { const k = g.value.toLowerCase(); acc[k] = Math.max(acc[k] ?? 0, g.amount ?? 0); return acc },
       { ...raceEffects.senses },
@@ -1830,7 +1907,8 @@ export function deriveCharacterStats(
     itemAttackBonus: itemEffects.attack,
     itemSpellDamageBonus: itemEffects.spellDamage,
     unarmedStrike: itemEffects.unarmed,
-    itemGrantedLanguages: itemEffects.languages,
+    itemGrantedLanguages: [...new Set(languageSources.filter(s => !s.disabled && s.kind === 'item').map(s => s.value))],
+    languageSources,
     resistances,
     immunities,
     resistanceSources,
@@ -1841,7 +1919,7 @@ export function deriveCharacterStats(
       speed: speedL.rows,
       initiative: initL.rows,
       ac: acL ? acL.rows : acSources,
-      proficiencyBonus: proficiencyBonusBreakdown,
+      proficiencyBonus: pbLedger.rows,
       abilities: abilityBreakdowns,
       saves: saveBreakdownsFinal,
       skills: skillBreakdownsFinal,

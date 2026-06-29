@@ -3,6 +3,7 @@ import { BookOpen, Sword, Shield, Sparkles, GraduationCap, Eye, Heart, MessageCi
 import type { LucideIcon } from 'lucide-react'
 import { SelectionList } from '@/components/SelectionList'
 import { DetailPopup } from '@/components/DetailPopup'
+import { ResourcePips } from './ResourcePips'
 import { slugToTitle } from '@/lib/characterSetup'
 import { toSubraceSlug } from '@/lib/racialBonuses'
 import { lookupFeatureDescription } from '@/lib/data'
@@ -321,23 +322,12 @@ export function FeaturesBlock({ character, setupData, onSave }: Props) {
                   </span>
                   <span className="text-xs text-muted-foreground">{resTotal - resUsed}/{resTotal}</span>
                 </div>
-                <div className="flex gap-1 flex-wrap">
-                  {Array.from({ length: resTotal }).map((_, i) => {
-                    const filled = i < resUsed
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => setResourceUsed(group.key, filled ? i : i + 1)}
-                        className="w-5 h-5 rounded-full border-2 transition-colors"
-                        style={{
-                          borderColor: 'var(--color-accent-gold)',
-                          background: filled ? 'var(--color-accent-gold)' : 'transparent',
-                        }}
-                        aria-label={filled ? `Restore ${group.resource!.name}` : `Use ${group.resource!.name}`}
-                      />
-                    )
-                  })}
-                </div>
+                <ResourcePips
+                  total={resTotal}
+                  used={resUsed}
+                  onChange={u => setResourceUsed(group.key, u)}
+                  label={group.resource.name}
+                />
               </div>
             )}
           </div>

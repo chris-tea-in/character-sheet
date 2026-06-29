@@ -68,6 +68,8 @@ function TwoDots({
   expLocked,
   expertiseCapped,
   featSourced,
+  profTitle,
+  expTitle,
   onToggleProf,
   onToggleExp,
 }: {
@@ -77,6 +79,10 @@ function TwoDots({
   expLocked: boolean
   expertiseCapped: boolean
   featSourced: boolean
+  // Derived-grant rows pass explicit titles ("X — tap to disable") that override the
+  // default add/remove copy (Step 6b-3 D).
+  profTitle?: string
+  expTitle?: string
   onToggleProf: () => void
   onToggleExp: () => void
 }) {
@@ -107,14 +113,14 @@ function TwoDots({
         isProficient && !isExpertise,
         'P',
         onToggleProf,
-        featSourced ? 'Granted by feat/race' : isProficient ? 'Remove proficiency' : 'Add proficiency (+PB)',
+        profTitle ?? (featSourced ? 'Granted by feat/race' : isProficient ? 'Remove proficiency' : 'Add proficiency (+PB)'),
         profLocked,
       )}
       {dot(
         isExpertise,
         'E',
         onToggleExp,
-        featSourced ? 'Granted by feat/race' : isExpertise ? 'Remove expertise' : expertiseCapped ? 'Add expertise — over the limit (homebrew)' : 'Add expertise (+2×PB)',
+        expTitle ?? (featSourced ? 'Granted by feat/race' : isExpertise ? 'Remove expertise' : expertiseCapped ? 'Add expertise — over the limit (homebrew)' : 'Add expertise (+2×PB)'),
         expLocked,
       )}
     </div>
@@ -126,15 +132,18 @@ function SaveDot({
   filled,
   locked,
   onClick,
+  title,
 }: {
   filled: boolean
   locked: boolean
   onClick: () => void
+  title?: string
 }) {
   return (
     <button
       onClick={e => { e.stopPropagation(); if (!locked) onClick() }}
       disabled={locked}
+      title={title}
       className={cn(
         'w-4 h-4 rounded-full border-2 transition-colors flex-none',
         locked ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer hover:opacity-75',
@@ -154,13 +163,28 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
   const { dispatch } = useRollDispatch(derived)
   const hasClass = !!classRecord
 
-  // Skills whose proficiency/expertise comes from a feat OR race — filled but locked
-  // in the dots so a click can't write a duplicate stored copy (BUG-30). Both are
-  // derived at render time; the breakdown pencil shows which source granted it.
+  // Active feat-proficient skills — excluded from the class-skill cap (BUG-29).
   const featProficientSkills = new Set(derived.featSkillGrants.proficient)
-  const featExpertiseSkills = new Set(derived.featSkillGrants.expertise)
+  // Skills with an active race/custom proficiency grant — used by the legacy
+  // toggleSkillProf integrity guard.
   const raceProficientSkills = new Set([...derived.raceSkillGrants, ...derived.customSkillGrants])
   const bgSkillSet = new Set(backgroundSkills ?? [])
+
+  // ── Derived-grant disable toggles (Step 6b-3 D) ───────────────────────────
+  // A feat/race/feature/custom proficiency/expertise grant is rendered as a tap-to-disable
+  // dot. Toggling flips every source id for that skill/save in `ledgerOverrides.disabled`
+  // (disable all if any are active, else re-enable all) so the dot's fill always matches.
+  function toggleGrantIds(ids: string[], anyActive: boolean) {
+    const lo = character.ledgerOverrides
+    const disabled = anyActive
+      ? [...new Set([...lo.disabled, ...ids])]
+      : lo.disabled.filter(d => !ids.includes(d))
+    onSave({ ledgerOverrides: { ...lo, disabled } })
+  }
+  function toggleSources(sources: { id: string; value: string; disabled: boolean }[], value: string) {
+    const g = sources.filter(s => s.value === value)
+    if (g.length) toggleGrantIds(g.map(s => s.id), g.some(s => !s.disabled))
+  }
 
   // Per-class (record, level) pairs for expertise/skill caps — falls back to the
   // single primary class for legacy characters with an empty classes[] array
@@ -233,8 +257,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
   }
 
   function toggleSkillExp(skill: SkillName) {
-    // Feat-granted expertise is derived, not togglable here (integrity lock, BUG-30)
-    if (featExpertiseSkills.has(skill)) return
+    // Only reached for STORED skills (derived expertise grants route to toggleSources).
     const current = character.skillProficiencies[skill]
     if (current === 'expertise') {
       onSave({ skillProficiencies: { ...character.skillProficiencies, [skill]: 'proficient' } })
@@ -295,10 +318,13 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
           <div className="rounded-lg border border-border bg-card divide-y divide-border">
             {ABILITY_ORDER.map(ability => {
               const isStored = character.savingThrowProficiencies.includes(ability)
-              // Feat-granted saves (e.g. Resilient) are derived, not stored —
-              // shown filled but locked so the dot can't write a stale copy
-              const isFeatDerived = !isStored && derived.effectiveSaveProficiencies.includes(ability)
-              const isProficient = isStored || isFeatDerived
+              // Derived save grants (feat Resilient, feature Diamond Soul, custom) — shown
+              // filled but tap-to-disable; a disabled grant un-fills + drops PB (Step 6b-3 D).
+              const saveGrants = derived.saveProfSources.filter(s => s.value === ability)
+              const hasSaveGrant = saveGrants.length > 0
+              const saveGrantDisabled = hasSaveGrant && saveGrants.every(s => s.disabled)
+              const grant = saveGrants[0]
+              const isProficient = isStored || derived.effectiveSaveProficiencies.includes(ability)
               const isClassSave = classSaveSet.has(ability)
               const bonus = derived.saveModifiers[ability]
               const rollMode = derived.rollStates.saves[ability]
@@ -310,8 +336,9 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                 >
                   <SaveDot
                     filled={isProficient}
-                    locked={isFeatDerived}
-                    onClick={() => !isFeatDerived && toggleSave(ability)}
+                    locked={false}
+                    onClick={() => hasSaveGrant ? toggleSources(derived.saveProfSources, ability) : toggleSave(ability)}
+                    title={hasSaveGrant ? `${grant.label} — tap to ${saveGrantDisabled ? 'enable' : 'disable'}` : isProficient ? 'Remove proficiency' : 'Add proficiency'}
                   />
                   <span className="flex-1 text-sm">{ABILITY_LABELS[ability]}</span>
                   {isClassSave && (
@@ -319,9 +346,13 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                       class
                     </span>
                   )}
-                  {isFeatDerived && (
-                    <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-accent-gold)' }}>
-                      feat
+                  {hasSaveGrant && (
+                    <span
+                      className="text-[10px] uppercase tracking-wide"
+                      style={{ color: saveGrantDisabled ? 'var(--color-text-muted)' : 'var(--color-accent-gold)' }}
+                      title={`${grant.label}${saveGrantDisabled ? ' (off)' : ''}`}
+                    >
+                      {grant.kind}{saveGrantDisabled ? ' (off)' : ''}
                     </span>
                   )}
                   <span
@@ -343,7 +374,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            Class saves shown in gold · tap dot to toggle · Roll to make a saving throw
+            Class saves shown in gold · tap dot to toggle · feat/feature grants tap-to-disable · Roll to make a saving throw
           </p>
         </>
       )}
@@ -357,24 +388,31 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
               const prof = derived.effectiveSkillProficiencies[skill]
               const isProficient = prof === 'proficient' || prof === 'expertise'
               const isExpertise = prof === 'expertise'
-              const isFeatProficient = featProficientSkills.has(skill)
-              const isFeatExpertise = featExpertiseSkills.has(skill)
-              const isRaceProficient = raceProficientSkills.has(skill)
+              // Derived proficiency/expertise grants for this skill (feat/race/feature/custom),
+              // active OR disabled. When present, the dot becomes a tap-to-disable toggle
+              // instead of a stored pick — disabling un-fills it + drops PB (Step 6b-3 D).
+              const profGrants = derived.skillProfSources.filter(s => s.value === skill)
+              const expGrants = derived.skillExpertiseSources.filter(s => s.value === skill)
+              const hasProfGrant = profGrants.length > 0
+              const hasExpGrant = expGrants.length > 0
+              const profGrantDisabled = hasProfGrant && profGrants.every(s => s.disabled)
+              const expGrantDisabled = hasExpGrant && expGrants.every(s => s.disabled)
+              const grant = profGrants[0] ?? expGrants[0]
+              // The row's derived grant is "active" if any of its prof/exp sources is enabled.
+              const grantActive = (hasProfGrant && !profGrantDisabled) || (hasExpGrant && !expGrantDisabled)
               const ability = SKILL_ABILITY_MAP[skill]
               const bonus = derived.skillModifiers[skill]
               const rollMode = derived.rollStates.skills[skill]
               const isClassOption = classSkillOptions.has(skill)
               const notClassOption = hasClass && !isClassOption
               const expertiseCapped = atExpertiseCap && !isExpertise
-              // Per-row "homebrew" marks only the specific off-class pick. Going
-              // over the skill-count cap is communicated by the red count badge
-              // alone — tagging every row in that case (overClassSkillCap is global)
-              // wrongly flagged all skills at once (#7).
-              const isHomebrewPick = isProficient && notClassOption
-              // Only feat/race-granted dots are truly locked (integrity — the value is
-              // derived). Class-list and caps are RAW limits: clickable, just flagged.
-              const profLocked = isFeatProficient || isRaceProficient
-              const expLocked = isFeatExpertise || !isProficient
+              // Per-row "homebrew" marks only a STORED off-class pick (not derived grants).
+              const isHomebrewPick = isProficient && notClassOption && !hasProfGrant
+              // Derived grants are no longer hard-locked — they toggle. Stored prof never
+              // locks. Expertise: lock when there's no exp grant AND (not proficient OR the
+              // proficiency itself is a derived grant — you can't store-add expertise on top).
+              const profLocked = false
+              const expLocked = hasExpGrant ? false : (!isProficient || hasProfGrant)
               // Dim only off-list skills not yet picked (signals off-roster)
               const dimRow = notClassOption && !isProficient
 
@@ -389,18 +427,20 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     profLocked={profLocked}
                     expLocked={expLocked}
                     expertiseCapped={expertiseCapped}
-                    featSourced={isFeatProficient || isFeatExpertise || isRaceProficient}
-                    onToggleProf={() => toggleSkillProf(skill)}
-                    onToggleExp={() => toggleSkillExp(skill)}
+                    featSourced={false}
+                    profTitle={hasProfGrant ? `${grant.label} — tap to ${profGrantDisabled ? 'enable' : 'disable'}` : undefined}
+                    expTitle={hasExpGrant ? `${expGrants[0].label} — tap to ${expGrantDisabled ? 'enable' : 'disable'}` : undefined}
+                    onToggleProf={() => hasProfGrant ? toggleSources(derived.skillProfSources, skill) : toggleSkillProf(skill)}
+                    onToggleExp={() => hasExpGrant ? toggleSources(derived.skillExpertiseSources, skill) : toggleSkillExp(skill)}
                   />
                   <span className={cn('flex-1 text-sm min-w-0 truncate', dimRow && 'opacity-50')}>{SKILL_DISPLAY_MAP[skill]}</span>
-                  {isRaceProficient && (
+                  {grant && (
                     <span
                       className="text-[9px] uppercase tracking-wide flex-none"
-                      style={{ color: 'var(--color-accent-gold)' }}
-                      title="Granted by your race"
+                      style={{ color: grantActive ? 'var(--color-accent-gold)' : 'var(--color-text-muted)' }}
+                      title={`${grant.label} — tap the dot to disable`}
                     >
-                      race
+                      {grant.kind}{grantActive ? '' : ' (off)'}
                     </span>
                   )}
                   {isHomebrewPick && (
@@ -434,7 +474,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            P = prof · E = expertise · class options in gold · off-list & over-cap allowed (homebrew) · (Adv)/(Dis) = advantage/disadvantage (e.g. armor stealth), netted per RAW
+            P = prof · E = expertise · class options in gold · feat/race grants tap-to-disable · off-list & over-cap allowed (homebrew) · (Adv)/(Dis) = advantage/disadvantage (e.g. armor stealth), netted per RAW
           </p>
         </>
       )}

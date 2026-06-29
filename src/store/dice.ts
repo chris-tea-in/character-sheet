@@ -251,8 +251,10 @@ export const useDiceStore = create<DiceState>()((set) => ({
     const spec = s.modal?.damageSpec
     if (!s.modal || !spec) return {}
     const groups = computeDamageGroups(spec.baseDice, spec.scaling, s.modal.castLevel)
+    // A bare-integer base (Blowgun "1") has no dice group — add it as flat damage.
+    const flatBase = /^\d+$/.test((spec.baseDice ?? '').trim()) ? parseInt(spec.baseDice.trim(), 10) : 0
     const main = rollDamageGroups(groups, crit, spec.rerollBelow)
-    const mainTotal = main.total + spec.damageBonus
+    const mainTotal = main.total + spec.damageBonus + flatBase
     const extraResults = (spec.extraDamage ?? []).map(ed => {
       const r = rollDamageGroups(computeDamageGroups(ed.dice, undefined, undefined), crit)
       return { damageType: ed.damageType, rolls: r.rolls, total: r.total }

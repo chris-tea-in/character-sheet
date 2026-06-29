@@ -19,6 +19,7 @@ import type { ParsedSpellHeal } from '@/lib/spellHeal'
 import { mergeCustomSpells } from '@/lib/customContent'
 import { CustomSpellDialog } from './CustomSpellDialog'
 import { StatBreakdown } from './StatBreakdown'
+import { ResourcePips } from './ResourcePips'
 import type { CustomSpellDamage } from './CustomSpellDialog'
 import type { ClassData, SpellData } from '@/types/data'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
@@ -43,30 +44,8 @@ function SlotPips({
 }: {
   total: number; used: number; onToggle: (n: number) => void
 }) {
-  // Filled = available (remaining), not used. The leftmost `remaining` pips are
-  // lit and show how many slots you still have; spent slots empty out from the
-  // right. Clicking a lit pip uses a slot (used+1); clicking an empty one
-  // restores it (used-1). Bounds hold naturally (lit ⇒ used<total, empty ⇒ used>0).
-  const remaining = total - used
-  return (
-    <div className="flex gap-1 flex-wrap">
-      {Array.from({ length: total }).map((_, i) => {
-        const available = i < remaining
-        return (
-          <button
-            key={i}
-            onClick={() => onToggle(available ? used + 1 : used - 1)}
-            title={available ? 'Use a slot' : 'Restore a slot'}
-            className="w-5 h-5 rounded-full border-2 transition-colors"
-            style={{
-              borderColor: 'var(--color-accent-gold)',
-              background: available ? 'var(--color-accent-gold)' : 'transparent',
-            }}
-          />
-        )
-      })}
-    </div>
-  )
+  // Shared spend-tracker convention (filled = available, hollow = spent).
+  return <ResourcePips total={total} used={used} onChange={onToggle} label="slot" />
 }
 
 function SpellRow({

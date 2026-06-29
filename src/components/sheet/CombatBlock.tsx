@@ -627,6 +627,9 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
         title="Proficiency Bonus"
         signed
         sources={derived.breakdowns.proficiencyBonus}
+        targetKey="proficiencyBonus"
+        ledger={character.ledgerOverrides}
+        onChange={next => onSave({ ledgerOverrides: next })}
       />
       <StatBreakdown
         open={openBreakdown === 'maxHp'}

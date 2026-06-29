@@ -75,6 +75,50 @@ describe('computeWeaponBonus — homebrew all-weapons-proficient', () => {
     }), { catalog: { wondrous_items: [rod] } })
     expect(d.itemSpellDamageBonus).toBe(2)
   })
+
+  // P4 — per-weapon attack/damage ledger breakdowns
+  it('weapon attack/damage breakdowns sum to the modifiers and disabling a contributor drops it', () => {
+    const char = lvl5Str16()
+    // STR+3, PB+3, itemDamage+1, itemAttack+2, item id 'w1'
+    const calc = computeWeaponBonus(greatsword, char, ['martial weapons'], char.abilities, 1, [], 2, 'w1')
+    expect(calc.toHitModifier).toBe(8) // 3 + 3 + 2
+    expect(calc.attackBreakdown.reduce((t, s) => t + s.amount, 0)).toBe(calc.toHitModifier)
+    expect(calc.damageBreakdown.reduce((t, s) => t + s.amount, 0)).toBe(calc.damageBonus) // 3 + 1 = 4
+
+    // Disable the item to-hit bonus via the per-weapon ledger key.
+    const id = 'item:weapon-w1-bonus:attack'
+    const led = applyLedger('weaponAttack:w1', calc.attackBreakdown, { disabled: [id], overrides: {}, custom: {} })
+    expect(led.effective).toBe(6) // 8 − 2
+    expect(led.rows.find(r => r.id === id)!.disabled).toBe(true)
+  })
+
+  it('a custom per-weapon attack modifier adds to the effective to-hit', () => {
+    const calc = computeWeaponBonus(greatsword, lvl5Str16(), ['martial weapons'], undefined, 0, [], 0, 'w2')
+    const led = applyLedger('weaponAttack:w2', calc.attackBreakdown, {
+      disabled: [], overrides: {}, custom: { 'weaponAttack:w2': [{ id: 'c1', label: 'Bless', amount: 2 }] },
+    })
+    expect(led.effective).toBe(8) // STR+3 + PB+3 + custom +2
+  })
+})
+
+describe('Proficiency Bonus ledger override (cascades)', () => {
+  it('a custom Proficiency Bonus modifier raises PB and cascades into saves + skills', () => {
+    const base = lvl5Str16({ savingThrowProficiencies: ['str'], skillProficiencies: { athletics: 'proficient' } })
+    const before = deriveCharacterStats(base, {})
+    expect(before.proficiencyBonus).toBe(3)
+    expect(before.saveModifiers.str).toBe(6)      // STR +3 + PB +3
+    expect(before.skillModifiers.athletics).toBe(6) // STR +3 + PB +3
+
+    const d = deriveCharacterStats(lvl5Str16({
+      savingThrowProficiencies: ['str'],
+      skillProficiencies: { athletics: 'proficient' },
+      ledgerOverrides: { disabled: [], overrides: {}, custom: { proficiencyBonus: [{ id: 'pb1', label: 'Homebrew', amount: 1 }] } },
+    }), {})
+    expect(d.proficiencyBonus).toBe(4)             // 3 + 1
+    expect(d.saveModifiers.str).toBe(7)            // STR +3 + PB +4 (cascaded)
+    expect(d.skillModifiers.athletics).toBe(7)     // STR +3 + PB +4 (cascaded)
+    expect(d.breakdowns.proficiencyBonus.reduce((t, s) => t + s.amount, 0)).toBe(4)
+  })
 })
 
 // ── AC ledger (Modifier Ledger P1.5) ─────────────────────────────────────────
@@ -435,13 +479,18 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
   })
 
   it('advantage + disadvantage on the same skill net to normal (RAW)', () => {
-    // Boots of Elvenkind → Stealth advantage; Plate → Stealth disadvantage ⇒ normal.
+    // Boots of Elvenkind → Stealth advantage (data-driven item effect); Plate → Stealth
+    // disadvantage ⇒ normal. The item advantage applies because the boots are equipped.
+    const boots: WondrousItem = {
+      name: 'Boots of Elvenkind', category: 'wondrous_item', rarity: 'Uncommon', attunement: false,
+      effects: [{ type: 'advantage', target: 'skill', skill: 'stealth' }],
+    }
     const d = deriveCharacterStats(charWith({
       equipment: [
         { id: 'b', name: 'Boots of Elvenkind', quantity: 1, equipped: true },
         { id: 'p', name: 'Plate', quantity: 1, equipped: true },
       ],
-    }), { catalog: { armor: [plate] } })
+    }), { catalog: { armor: [plate], wondrous_items: [boots] } })
     expect(d.hasStealthDisadvantage).toBe(true)
     expect(d.rollStates.skills.stealth).toBeUndefined() // netted to normal
   })
@@ -667,18 +716,22 @@ describe('deriveCharacterStats — item advantage/disadvantage effects', () => {
     expect(d.rollStates.saves.con).toBe('adv')
   })
 
-  it('item disadvantage on a skill nets with a standing advantage to normal (RAW)', () => {
+  it('item disadvantage on a skill nets with an item advantage to normal (RAW)', () => {
     const ring: WondrousItem = {
       name: 'Clumsy Ring', category: 'wondrous_item', rarity: 'Common', attunement: true,
       effects: [{ type: 'disadvantage', target: 'skill', skill: 'stealth' }],
     }
-    // Boots of Elvenkind grant a standing Stealth advantage → adv + dis = normal.
+    // Boots of Elvenkind grant a Stealth advantage (data-driven, while worn) → adv + dis = normal.
+    const boots: WondrousItem = {
+      name: 'Boots of Elvenkind', category: 'wondrous_item', rarity: 'Uncommon', attunement: false,
+      effects: [{ type: 'advantage', target: 'skill', skill: 'stealth' }],
+    }
     const d = deriveCharacterStats(charWith({
       equipment: [
         { id: 'r', name: 'Clumsy Ring', quantity: 1, attuned: true },
         { id: 'b', name: 'Boots of Elvenkind', quantity: 1, equipped: true },
       ],
-    }), { catalog: { wondrous_items: [ring] } })
+    }), { catalog: { wondrous_items: [ring, boots] } })
     expect(d.rollStates.skills.stealth).toBeUndefined()
   })
 
@@ -768,6 +821,64 @@ describe('deriveCharacterStats — custom set grants (6b)', () => {
     }), {})
     expect(d.effectiveSkillProficiencies.stealth).toBeUndefined()
     expect(d.customSkillGrants).not.toContain('stealth')
+  })
+
+  // 6b-3 (C) — disable a DERIVED language in place
+  it('a racial language has provenance; disabling its id drops it from the effective list', () => {
+    const base = deriveCharacterStats(charWith({ level: 5, race: 'test-race' }), { race: raceWith([]) })
+    const src = base.languageSources.find(s => s.value === 'Common')
+    expect(src).toBeTruthy()
+    expect(src!.kind).toBe('race')
+    expect(src!.id).toBe('lang:race:Common')
+    const d = deriveCharacterStats(charWith({
+      level: 5, race: 'test-race',
+      ledgerOverrides: { disabled: ['lang:race:Common'], overrides: {}, custom: {} },
+    }), { race: raceWith([]) })
+    expect(d.raceGrantedLanguages).not.toContain('Common')
+    expect(d.languageSources.find(s => s.value === 'Common')!.disabled).toBe(true)
+  })
+
+  // 6b-3 (D) — disable a DERIVED skill proficiency in place (prof + modifier stay in sync)
+  it('disabling a racial skill-proficiency grant un-fills it AND drops the PB from the modifier', () => {
+    const race = raceWith([{ type: 'skill_proficiency', skill: 'perception' }])
+    const base = { level: 5, race: 'test-race', abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 } } as const
+    const enabled = deriveCharacterStats(charWith({ ...base }), { race })
+    expect(enabled.skillProfSources.some(s => s.value === 'perception' && s.id === 'skillprof:race:perception')).toBe(true)
+    expect(enabled.skillModifiers.perception).toBe(3) // 0 WIS + 3 PB
+
+    const disabled = deriveCharacterStats(charWith({
+      ...base,
+      ledgerOverrides: { disabled: ['skillprof:race:perception'], overrides: {}, custom: {} },
+    }), { race })
+    expect(disabled.effectiveSkillProficiencies.perception).toBeUndefined()
+    expect(disabled.skillModifiers.perception).toBe(0) // 0 WIS, no PB — modifier stays in sync
+    expect(disabled.raceSkillGrants).not.toContain('perception')
+    expect(disabled.skillProfSources.find(s => s.value === 'perception')!.disabled).toBe(true)
+  })
+
+  // 6b-3 (D) — disable a DERIVED save proficiency in place
+  it('disabling an always-on feature save-proficiency grant removes the save + its PB', () => {
+    const cls = classWith('paladin', { '3': ['Save Aura'] })
+    const cfe = { paladin: { 'Save Aura': [{ type: 'save_proficiency', ability: 'wis' }] } }
+    const base = {
+      level: 3,
+      classes: [{ classSlug: 'paladin', subclassSlug: null, level: 3 }],
+      abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+      savingThrowProficiencies: [] as never[],
+    } as const
+    const enabled = deriveCharacterStats(charWith({ ...base }), { classes: [cls], classFeatureEffects: cfe as never })
+    const src = enabled.saveProfSources.find(s => s.value === 'wis')
+    expect(src).toBeTruthy()
+    expect(enabled.effectiveSaveProficiencies).toContain('wis')
+    expect(enabled.saveModifiers.wis).toBe(2) // 0 WIS + 2 PB
+
+    const disabled = deriveCharacterStats(charWith({
+      ...base,
+      ledgerOverrides: { disabled: [src!.id], overrides: {}, custom: {} },
+    }), { classes: [cls], classFeatureEffects: cfe as never })
+    expect(disabled.effectiveSaveProficiencies).not.toContain('wis')
+    expect(disabled.saveModifiers.wis).toBe(0)
+    expect(disabled.saveProfSources.find(s => s.value === 'wis')!.disabled).toBe(true)
   })
 
   // 6b-2 — provenance + disable for derived resistances

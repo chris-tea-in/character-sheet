@@ -8,17 +8,21 @@ import type { DieType } from '@/types/dice'
 
 // ── Damage dice parser ───────────────────────────────────────────────────────
 
-function parseDamageDice(notation: string): { count: number; sides: number } {
-  const match = notation.match(/^(\d+)d(\d+)$/)
-  if (!match) return { count: 1, sides: 6 }
+function parseDamageDice(notation: string): { count: number; sides: number } | null {
+  const match = notation.trim().match(/^(\d+)d(\d+)$/)
+  if (!match) return null  // not NdM — caller decides (flat amount or no roll); never assume 1d6
   return { count: parseInt(match[1], 10), sides: parseInt(match[2], 10) }
 }
 
 function rollDamage(damageDice: string, damageBonus: number, isCrit: boolean, rerollBelow = 0) {
-  // Flat, no-die damage (e.g. Unarmed Strike = 1 + STR): nothing to roll, crit
-  // doubles dice only — so the total is just the bonus.
-  if (!damageDice) return { rolls: [] as number[], total: damageBonus, rerolled: 0 }
-  const { count, sides } = parseDamageDice(damageDice)
+  const trimmed = (damageDice ?? '').trim()
+  // Flat, no-die damage: empty (Unarmed Strike = 1 + STR) or a bare integer (Blowgun "1").
+  // Nothing to roll — a bare integer adds to the total; crit doubles dice only.
+  if (!trimmed) return { rolls: [] as number[], total: damageBonus, rerolled: 0 }
+  if (/^\d+$/.test(trimmed)) return { rolls: [] as number[], total: damageBonus + parseInt(trimmed, 10), rerolled: 0 }
+  const parsed = parseDamageDice(trimmed)
+  if (!parsed) return { rolls: [] as number[], total: damageBonus, rerolled: 0 }  // unparseable → no phantom 1d6
+  const { count, sides } = parsed
   const dieCount = isCrit ? count * 2 : count
   let rerolled = 0
   const rolls = Array.from({ length: dieCount }, () => {
@@ -332,6 +336,7 @@ function DamageSetup() {
 
   const groups = computeDamageGroups(spec.baseDice, spec.scaling, castLevel)
   const diceText = groupsToText(groups)
+  const flatBase = /^\d+$/.test((spec.baseDice ?? '').trim()) ? parseInt(spec.baseDice.trim(), 10) : 0
   const bonus = spec.damageBonus
   const bonusText = bonus !== 0 ? (bonus > 0 ? ` + ${bonus}` : ` − ${Math.abs(bonus)}`) : ''
   const riderText = (spec.extraDamage ?? []).map(e => `+${e.dice} ${e.damageType}`).join(' ')
@@ -354,7 +359,7 @@ function DamageSetup() {
       )}
 
       <p className="text-2xl font-black tabular-nums">
-        {groups.length ? `${diceText}${bonusText}` : `${bonus}`}
+        {groups.length ? `${diceText}${bonusText}` : `${flatBase + bonus}`}
       </p>
       {(spec.damageType || riderText) && (
         <p className="text-xs text-muted-foreground capitalize">

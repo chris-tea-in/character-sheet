@@ -3,7 +3,10 @@
 **For a fresh agent / post-compaction.** This is the authoritative "where we are, what's next, how to
 continue" doc for the Modifier Ledger feature. Read this first, then the artifacts it points to.
 
-_Last updated: 2026-06-24._
+_Last updated: 2026-06-27 — Steps 1–6 DONE; GWF (5d-C) done. **All §2a follow-ons (6b-3 C/D languages+proficiencies
+in-place disable, + ITEM_ADV data migration) DONE, plus P4 (per-weapon attack/damage editable breakdowns) and an
+editable Proficiency-Bonus breakdown. The Modifier Ledger now covers EVERY derived value with an editable,
+persisting StatBreakdown.** Committed on `feat/modifier-ledger-p1`; `main` merge pending explicit go-ahead._
 
 ---
 
@@ -15,23 +18,63 @@ player's own entry. Before this, we did a full rules audit (DND_RULES_REFERENCE.
 spells (Part 3), and mapped every modifier source per block (MODIFIER_SOURCE_MATRIX.md). The ledger's
 **P1 + AC/Prof slice is built and green**; P2+ and the broader rollout are planned.
 
-## 2. Current state (2026-06-24, post Step 4)
+## 2. Current state (2026-06-27, post Step 6 + GWF)
 
 - **Branch:** `feat/modifier-ledger-p1`. `main` is gated on explicit user go-ahead — do NOT push `main`.
-- **Committed so far** (all on this branch):
-  - `b73ded0` — pre-existing soft-locks/homebrew UX (EquipmentBlock/ContainerInventoryDialog/FeatsBlock/dialog.tsx).
-  - `d4bdd75` — **Steps 1–3** (breakdown rollout, race-effect system, always-on class-feature effects) + **Features & Traits hub** + descriptions/categories.
-  - `a18c23c` — gitignore `_spells_classes.json`, keep CLAUDE.md tracked.
-  - `beba8d7` — **Step 4** (adv/dis + conditions) + **dice tools** (freestyle ×N, modal "how many").
-- **Working tree:** clean except untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
-- **Tests:** **255 pass** (… 5d-C Great Weapon Fighting; weapon Roll→Dmg flow; GWF visibility + homebrew override). ⚠ The Windows worker-fork flake is BAD lately — most full runs show 16/17 files + a partial count, NEVER a real `FAIL`/`✗`. Verify by running changed files alone (`npx vitest run <file>`); they pass clean. `--reporter=verbose` sometimes catches a full 249.
-  reports "1 error" — a **Windows worker-fork crash** (`Worker exited unexpectedly`), NOT a failing test;
-  `--no-file-parallelism` is reliably green. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
-- **Migrations:** last is **v21** (`ledger_overrides`, Step 6a). Next is **v22**.
+  **HEAD = `4181f9e`.** Nothing pushed anywhere.
+- **The arc, committed on this branch** (oldest→newest): `beba8d7` Step 4 (adv/dis + conditions + dice tools) ·
+  `0631072` Step 5 plan · `cc363ea` 5a speed semantics · `6b5a3b2` 5b AC floor · `4b2c7ee` 5c ability cap ·
+  `43bb373` 5d Reliable Talent + Lucky · `45f7ee4` roll/dice UX (Lucky-feat gate, pool roller, slim tray,
+  non-sticky header) · `46cd128` **6a numeric override** · `8bd061e` **Effect Builder P1 (item effects)** ·
+  `f1052c1` **Effect Builder P2 + 6c (always-on grants/adv-dis)** · `127a2a4` **Step 6b/6b-3 (set grants +
+  provenance/disable)** · `4181f9e` **GWF (5d-C) + weapon Roll→Dmg flow + GWF visibility/homebrew override**.
+  (Steps 1–3 + Features hub were `d4bdd75`/`b73ded0`/`a18c23c` earlier.)
+- **Working tree (2026-06-27):** UNCOMMITTED follow-on work on top of `4181f9e` — the three §2a items below
+  are implemented but NOT yet committed (awaiting user go-ahead). Touched: `characterStats.ts` (languageSources +
+  skill/save ProfSources provenance + ITEM_ADV map removed), `DescriptionBlock.tsx`, `ProficienciesBlock.tsx`,
+  `characterStats.test.ts` (+3 tests), and gitignored `data/equipment/{wondrous_items,armor}.json` (21 advantage
+  effects authored). Also untracked `ARCHITECTURE_REVIEW_2026-06-21.md` (another branch's doc — leave it).
+- **Tests:** **258 pass** via `npx vitest run --no-file-parallelism` (was 255; +3 disable tests). ⚠ The Windows worker-fork flake is BAD
+  right now — most full runs print `16/17 files` + a partial count (e.g. "243 passed (255)") with a crashed
+  worker, **NEVER a real `FAIL`/`✗`**. To confirm: run changed files alone (`npx vitest run <file>`), or
+  `--reporter=verbose` which often catches the clean 255. Typecheck: `npx tsc -p tsconfig.app.json --noEmit`.
+  Build: `npm run build` (data + tsc + vite) — currently green.
+- **Migrations:** last is **v21** (`ledger_overrides`, Step 6a). Next is **v22**. NB: the new ledger sub-fields
+  (`customAdvDis`, `customGrants`) and `EquipmentItem.gwf` all ride existing JSON-blob columns → **no migration**.
 - **data/ is gitignored** (race effects, feature-descriptions/categories, class-feature-effects, feat
   enrichments, the Danger Sense adv demo — all local-only). `public/data/` is also gitignored (rebuild
   with `npm run build:data`).
 - **Edit/Write auto-approved** via `.claude/settings.local.json` (strip when done). No cron jobs.
+
+## 2a. Follow-ons — ALL DONE (2026-06-27, uncommitted on top of `4181f9e`)
+
+All three §2a items are now implemented (INV-1, no migration — they ride the existing `ledger_overrides` JSON blob).
+Load `codebase-invariants` before any further `deriveCharacterStats` edit.
+
+1. **6b-3 (C) — disable a racial/derived LANGUAGE in place. ✅ DONE.** Added `derived.languageSources`
+   (`SetGrantSource[]`, ids `lang:<kind>:<name>`; custom reuses its panel grant id so the panel + in-place toggle
+   sync), built right after `resistanceSources`/`immunities`. Effective `raceGrantedLanguages`/`itemGrantedLanguages`
+   are now derived from the non-disabled sources. `DescriptionBlock`'s `LanguageSelector` was refactored: granted
+   chips are tap-to-disable (struck-through when off, re-enableable), with a `+`/`×` button to open the picker; a
+   disabled grant frees the language to be added manually (the "augmentable" principle). Test added.
+2. **6b-3 (D) — disable a class/race-granted PROFICIENCY in place. ✅ DONE.** Added `derived.skillProfSources` /
+   `skillExpertiseSources` / `saveProfSources` (`SetGrantSource[]`, ids `skillprof:<kind>:…` / `skillexp:feat:…` /
+   `saveprof:<kind>:…`; custom reuses panel id). The ledger sets are now computed EARLY in derive so the grant loops
+   gate on `disabled`. A disabled grant is registered in the source list (re-enableable) but NOT folded into
+   `effectiveSkillProficiencies`/`effectiveSaveProficiencies` — so the dot un-fills AND the modifier drops PB
+   together. `featSkillGrants`/`raceSkillGrants`/`customSkillGrants` are now derived (active-only) from the sources,
+   preserving caps/tags. `ProficienciesBlock` dots became tap-to-disable for derived grants (`toggleSources` flips
+   every source id for that skill/save in `ledgerOverrides.disabled`); a muted `kind (off)` tag shows when disabled.
+   Stored/class proficiencies are unchanged (still toggle the stored record). 2 tests added.
+3. **ITEM_ADV data migration. ✅ DONE.** Authored the 21 advantage items as data-driven `advantage` ItemEffects in
+   gitignored `data/equipment/wondrous_items.json` (20) + `armor.json` (Sentinel Shield — note it exists in BOTH
+   files, a pre-existing duplicate). Removed the hardcoded `ITEM_ADV_ENTRIES`/`ITEM_ADV_MAP` + the item loop in
+   `getCharacterAdvantages`. ⚠ **Two consequences (both accepted):** (a) gating changed from OWNERSHIP → ACTIVE
+   (equipped/attuned) — RAW-correct ("while you wear it") but existing characters must equip the item to keep the
+   advantage; (b) these advantages now live in gitignored data, so a fresh checkout without `data/` loses them (the
+   live deploy is always built from a machine WITH data, so it's fine). All 21 names verified present + activatable.
+4. **Still deferred / N/A.** Ledger-path attack/damage targets (no breakdown — `specToLedgerCustom` returns []).
+   **Two-Weapon Fighting** stays manual (BACKLOG C1 — no offhand-attack model). Senses-disable = N/A (no sheet list).
 
 ### Derived fields a fresh agent can rely on (DerivedStats)
 `effectiveAbilities · effectiveSpeed · effectiveInitiative · effectiveAC · adjustedMaxHp · proficiencyBonus ·

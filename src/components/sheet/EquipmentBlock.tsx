@@ -12,11 +12,13 @@ import { ContainerInventoryDialog } from './ContainerInventoryDialog'
 import { generateId } from '@/lib/uuid'
 import { mergeCustomEquipment } from '@/lib/customContent'
 import { isContainerName, ITEM_TYPE_ORDER, getWondrousItemType, contentsOf } from '@/lib/containers'
-import { computeWeaponBonus, summarizeItemEffects, isVariableBaseArmor } from '@/lib/characterStats'
-import { abilityModifier } from '@/lib/dice'
+import { computeWeaponBonus, summarizeItemEffects, isVariableBaseArmor, applyLedger } from '@/lib/characterStats'
+import { abilityModifier, formatBonus } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
-import type { Character, EquipmentItem, NewCharacter, Currency } from '@/types/character'
+import { StatBreakdown } from './StatBreakdown'
+import { ResourcePips } from './ResourcePips'
+import type { Character, EquipmentItem, NewCharacter, Currency, LedgerOverrides } from '@/types/character'
 import { condenseCurrency, canCondense } from '@/lib/currency'
 import type { WeaponItem, ArmorItem, AdventuringGearItem, WondrousItem, EquipmentData, ItemCharges, ClassData } from '@/types/data'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
@@ -177,23 +179,13 @@ function ChargesTracker({
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <span className="font-semibold text-foreground">Charges:</span>
-      <div className="flex gap-1 flex-wrap">
-        {Array.from({ length: max }).map((_, i) => {
-          const filled = i < remaining
-          return (
-            <button
-              key={i}
-              onClick={() => onSetCharges(max - (filled ? i : i + 1))}
-              className="w-3.5 h-3.5 rounded-full border-2 transition-all"
-              style={{
-                borderColor: 'var(--color-accent-gold)',
-                background: filled ? 'var(--color-accent-gold)' : 'transparent',
-              }}
-              title={`${remaining}/${max} remaining`}
-            />
-          )
-        })}
-      </div>
+      <ResourcePips
+        size="sm"
+        total={max}
+        used={Math.min(max, Math.max(0, used))}
+        onChange={onSetCharges}
+        label="charge"
+      />
       <span className="text-muted-foreground">{remaining}/{max}</span>
       <button onClick={() => onSetCharges(0)} className="hover:text-foreground transition-colors underline">
         Reset
@@ -265,6 +257,7 @@ function WeaponRow({
   character,
   derived,
   onUpdate,
+  onSaveLedger,
   onRemove,
   requiresAttunement,
   active,
@@ -279,6 +272,7 @@ function WeaponRow({
   character: Character
   derived: DerivedStats
   onUpdate: (changes: Partial<EquipmentItem>) => void
+  onSaveLedger: (next: LedgerOverrides) => void
   onRemove: () => void
   requiresAttunement: boolean
   active: boolean
@@ -289,22 +283,32 @@ function WeaponRow({
   moveControl?: ReactNode
 }) {
   const { dispatch, dispatchDamage } = useRollDispatch(derived)
-  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects, derived.itemAttackBonus)
+  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects, derived.itemAttackBonus, item.id)
+  // Per-weapon Modifier Ledger (P4): disable/augment contributors. Applied at render
+  // (INV-1) via the same pure helper as every other stat; the override cascades into
+  // both the displayed value and the dice roll. The custom to-hit/damage string override
+  // (Edit stats) still takes final precedence when set.
+  const atkLedger = applyLedger(`weaponAttack:${item.id}`, calc.attackBreakdown, character.ledgerOverrides)
+  const dmgLedger = applyLedger(`weaponDamage:${item.id}`, calc.damageBreakdown, character.ledgerOverrides)
+  const ledgerToHit = atkLedger.effective
+  const ledgerDamageBonus = dmgLedger.effective
+  const computedToHit = formatBonus(ledgerToHit)
+  const computedDamage = `${calc.damageDice || '—'}${ledgerDamageBonus ? formatBonus(ledgerDamageBonus) : ''} ${calc.damageType}`.trim()
   // Rider damage of another type (Flame Tongue → +2d6 fire) applies only while the
   // weapon is active (equipped/attuned per its requirement); crit doubles it.
   const riderDamage = active
     ? (weapon.effects ?? []).flatMap(e => e.type === 'damage_dice' ? [{ dice: e.dice, damageType: e.damageType }] : [])
     : []
   const riderSuffix = riderDamage.map(r => `+${r.dice} ${r.damageType}`).join(' ')
-  const displayToHit = item.customToHit ?? calc.toHit
-  const displayDamage = (item.customDamage ?? calc.damage) + (riderSuffix ? ` ${riderSuffix}` : '')
+  const displayToHit = item.customToHit ?? computedToHit
+  const displayDamage = (item.customDamage ?? computedDamage) + (riderSuffix ? ` ${riderSuffix}` : '')
   const rollModifier = item.customToHit !== undefined
     ? (parseInt(item.customToHit.replace(/^\+/, ''), 10) || 0)
-    : calc.toHitModifier
-  // Honor a custom damage override when it parses; otherwise use computed values (BUG-20)
+    : ledgerToHit
+  // Honor a custom damage override when it parses; otherwise use ledger-adjusted values (BUG-20)
   const customDmg = item.customDamage ? parseCustomDamage(item.customDamage) : null
   const rollDamageDice = customDmg?.damageDice ?? calc.damageDice
-  const rollDamageBonus = customDmg?.damageBonus ?? calc.damageBonus
+  const rollDamageBonus = customDmg?.damageBonus ?? ledgerDamageBonus
   const rollDamageType = customDmg?.damageType || calc.damageType
   // Great Weapon Fighting: reroll 1s/2s on a two-handed (or versatile) melee weapon's
   // damage dice. "Versatile used two-handed" isn't app-knowable, so versatile qualifies
@@ -320,11 +324,13 @@ function WeaponRow({
   const [editingStats, setEditingStats] = useState(false)
   const [toHitDraft, setToHitDraft] = useState(displayToHit)
   const [damageDraft, setDamageDraft] = useState(displayDamage)
+  const [openBreakdown, setOpenBreakdown] = useState<'attack' | 'damage' | null>(null)
 
   function commitEdit() {
+    // Compare against the ledger-adjusted computed value so typing it back clears the override.
     onUpdate({
-      customToHit: toHitDraft !== calc.toHit ? toHitDraft : undefined,
-      customDamage: damageDraft !== calc.damage ? damageDraft : undefined,
+      customToHit: toHitDraft !== computedToHit ? toHitDraft : undefined,
+      customDamage: damageDraft !== computedDamage ? damageDraft : undefined,
     })
     setEditingStats(false)
   }
@@ -345,10 +351,23 @@ function WeaponRow({
           {/* Proficiency/to-hit + damage on their own line so the name gets full width (BUG-55/65) */}
           <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs mt-0.5">
             <ActiveTag requiresAttunement={requiresAttunement} active={active} />
-            <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+            <button
+              onClick={() => setOpenBreakdown('attack')}
+              className="font-semibold inline-flex items-center gap-0.5 hover:opacity-75 transition-opacity"
+              style={{ color: 'var(--color-accent-gold)' }}
+              title="What's affecting this attack roll?"
+            >
               {displayToHit}
-            </span>
-            <span className="text-muted-foreground">{displayDamage}</span>
+              <Pencil className="h-2.5 w-2.5 opacity-60" />
+            </button>
+            <button
+              onClick={() => setOpenBreakdown('damage')}
+              className="text-muted-foreground inline-flex items-center gap-0.5 hover:opacity-75 transition-opacity"
+              title="What's affecting this weapon's damage?"
+            >
+              {displayDamage}
+              <Pencil className="h-2.5 w-2.5 opacity-60" />
+            </button>
             {gwfActive && (
               <span
                 className="px-1.5 py-0.5 rounded text-[10px] font-semibold border border-border"
@@ -473,6 +492,27 @@ function WeaponRow({
           )}
         </div>
       )}
+
+      <StatBreakdown
+        open={openBreakdown === 'attack'}
+        onClose={() => setOpenBreakdown(null)}
+        title={`${item.name} — Attack${item.customToHit !== undefined ? ' (custom override active)' : ''}`}
+        signed
+        sources={atkLedger.rows}
+        targetKey={`weaponAttack:${item.id}`}
+        ledger={character.ledgerOverrides}
+        onChange={onSaveLedger}
+      />
+      <StatBreakdown
+        open={openBreakdown === 'damage'}
+        onClose={() => setOpenBreakdown(null)}
+        title={`${item.name} — Damage bonus${item.customDamage !== undefined ? ' (custom override active)' : ''}`}
+        signed
+        sources={dmgLedger.rows}
+        targetKey={`weaponDamage:${item.id}`}
+        ledger={character.ledgerOverrides}
+        onChange={onSaveLedger}
+      />
     </div>
   )
 }
@@ -1212,6 +1252,20 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
             weapon_type: base.weapon_type,
           }
         }
+      } else if (!variableBase && weapon.damage_dice == null && weapon.base_weapon_type) {
+        // Specific-base magic weapons (e.g. Mace of Smiting → "mace") that ship with a
+        // null damage_dice inherit the named base weapon's dice/type so they display and
+        // roll correctly instead of showing "—". No player choice — the base is fixed.
+        const base = weaponByName.get(weapon.base_weapon_type.toLowerCase())
+        if (base?.damage_dice) {
+          effWeapon = {
+            ...weapon,
+            damage_dice: base.damage_dice,
+            damage_type: weapon.damage_type ?? base.damage_type,
+            properties: weapon.properties.length ? weapon.properties : base.properties,
+            weapon_type: weapon.weapon_type && weapon.weapon_type !== 'Varies' ? weapon.weapon_type : base.weapon_type,
+          }
+        }
       }
       return (
         <WeaponRow
@@ -1221,6 +1275,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           character={character}
           derived={derived}
           onUpdate={changes => updateItem(item.id, changes)}
+          onSaveLedger={next => onSave({ ledgerOverrides: next })}
           onRemove={() => removeItem(item.id)}
           requiresAttunement={reqAtt}
           active={active}
