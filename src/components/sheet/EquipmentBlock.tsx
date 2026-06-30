@@ -605,6 +605,8 @@ function ItemRow({
   onToggleActive,
   moveControl,
   containerButton,
+  heal,
+  onDrink,
 }: {
   item: EquipmentItem
   onUpdate: (changes: Partial<EquipmentItem>) => void
@@ -614,6 +616,8 @@ function ItemRow({
   onToggleActive?: () => void
   moveControl?: ReactNode
   containerButton?: ReactNode
+  heal?: { dice: string; bonus: number }   // consumable heal (potions) → shows a Drink action
+  onDrink?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [editingName, setEditingName] = useState(false)
@@ -637,6 +641,16 @@ function ItemRow({
             <span className="text-xs text-muted-foreground ml-1.5">×{item.quantity}</span>
           )}
         </button>
+        {onDrink && heal && (
+          <button
+            onClick={onDrink}
+            className="flex-none text-[11px] font-semibold px-2 py-0.5 rounded-md border transition-opacity hover:opacity-75"
+            style={{ color: 'var(--color-accent-gold)', borderColor: 'var(--color-accent-gold)' }}
+            title={`Drink — roll ${heal.dice}${heal.bonus ? ` + ${heal.bonus}` : ''} healing (consumes one)`}
+          >
+            Drink
+          </button>
+        )}
         {containerButton}
         <ActiveTag requiresAttunement={requiresAttunement} active={active} />
       </div>
@@ -980,6 +994,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   const [addTargetContainerId, setAddTargetContainerId] = useState<string | null>(null)
   // Item awaiting a "move to which bag?" choice (only when >1 container exists).
   const [moveChooserItem, setMoveChooserItem] = useState<EquipmentItem | null>(null)
+  // Consumable healing (potions) dispatches a heal roll through the shared modal.
+  const { dispatchDamage } = useRollDispatch(derived)
 
   // Catalog with this character's homebrew weapons/armor folded in, so they
   // resolve by name in every row + picker exactly like built-ins (same merge the
@@ -1005,6 +1021,10 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   const wondrousItemByName = useMemo(
     () => new Map((catalog?.wondrous_items ?? []).map(w => [w.name.toLowerCase(), w])),
     [catalog?.wondrous_items],
+  )
+  const gearByName = useMemo(
+    () => new Map((catalog?.adventuring_gear ?? []).map(g => [g.name.toLowerCase(), g])),
+    [catalog?.adventuring_gear],
   )
 
   const weaponEntries = useMemo(() => buildWeaponEntries(catalog?.weapons ?? []), [catalog?.weapons])
@@ -1341,6 +1361,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         />
       )
     }
+    const heal = gearByName.get(n)?.heal
     return (
       <ItemRow
         key={item.id}
@@ -1352,6 +1373,14 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         onToggleActive={onToggleActive}
         moveControl={moveControl}
         containerButton={containerButton}
+        heal={heal}
+        onDrink={heal ? () => {
+          // Roll the healing (shared heal modal, no auto-HP — like Hit Dice/spells) and
+          // consume one: decrement quantity, removing the item when the last is drunk.
+          dispatchDamage({ label: `${item.name} (drink)`, baseDice: heal.dice, damageBonus: heal.bonus, mode: 'heal' })
+          if (item.quantity > 1) updateItem(item.id, { quantity: item.quantity - 1 })
+          else removeItem(item.id)
+        } : undefined}
       />
     )
   }

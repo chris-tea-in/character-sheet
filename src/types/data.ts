@@ -115,6 +115,9 @@ export interface AdventuringGearItem {
   cost: string | null
   weight: string | null
   description?: string
+  // Consumable healing (Potion of Healing → 2d4 + 2). Present → the item shows a
+  // "Drink" action that rolls the heal and consumes one (decrement / remove at 0).
+  heal?: { dice: string; bonus: number }
 }
 
 export interface TrinketItem {
