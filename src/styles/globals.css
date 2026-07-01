@@ -121,3 +121,45 @@ body {
     page-break-inside: avoid;
   }
 }
+
+/* ── 3D tumbling die (DiceRollModal / Die3D) ──────────────────────────────────
+   A real CSS cube that tumbles and lands with its front face (the rolled value)
+   toward the viewer. The end transform is a whole number of turns on each axis
+   (360 / 720) so the front face always faces front. */
+.die3d {
+  perspective: 320px;
+}
+.die3d-cube {
+  position: relative;
+  transform-style: preserve-3d;
+  animation: die-tumble 0.75s cubic-bezier(0.2, 0.75, 0.3, 1) both;
+}
+.die3d-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid currentColor;
+  border-radius: 10px;
+  background: var(--color-surface-2);
+  font-weight: 900;
+  line-height: 1;
+}
+@keyframes die-tumble {
+  0% {
+    transform: rotateX(-55deg) rotateY(25deg) rotateZ(8deg) scale(0.45);
+  }
+  55% {
+    transform: rotateX(385deg) rotateY(760deg) rotateZ(0deg) scale(1.1);
+  }
+  100% {
+    transform: rotateX(360deg) rotateY(720deg) rotateZ(0deg) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .die3d-cube {
+    animation: none;
+    transform: rotateX(360deg) rotateY(720deg);
+  }
+}

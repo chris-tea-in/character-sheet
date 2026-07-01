@@ -1228,7 +1228,7 @@ export default function CharacterPage() {
       )}
 
       <DiceTray derived={derived} />
-      <DiceRollModal />
+      <DiceRollModal character={character} derived={derived} />
     </div>
   )
 }

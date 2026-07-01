@@ -238,7 +238,7 @@ function UnarmedRow({ derived }: { derived: DerivedStats }) {
           <RollButton
             label="Hit"
             rollMode={derived.attackRollState}
-            onClick={() => dispatch({ type: 'attack', label: 'Unarmed Strike', modifier: toHitModifier, damageDice, damageBonus, damageType })}
+            onClick={() => dispatch({ type: 'attack', label: 'Unarmed Strike', modifier: toHitModifier, damageDice, damageBonus, damageType, bonuses: [{ label: 'To hit', amount: toHitModifier }] })}
           />
           <RollButton
             label="Dmg"
@@ -383,7 +383,7 @@ function WeaponRow({
           <RollButton
             label="Hit"
             rollMode={derived.attackRollState}
-            onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage, rerollBelow: gwfReroll })}
+            onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage, rerollBelow: gwfReroll, bonuses: item.customToHit !== undefined ? [{ label: 'Custom to-hit', amount: rollModifier }] : atkLedger.rows.filter(r => !r.disabled).map(r => ({ label: r.label, amount: r.amount })) })}
           />
           <RollButton
             label="Dmg"

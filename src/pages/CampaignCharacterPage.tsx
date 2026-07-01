@@ -151,7 +151,7 @@ function CampaignSheetBody({
     <>
       <CharacterSheetBlocks character={character} data={data} onSave={onSave} readOnly={readOnly} />
       <DiceTray derived={derived} />
-      <DiceRollModal />
+      <DiceRollModal character={character} derived={derived} />
     </>
   )
 }

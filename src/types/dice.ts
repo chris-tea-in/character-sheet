@@ -15,13 +15,32 @@ export interface ExtraDamageResult {
   total: number
 }
 
+// One itemized contributor to a roll's modifier (DEX modifier +3, Proficiency +2, …),
+// shown under the die so the player sees what bonuses they have. Sums to `modifier`.
+export interface RollBonus {
+  label: string
+  amount: number
+}
+
+// A bonus the player adds in the modal AFTER rolling (Guidance/Bless +1d4, Bardic
+// Inspiration, a flat bonus, Sneak Attack damage, …). Per-roll only — never stored.
+// `sides` present ⇒ it was a die roll (count×sides → value); absent ⇒ a flat amount.
+export interface AddedBonus {
+  id: string
+  label: string
+  sides?: number
+  count?: number
+  rolls?: number[]   // individual die faces (for the mini-dice display)
+  value: number      // total contributed (signed; negative for a penalty like Bane)
+}
+
 export type RollKind =
   | { type: 'raw';    die: DieType; count?: number }   // count > 1 → roll NdX at once (sum)
   | { type: 'pool';   groups: { die: DieType; count: number }[] }  // mixed dice rolled together (4d8 + 2d10 + 3d12)
   | { type: 'skill';  skill: SkillName;   advantage?: boolean }
   | { type: 'save';   ability: AbilityName; advantage?: boolean }
   | { type: 'ability'; ability: AbilityName; advantage?: boolean }
-  | { type: 'attack'; label: string; modifier: number; advantage?: boolean; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[]; rerollBelow?: number }
+  | { type: 'attack'; label: string; modifier: number; advantage?: boolean; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[]; rerollBelow?: number; bonuses?: RollBonus[] }
   | { type: 'damage'; label: string }
   | { type: 'heal';   label: string; die: DieType; modifier: number }
 

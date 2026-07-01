@@ -1,10 +1,16 @@
 import { useState } from 'react'
+import { X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { rollDie } from '@/lib/dice'
 import { computeDamageGroups, groupsToText } from '@/lib/damage'
 import { useDiceStore } from '@/store/dice'
-import type { DieType } from '@/types/dice'
+import { Die3D } from './Die3D'
+import { BonusPicker } from './BonusPicker'
+import { getBonusPresets, type BonusPreset } from '@/lib/rollBonusPresets'
+import type { DieType, RollEntry, RollBonus, AddedBonus } from '@/types/dice'
+import type { Character } from '@/types/character'
+import type { DerivedStats } from '@/lib/characterStats'
 
 // ── Damage dice parser ───────────────────────────────────────────────────────
 
@@ -12,6 +18,117 @@ function parseDamageDice(notation: string): { count: number; sides: number } | n
   const match = notation.trim().match(/^(\d+)d(\d+)$/)
   if (!match) return null  // not NdM — caller decides (flat amount or no roll); never assume 1d6
   return { count: parseInt(match[1], 10), sides: parseInt(match[2], 10) }
+}
+
+// ── Shared dice display: a row of 3D dice + the modifier + the final total ────
+
+type DieSpec = { value: number; sides: number; tone?: 'gold' | 'red' | 'normal'; dimmed?: boolean }
+
+function DiceStrip({ dice, modifier = 0, total, totalColor }: {
+  dice: DieSpec[]
+  modifier?: number
+  total: number
+  totalColor?: string
+}) {
+  const size = dice.length > 4 ? 34 : dice.length > 1 ? 42 : 50
+  return (
+    <div className="flex items-center justify-center gap-3 flex-wrap">
+      {dice.length > 0 && (
+        <div className="flex items-end justify-center gap-2 flex-wrap" style={{ maxWidth: 210 }}>
+          {dice.map((d, i) => (
+            <Die3D key={i} value={d.value} sides={d.sides} tone={d.tone} dimmed={d.dimmed} delay={i * 70} size={size} />
+          ))}
+        </div>
+      )}
+      {modifier !== 0 && (
+        <span className="text-lg font-semibold text-muted-foreground tabular-nums">
+          {modifier > 0 ? `+ ${modifier}` : `− ${Math.abs(modifier)}`}
+        </span>
+      )}
+      <div className="flex flex-col items-center">
+        <span className="text-5xl font-black tabular-nums" style={{ color: totalColor }}>{total}</span>
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">total</span>
+      </div>
+    </div>
+  )
+}
+
+// Build the dice to show for a d20-style roll (check / save / ability / attack / raw /
+// pool / heal), handling advantage (kept + dimmed-dropped), keep-best-of-N, and pools.
+function diceForEntry(entry: RollEntry): DieSpec[] {
+  const { natural, natural2, dice, pool } = entry.result
+  const k = entry.kind
+  const isD20 = k.type === 'skill' || k.type === 'save' || k.type === 'ability' || k.type === 'attack' || (k.type === 'raw' && k.die === 20)
+  const tone = (v: number): 'gold' | 'red' | 'normal' => (isD20 && v === 20 ? 'gold' : isD20 && v === 1 ? 'red' : 'normal')
+  const sides = k.type === 'raw' ? k.die : k.type === 'heal' ? k.die : 20
+
+  if (pool && pool.length) return pool.flatMap(g => g.rolls.map(r => ({ value: r, sides: g.die, tone: 'normal' as const })))
+  // keep-best/worst of N d20s, OR a multi-die raw roll (4d6). For raw the kept value is the
+  // sum, so never dim raw dice; for keep-best, dim the d20s that weren't kept.
+  if (dice && dice.length) return dice.map(r => ({ value: r, sides, tone: tone(r), dimmed: k.type !== 'raw' && r !== natural }))
+  if (natural2 !== undefined) return [
+    { value: natural, sides, tone: tone(natural) },
+    { value: natural2, sides, tone: 'normal', dimmed: true },
+  ]
+  return [{ value: natural, sides, tone: tone(natural) }]
+}
+
+const fmtSigned = (n: number) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`)
+
+// The itemized breakdown shown under the die: Roll (natural) + the bonuses you have +
+// any extras you added in the modal, summing to the final total.
+function BonusList({ natural, bonuses, added, total, onRemove }: {
+  natural: number
+  bonuses?: RollBonus[]
+  added?: AddedBonus[]
+  total: number
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="w-full max-w-[230px] text-xs space-y-0.5">
+      <div className="flex justify-between text-muted-foreground">
+        <span>Roll</span><span className="tabular-nums">{natural}</span>
+      </div>
+      {(bonuses ?? []).filter(b => b.amount !== 0).map((b, i) => (
+        <div key={i} className="flex justify-between text-muted-foreground">
+          <span className="truncate pr-2">{b.label}</span><span className="tabular-nums">{fmtSigned(b.amount)}</span>
+        </div>
+      ))}
+      {(added ?? []).map(b => (
+        <div key={b.id} className="flex justify-between items-center" style={{ color: 'var(--color-accent-gold)' }}>
+          <span className="truncate pr-2 inline-flex items-center gap-1">
+            <button onClick={() => onRemove(b.id)} className="text-muted-foreground hover:text-destructive" title="Remove"><X className="h-3 w-3" /></button>
+            {b.label}{b.rolls && b.rolls.length ? ` [${b.rolls.join(', ')}]` : ''}
+          </span>
+          <span className="tabular-nums">{fmtSigned(b.value)}</span>
+        </div>
+      ))}
+      <div className="border-t border-border mt-1 pt-1 flex justify-between font-bold">
+        <span>Total</span><span className="tabular-nums">{total}</span>
+      </div>
+    </div>
+  )
+}
+
+// Single-die result rolls (d20 check/save/attack, single raw, hit die) show ONE big die
+// that lands on the natural roll then counts up to the final total. Advantage / keep-best
+// extra dice sit beside it, dimmed. Multi-die rolls (pool, NdX) fall back to the dice strip.
+function ResultDie({ entry, finalTotal, totalColor }: { entry: RollEntry; finalTotal: number; totalColor?: string }) {
+  const { natural, natural2, dice, pool } = entry.result
+  const k = entry.kind
+  const isMulti = !!pool || (k.type === 'raw' && (dice?.length ?? 0) > 1)
+  if (isMulti) return <DiceStrip dice={diceForEntry(entry)} total={finalTotal} totalColor={totalColor} />
+
+  const sides = k.type === 'raw' || k.type === 'heal' ? k.die : 20
+  const isD20 = k.type === 'skill' || k.type === 'save' || k.type === 'ability' || k.type === 'attack' || (k.type === 'raw' && k.die === 20)
+  const mainTone: 'gold' | 'red' | 'normal' = isD20 && natural === 20 ? 'gold' : isD20 && natural === 1 ? 'red' : 'normal'
+  const extras: number[] = natural2 !== undefined ? [natural2] : (dice && k.type !== 'raw' ? dice.filter(r => r !== natural) : [])
+  return (
+    <div className="flex items-center justify-center gap-3 flex-wrap">
+      {extras.map((v, i) => <Die3D key={`x${i}`} value={v} sides={sides} dimmed delay={80 + i * 60} size={36} />)}
+      <Die3D value={natural} sides={sides} tone={mainTone} countTo={finalTotal} size={64} />
+    </div>
+  )
 }
 
 function rollDamage(damageDice: string, damageBonus: number, isCrit: boolean, rerollBelow = 0) {
@@ -85,105 +202,69 @@ function RerollRow() {
   )
 }
 
-// Kept/dropped pair shown when a roll used advantage or disadvantage.
-function AdvDicePair({ natural, natural2, color }: { natural: number; natural2: number; color?: string }) {
-  return (
-    <div className="flex items-center gap-3 mb-1">
-      <div className="flex flex-col items-center">
-        <span className="text-3xl font-black tabular-nums" style={{ color }}>{natural}</span>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">kept</span>
-      </div>
-      <span className="text-muted-foreground text-lg">|</span>
-      <div className="flex flex-col items-center opacity-40">
-        <span className="text-3xl font-black tabular-nums line-through">{natural2}</span>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">dropped</span>
-      </div>
-    </div>
-  )
-}
-
 // ── Modal body per phase ─────────────────────────────────────────────────────
 
-function ResultBody() {
+function ResultBody({ presets }: { presets: BonusPreset[] }) {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
-  const { entry } = modal
-  const { natural, natural2, dice, multi, pool, modifier, total } = entry.result
+  const addModalBonus = useDiceStore(s => s.addModalBonus)
+  const removeModalBonus = useDiceStore(s => s.removeModalBonus)
+  const { entry, bonuses, addedBonuses } = modal
+  const { natural, multi, pool } = entry.result
   // Heal (hit-die) and pool rolls show like raw dice — no crit highlighting
   const isRaw = entry.kind.type === 'raw' || entry.kind.type === 'heal' || entry.kind.type === 'pool'
   const isRawD20 = entry.kind.type === 'raw' && entry.kind.die === 20
   const isNat20 = (!isRaw || isRawD20) && natural === 20
   const isNat1 = (!isRaw || isRawD20) && natural === 1
-  const hasAdvantage = natural2 !== undefined
+  const totalColor = isNat20 ? 'var(--color-accent-gold)' : isNat1 ? 'var(--color-accent-red)' : undefined
 
-  const totalColor = isNat20
-    ? 'var(--color-accent-gold)'
-    : isNat1
-    ? 'var(--color-accent-red)'
-    : undefined
+  const added = (addedBonuses ?? []).reduce((s, b) => s + b.value, 0)
+  const finalTotal = entry.result.total + added
+  const showList = (bonuses?.some(b => b.amount !== 0) ?? false) || (addedBonuses?.length ?? 0) > 0
+
+  // "Roll N times" → independent totals, no single die/total/bonuses to show.
+  if (multi && multi.length > 0) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-2">
+        <p className="text-sm text-muted-foreground">{entry.label}</p>
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-3xl font-black tabular-nums">
+          {multi.map((t, i) => <span key={i}>{t}</span>)}
+        </div>
+        <Button onClick={closeModal}>Done</Button>
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-col items-center gap-4 py-2">
+    <div className="flex flex-col items-center gap-3 py-2">
       <p className="text-sm text-muted-foreground">{entry.label}</p>
-
-      <div className="flex flex-col items-center gap-1">
-        {hasAdvantage && <AdvDicePair natural={natural} natural2={natural2!} color={totalColor} />}
-        {dice && dice.length > 0 && (
-          <p className="text-xs text-muted-foreground tabular-nums">
-            [{dice.join(', ')}]{entry.kind.type !== 'raw' && <> → kept <span className="font-bold">{natural}</span></>}
-          </p>
-        )}
-        {pool && pool.length > 0 && (
-          <div className="flex flex-col items-center gap-0.5 mb-1">
-            {pool.map((g, i) => (
-              <p key={i} className="text-xs text-muted-foreground tabular-nums">
-                <span className="font-semibold" style={{ color: 'var(--color-accent-gold)' }}>{g.rolls.length}d{g.die}</span>
-                {' '}[{g.rolls.join(', ')}] = {g.rolls.reduce((a, b) => a + b, 0)}
-              </p>
-            ))}
-          </div>
-        )}
-        {!multi && entry.kind.type !== 'raw' && modifier !== 0 && (
-          <p className="text-xs text-muted-foreground">
-            {natural}{modifier >= 0 ? ' + ' : ' − '}{Math.abs(modifier)}
-          </p>
-        )}
-        {multi && multi.length > 0 ? (
-          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-3xl font-black tabular-nums">
-            {multi.map((t, i) => <span key={i}>{t}</span>)}
-          </div>
-        ) : (
-          <span
-            className={hasAdvantage ? 'text-5xl font-black tabular-nums' : 'text-6xl font-black tabular-nums'}
-            style={{ color: totalColor }}
-          >
-            {total}
-          </span>
-        )}
-        {!multi && !pool && <CritLabel natural={natural} kind={entry.kind.type} />}
-      </div>
-
+      <ResultDie entry={entry} finalTotal={finalTotal} totalColor={totalColor} />
+      {!pool && <CritLabel natural={natural} kind={entry.kind.type} />}
+      {showList && (
+        <BonusList natural={natural} bonuses={pool ? undefined : bonuses} added={addedBonuses} total={finalTotal} onRemove={id => removeModalBonus(id, 'roll')} />
+      )}
+      <BonusPicker presets={presets} target="roll" onAdd={b => addModalBonus(b, 'roll')} />
       {(entry.kind.type === 'skill' || entry.kind.type === 'save' || entry.kind.type === 'ability') && <RerollRow />}
       <Button onClick={closeModal}>Done</Button>
     </div>
   )
 }
 
-function HitBody() {
+function HitBody({ presets }: { presets: BonusPreset[] }) {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
   const setModalDamage = useDiceStore(s => s.setModalDamage)
-  const { entry, damageDice, damageBonus = 0, damageType, extraDamage = [], isCrit, rerollBelow } = modal
-  const { natural, natural2, dice, modifier, total } = entry.result
-  const hasAdvantage = natural2 !== undefined
+  const addModalBonus = useDiceStore(s => s.addModalBonus)
+  const removeModalBonus = useDiceStore(s => s.removeModalBonus)
+  const { entry, damageDice, damageBonus = 0, damageType, extraDamage = [], isCrit, rerollBelow, bonuses, addedBonuses } = modal
+  const { natural } = entry.result
   const isNat20 = natural === 20
   const isNat1 = natural === 1
+  const totalColor = isNat20 ? 'var(--color-accent-gold)' : isNat1 ? 'var(--color-accent-red)' : undefined
 
-  const totalColor = isNat20
-    ? 'var(--color-accent-gold)'
-    : isNat1
-    ? 'var(--color-accent-red)'
-    : undefined
+  const added = (addedBonuses ?? []).reduce((s, b) => s + b.value, 0)
+  const finalTotal = entry.result.total + added
+  const showList = (bonuses?.some(b => b.amount !== 0) ?? false) || (addedBonuses?.length ?? 0) > 0
 
   function handleRollDamage(crit: boolean) {
     // GWF reroll applies to the weapon's own dice only, not riders.
@@ -200,31 +281,17 @@ function HitBody() {
   const hasDamage = !!damageDice || !!damageType || extraDamage.length > 0
 
   return (
-    <div className="flex flex-col items-center gap-4 py-2">
+    <div className="flex flex-col items-center gap-3 py-2">
       <p className="text-sm text-muted-foreground">
         {entry.label} <span className="text-xs">(to hit)</span>
       </p>
 
-      <div className="flex flex-col items-center gap-1">
-        {hasAdvantage && <AdvDicePair natural={natural} natural2={natural2!} color={totalColor} />}
-        {dice && dice.length > 0 && (
-          <p className="text-xs text-muted-foreground tabular-nums">
-            [{dice.join(', ')}] → kept <span className="font-bold">{natural}</span>
-          </p>
-        )}
-        {modifier !== 0 && (
-          <p className="text-xs text-muted-foreground">
-            {natural}{modifier >= 0 ? ' + ' : ' − '}{Math.abs(modifier)}
-          </p>
-        )}
-        <span
-          className={hasAdvantage ? 'text-5xl font-black tabular-nums' : 'text-6xl font-black tabular-nums'}
-          style={{ color: totalColor }}
-        >
-          {total}
-        </span>
-        <CritLabel natural={natural} kind="attack" />
-      </div>
+      <ResultDie entry={entry} finalTotal={finalTotal} totalColor={totalColor} />
+      <CritLabel natural={natural} kind="attack" />
+      {showList && (
+        <BonusList natural={natural} bonuses={bonuses} added={addedBonuses} total={finalTotal} onRemove={id => removeModalBonus(id, 'roll')} />
+      )}
+      <BonusPicker presets={presets} target="roll" onAdd={b => addModalBonus(b, 'roll')} />
 
       <div className="flex gap-2">
         {isNat1 ? (
@@ -252,55 +319,73 @@ function HitBody() {
   )
 }
 
-function DamageBody() {
+function DamageBody({ presets }: { presets: BonusPreset[] }) {
   const modal = useDiceStore(s => s.modal)!
   const closeModal = useDiceStore(s => s.closeModal)
-  const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, extraDamageResults = [], isCrit, gwfRerolled } = modal
+  const addModalBonus = useDiceStore(s => s.addModalBonus)
+  const removeModalBonus = useDiceStore(s => s.removeModalBonus)
+  const { entry, damageRolls = [], damageTotal = 0, damageType, damageBonus = 0, extraDamageResults = [], addedDamage = [], isCrit, gwfRerolled } = modal
   const isHeal = modal.damageSpec?.mode === 'heal'
 
-  const grandTotal = damageTotal + extraDamageResults.reduce((s, e) => s + e.total, 0)
+  // Player-added extras split into flat (shown as a "+N") and die-based (shown as dice).
+  const flatAdded = addedDamage.filter(b => !b.sides).reduce((s, b) => s + b.value, 0)
+  const grandTotal = damageTotal + extraDamageResults.reduce((s, e) => s + e.total, 0) + addedDamage.reduce((s, b) => s + b.value, 0)
   const hasRiders = extraDamageResults.length > 0
 
+  // One 3D die per rolled die: the main weapon/spell dice, then each rider's dice, then
+  // any extra-damage dice the player added (Sneak Attack, Smite, …).
+  const mainSides = parseDamageDice(modal.damageDice ?? modal.damageSpec?.baseDice ?? '')?.sides
+  const riderSpecs = modal.extraDamage ?? []
+  const dice: DieSpec[] = [
+    ...(mainSides ? damageRolls.map(r => ({ value: r, sides: mainSides, tone: 'normal' as const })) : []),
+    ...extraDamageResults.flatMap((e, i) => {
+      const s = parseDamageDice(riderSpecs[i]?.dice ?? '')?.sides
+      return s ? e.rolls.map(r => ({ value: r, sides: s, tone: 'normal' as const })) : []
+    }),
+    ...addedDamage.flatMap(b => (b.sides ? (b.rolls ?? []).map(r => ({ value: r, sides: b.sides!, tone: 'normal' as const })) : [])),
+  ]
+
   return (
-    <div className="flex flex-col items-center gap-4 py-2">
+    <div className="flex flex-col items-center gap-3 py-2">
       <p className="text-sm text-muted-foreground">
-        {entry.label} <span className="text-xs">({isHeal ? 'healing' : 'damage'})</span>
+        {entry.label} <span className="text-xs">({isHeal ? 'healing' : 'damage'}{isCrit ? ', crit' : ''})</span>
       </p>
 
-      <div className="flex flex-col items-center gap-1">
-        {damageRolls.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            [{damageRolls.join(', ')}]{damageBonus !== 0 ? (damageBonus > 0 ? ` + ${damageBonus}` : ` − ${Math.abs(damageBonus)}`) : ''}
-            {isCrit ? ' (crit)' : ''}
-          </p>
-        )}
-        {gwfRerolled !== undefined && (
-          <p className="text-[10px] font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
-            🔄 Great Weapon Fighting{gwfRerolled > 0 ? ` — rerolled ${gwfRerolled} die${gwfRerolled > 1 ? 's' : ''}` : ' (no 1s or 2s)'}
-          </p>
-        )}
-        <span className="text-6xl font-black tabular-nums" style={{ color: 'var(--color-accent-gold)' }}>
-          {grandTotal}
-        </span>
-        {/* Healing has no damage type; otherwise per-type breakdown / main type */}
-        {isHeal ? (
-          <p className="text-xs text-muted-foreground">HP restored</p>
-        ) : hasRiders ? (
-          <div className="flex flex-col items-center gap-0.5 mt-1">
-            <p className="text-xs text-muted-foreground capitalize">
-              {damageTotal} {damageType || 'damage'}
-            </p>
-            {extraDamageResults.map((e, i) => (
-              <p key={i} className="text-xs capitalize" style={{ color: 'var(--color-accent-gold)' }}>
-                + {e.total} {e.damageType} <span className="text-muted-foreground">[{e.rolls.join(', ')}]</span>
-              </p>
-            ))}
-          </div>
-        ) : (
-          damageType && <p className="text-xs text-muted-foreground capitalize">{damageType}</p>
-        )}
-      </div>
+      {gwfRerolled !== undefined && (
+        <p className="text-[10px] font-semibold" style={{ color: 'var(--color-accent-gold)' }}>
+          🔄 Great Weapon Fighting{gwfRerolled > 0 ? ` — rerolled ${gwfRerolled} die${gwfRerolled > 1 ? 's' : ''}` : ' (no 1s or 2s)'}
+        </p>
+      )}
+      <DiceStrip dice={dice} modifier={damageBonus + flatAdded} total={grandTotal} totalColor="var(--color-accent-gold)" />
+      {/* Healing has no damage type; otherwise per-type breakdown / main type */}
+      {isHeal ? (
+        <p className="text-xs text-muted-foreground">HP restored</p>
+      ) : hasRiders ? (
+        <div className="flex flex-col items-center gap-0.5">
+          <p className="text-xs text-muted-foreground capitalize">{damageTotal} {damageType || 'damage'}</p>
+          {extraDamageResults.map((e, i) => (
+            <p key={i} className="text-xs capitalize" style={{ color: 'var(--color-accent-gold)' }}>+ {e.total} {e.damageType}</p>
+          ))}
+        </div>
+      ) : (
+        damageType && <p className="text-xs text-muted-foreground capitalize">{damageType}</p>
+      )}
 
+      {addedDamage.length > 0 && (
+        <div className="w-full max-w-[230px] text-xs space-y-0.5">
+          {addedDamage.map(b => (
+            <div key={b.id} className="flex justify-between items-center" style={{ color: 'var(--color-accent-gold)' }}>
+              <span className="truncate pr-2 inline-flex items-center gap-1">
+                <button onClick={() => removeModalBonus(b.id, 'damage')} className="text-muted-foreground hover:text-destructive" title="Remove"><X className="h-3 w-3" /></button>
+                {b.label}{b.rolls && b.rolls.length ? ` [${b.rolls.join(', ')}]` : ''}
+              </span>
+              <span className="tabular-nums">{fmtSigned(b.value)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <BonusPicker presets={presets} target="damage" onAdd={b => addModalBonus(b, 'damage')} />
       <Button onClick={closeModal}>Done</Button>
     </div>
   )
@@ -388,11 +473,14 @@ function DamageSetup() {
 
 // ── Shell ────────────────────────────────────────────────────────────────────
 
-export function DiceRollModal() {
+export function DiceRollModal({ character, derived }: { character?: Character; derived?: DerivedStats } = {}) {
   const modal = useDiceStore(s => s.modal)
   const closeModal = useDiceStore(s => s.closeModal)
 
   if (!modal) return null
+
+  // Quick-add presets are gated by the character; empty when we don't have it.
+  const presets: BonusPreset[] = character && derived ? getBonusPresets(character, derived) : []
 
   const isHeal = modal.damageSpec?.mode === 'heal'
   const title = modal.phase === 'damage' ? (isHeal ? 'Healing Roll' : 'Damage Roll') : 'Roll Result'
@@ -405,9 +493,9 @@ export function DiceRollModal() {
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        {modal.phase === 'result' && <ResultBody />}
-        {modal.phase === 'hit' && <HitBody />}
-        {modal.phase === 'damage' && (damageSetup ? <DamageSetup /> : <DamageBody />)}
+        {modal.phase === 'result' && <ResultBody presets={presets} />}
+        {modal.phase === 'hit' && <HitBody presets={presets} />}
+        {modal.phase === 'damage' && (damageSetup ? <DamageSetup /> : <DamageBody presets={presets} />)}
       </DialogContent>
     </Dialog>
   )

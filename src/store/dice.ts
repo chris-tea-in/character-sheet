@@ -3,7 +3,7 @@ import { generateId } from '../lib/uuid'
 import { rollDie, abilityModifier, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '../lib/dice'
 import { computeDamageGroups, rollDamageGroups } from '../lib/damage'
 import type { DerivedStats } from '../lib/characterStats'
-import type { RollKind, RollEntry, ExtraDamage, ExtraDamageResult, DamageSpec } from '../types/dice'
+import type { RollKind, RollEntry, ExtraDamage, ExtraDamageResult, DamageSpec, RollBonus, AddedBonus } from '../types/dice'
 
 const MAX_ROLLS = 50
 
@@ -44,6 +44,14 @@ export interface ModalState {
   reliableTalent?: boolean
   // Character has the Lucky feat → show the "🍀 Lucky" reroll button on this d20 roll.
   hasLuckyFeat?: boolean
+  // Itemized contributors to this roll's modifier (DEX mod, proficiency, …) — shown
+  // under the die. Sums to entry.result.modifier. Empty/absent for plain dice rolls.
+  bonuses?: RollBonus[]
+  // Per-roll extras the player adds in the modal (Guidance/Bless +1d4, flat, …) that
+  // stack onto the to-hit / check total. Never stored.
+  addedBonuses?: AddedBonus[]
+  // Per-roll extras added to the DAMAGE total (Sneak Attack, Smite, Hunter's Mark, …).
+  addedDamage?: AddedBonus[]
   // ── Dmg-button (standalone damage) state ───────────────────────────────────
   // When `damageSpec` is set and `damageRolls` is still undefined, the modal is in
   // the damage-SETUP state: it shows the (optional) upcast level stepper and the
@@ -76,6 +84,10 @@ interface DiceState {
   rollModalDamage: (crit: boolean) => void
   closeModal: () => void
   setModalDamage: (rolls: number[], total: number, extraResults?: ExtraDamageResult[], gwfRerolled?: number) => void
+  // Add a player-chosen extra to the current roll (Guidance/Bless die or flat) or to the
+  // current damage (Sneak Attack / Smite / …). Per-roll only; recomputes the shown total.
+  addModalBonus: (bonus: AddedBonus, target: 'roll' | 'damage') => void
+  removeModalBonus: (id: string, target: 'roll' | 'damage') => void
 }
 
 function synthEntry(label: string): RollEntry {
@@ -288,4 +300,16 @@ export const useDiceStore = create<DiceState>()((set) => ({
 
   setModalDamage: (rolls, total, extraResults, gwfRerolled) =>
     set(s => s.modal ? { modal: { ...s.modal, phase: 'damage', damageRolls: rolls, damageTotal: total, extraDamageResults: extraResults, gwfRerolled } } : {}),
+
+  addModalBonus: (bonus, target) => set(s => {
+    if (!s.modal) return {}
+    const key = target === 'damage' ? 'addedDamage' : 'addedBonuses'
+    return { modal: { ...s.modal, [key]: [...(s.modal[key] ?? []), bonus] } }
+  }),
+
+  removeModalBonus: (id, target) => set(s => {
+    if (!s.modal) return {}
+    const key = target === 'damage' ? 'addedDamage' : 'addedBonuses'
+    return { modal: { ...s.modal, [key]: (s.modal[key] ?? []).filter(b => b.id !== id) } }
+  }),
 }))

@@ -256,7 +256,9 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
 
   const { profile: rawProfile, casterKind: rawCasterKind, spellsKnown: rawSpellsKnown } = getSpellcastingInfo(classRecord, classLevel)
   const profile = overrideSlotProfile ?? rawProfile
-  if (profile.kind === 'none' && rawProfile.kind === 'none') return null
+  // Non-casters still get a Spellcasting section for continuity (and to hold spells gained
+  // from items, feats, multiclassing, or homebrew) — just without the slot/attack/DC box.
+  const isCaster = !(profile.kind === 'none' && rawProfile.kind === 'none')
 
   const casterKind = overrideCasterKind ?? rawCasterKind
   const isPreparedCaster = casterKind === 'prepared'
@@ -410,7 +412,8 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         )}
       </h2>
 
-      {/* Spell slot tracker */}
+      {/* Spell slot tracker — casters only; a non-caster's section is just the spell list. */}
+      {isCaster && (
       <div className="rounded-lg border border-border bg-card p-3 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
@@ -521,6 +524,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         )}
         <p className="text-[11px] text-muted-foreground">Tap a pip to use or restore a slot</p>
       </div>
+      )}
 
       {/* Spell list */}
       <div className="rounded-lg border border-border bg-card p-3">
@@ -551,7 +555,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         </div>
 
         {/* X/Y indicator — cantrips known, then spells (Known total / Prepared count) */}
-        {rawProfile.kind !== 'none' && (
+        {rawProfile.kind !== 'none' ? (
           <p className="text-xs text-muted-foreground mb-1">
             Cantrips {cantripsSelected}/{cantripLimit}
             <span className="mx-1.5">·</span>
@@ -559,6 +563,10 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
               {spellLimitLabel} {spellCountShown}{spellLimit > 0 && `/${spellLimit}`}
               {overLimit ? ' (homebrew)' : ''}
             </span>
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground mb-1">
+            Not a spellcaster — add spells gained from items, feats, multiclassing, or homebrew.
           </p>
         )}
 
@@ -600,7 +608,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
                         catalogHeal={heal}
                         onTogglePrepared={() => togglePrepared(normalizeSlug(cs.slug))}
                         onRemove={() => removeSpell(normalizeSlug(cs.slug))}
-                        onHit={() => dispatch({ type: 'attack', label, modifier: spellAttackMod })}
+                        onHit={() => dispatch({ type: 'attack', label, modifier: spellAttackMod, bonuses: derived.breakdowns.spellAttack.map(s => ({ label: s.label, amount: s.amount })) })}
                         onDamage={() => dispatchDamage({
                           label,
                           baseDice: dmgDice,
