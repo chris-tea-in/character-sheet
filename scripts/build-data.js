@@ -313,6 +313,12 @@ function validateFeatureEffects(effects, label) {
         if (e.target === 'skill' && !EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (${e.type}): invalid skill "${e.skill}"`)
         if (e.condition !== undefined && (typeof e.condition !== 'string' || e.condition.trim() === '')) errors.push(`${at} (${e.type}): "condition" must be a non-empty string when present`)
         break
+      case 'half_proficiency_checks':
+        if (e.roundUp !== undefined && typeof e.roundUp !== 'boolean') errors.push(`${at} (half_proficiency_checks): "roundUp" must be a boolean`)
+        if (e.abilities !== undefined && (!Array.isArray(e.abilities) || e.abilities.length === 0 || !e.abilities.every(a => EFFECT_ABILITIES.has(a))))
+          errors.push(`${at} (half_proficiency_checks): "abilities" must be a non-empty array of ability keys`)
+        if (e.level !== undefined && !isNum(e.level)) errors.push(`${at} (half_proficiency_checks): "level" must be a number`)
+        break
       default:
         errors.push(`${at}: unknown feature effect type "${e?.type}"`)
     }
@@ -553,7 +559,17 @@ const classFeatureEffects = readJson('data/class-feature-effects.json')
 if (classFeatureEffects) {
   for (const [cls, feats] of Object.entries(classFeatureEffects)) {
     if (typeof feats !== 'object' || feats === null) { errors.push(`class-feature-effects: "${cls}" must be an object`); continue }
-    for (const [fname, effs] of Object.entries(feats)) validateFeatureEffects(effs, `class-feature-effects ${cls} "${fname}"`)
+    // Subclass-keyed entries ("fighter:champion") aren't in the class level table, so
+    // every effect must carry its own numeric `level` gate.
+    const subclassKeyed = cls.includes(':')
+    for (const [fname, effs] of Object.entries(feats)) {
+      validateFeatureEffects(effs, `class-feature-effects ${cls} "${fname}"`)
+      if (subclassKeyed && Array.isArray(effs)) {
+        effs.forEach((e, i) => {
+          if (!isNum(e?.level)) errors.push(`class-feature-effects ${cls} "${fname}" effects[${i}]: subclass-keyed entries require a numeric "level" gate`)
+        })
+      }
+    }
   }
 }
 

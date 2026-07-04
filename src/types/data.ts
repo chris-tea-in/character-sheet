@@ -433,6 +433,13 @@ export type FeatureEffect =
   // never auto-netted, opt-in at roll time (e.g. Danger Sense "vs. effects you can see").
   | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
   | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
+  // Half proficiency bonus on ability checks that don't already include PB (#32/#53/#55):
+  // Jack of All Trades (floor, all abilities) / Remarkable Athlete (roundUp, STR/DEX/CON).
+  // Applies to non-proficient skills, raw ability checks, and initiative; never stacks with
+  // proficiency/expertise, and overlapping grants take the larger (max), never sum.
+  // `level` is the owning-class level gate — REQUIRED on subclass-keyed entries (the class
+  // level table doesn't list subclass features); ignored on class-keyed entries.
+  | { type: 'half_proficiency_checks'; roundUp?: boolean; abilities?: AbilityName[]; level?: number }
 
 export interface FeatureOption {
   slug: string
@@ -442,9 +449,12 @@ export interface FeatureOption {
   effects?: FeatureEffect[]
 }
 
-// Always-on class-feature effects, keyed classSlug → { "Feature Name": FeatureEffect[] }.
-// Applied at render time for every earned class-level feature, up to the owning class's
-// level (INV-2). Compiled from data/class-feature-effects.json.
+// Always-on class-feature effects, keyed classSlug OR "classSlug:subclassSlug" →
+// { "Feature Name": FeatureEffect[] }. Class-keyed entries apply for every earned
+// class-level feature up to the owning class's level (INV-2); subclass-keyed entries
+// ("fighter:champion") are gated by each effect's own `level` field instead, because
+// subclass features aren't in the class level table. Compiled from
+// data/class-feature-effects.json.
 export type ClassFeatureEffects = Record<string, Record<string, FeatureEffect[]>>
 
 /** Cumulative count known once the owning class reaches `level`. */

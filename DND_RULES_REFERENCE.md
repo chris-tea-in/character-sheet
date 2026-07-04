@@ -3190,7 +3190,7 @@ Confirmed deviations from 2014 RAW, found by the code-trace pass and (rule premi
 | 29 | 🟡 | code | Saving Throws | Monk Diamond Soul (proficiency in all saving throws) not applied | src/lib/characterStats.ts:797-800 (effectiveSaveProficiencies build); :813-818 (modifier uses it) | NEW |
 | 30 | 🟡 | data | Saving Throws | Stone of Good Luck (Luckstone) +1-to-all-saves effect not authored / silently ignored | data/equipment/wondrous_items.json (Stone of Good Luck entry, effects: null); applied-if-authored at src/lib/characterStats.ts:536-542 | NEW |
 | 31 | 🟡 | code | Skills & Ability Checks | Passive Perception / Investigation computed but never surfaced; Observant +5 invisible | src/lib/characterStats.ts:828-829 (computed); src/components/* (never rendered) | NEW |
-| 32 | 🟡 | code | Skills & Ability Checks | Jack of All Trades / Remarkable Athlete (half-proficiency) never applied | src/lib/characterStats.ts:803-811 (skillModifiers); src/store/dice.ts:92 (ability rolls) | NEW |
+| 32 | 🟡 | code | Skills & Ability Checks | Jack of All Trades / Remarkable Athlete (half-proficiency) never applied | src/lib/characterStats.ts:803-811 (skillModifiers); src/store/dice.ts:92 (ability rolls) | RESOLVED 2026-07-04 |
 | 33 | 🟡 | code | Skills & Ability Checks | Reliable Talent floor (treat d20 <10 as 10) not applied to proficient skill rolls | src/store/dice.ts:79-100 | NEW |
 | 34 | 🟡 | code | Skills & Ability Checks | Armor stealth disadvantage is derived but never applied to the Stealth roll | src/components/sheet/ProficienciesBlock.tsx:341,392 (skill roll dispatch); src/lib/characterStats.ts:968 (flag set, unused for rolls) | NEW |
 | 35 | 🟡 | code | Speed & Initiative | Initiative is a static display value and cannot be rolled | src/components/sheet/CombatBlock.tsx:339-342; src/types/dice.ts:18-25 (no initiative variant); src/lib/useRollDispatch.ts:10-27 (no init case) | NEW |
@@ -3211,9 +3211,9 @@ Confirmed deviations from 2014 RAW, found by the code-trace pass and (rule premi
 | 50 | 🟢 | code | Death Saves & Dropping to 0 HP | Taking damage while at 0 HP does not record a death-save failure | src/components/sheet/CombatBlock.tsx:58-72 (changeHp) and :183-201 (DeathSaves.toggle, the only failure writer) | NEW |
 | 51 | 🟢 | code | Dice Engine, Advantage/Disadvantage & Real-Time Play | Inspiration is a decorative toggle that grants no mechanical advantage | src/components/sheet/CombatBlock.tsx:449; src/store/dice.ts:78-107; src/lib/useRollDispatch.ts:10-27 | NEW |
 | 52 | 🟢 | code | Hit Points & Hit Dice | Spending a hit die logs a heal total but does not change current HP | src/components/sheet/CombatBlock.tsx:274-288 (rollHitDie / rollClassHitDie) · src/store/dice.ts:79,93-94 (heal roll) | NEW |
-| 53 | 🟢 | code | Proficiency Bonus | Remarkable Athlete (Champion Fighter 7) half-proficiency not applied to non-proficient STR/DEX/CON checks | src/lib/characterStats.ts:803-811 (skillModifiers) | NEW |
+| 53 | 🟢 | code | Proficiency Bonus | Remarkable Athlete (Champion Fighter 7) half-proficiency not applied to non-proficient STR/DEX/CON checks | src/lib/characterStats.ts:803-811 (skillModifiers) | RESOLVED 2026-07-04 |
 | 54 | 🟢 | code | Races & Subraces | Subrace hp_bonus_per_level data field is ignored; only a hardcoded hill-dwarf registry works | src/lib/characterStats.ts:74-76 (SUBRACE_HP_BONUS registry) and :938-939 (lookup); ignored field declared at src/types/data.ts:218 | NEW |
-| 55 | 🟢 | code | Speed & Initiative | Bard Jack of All Trades does not add half proficiency bonus to initiative | src/lib/characterStats.ts:793-794 (effectiveInitiativeBonus / effectiveInitiative compute no half-PB JoAT term) | NEW |
+| 55 | 🟢 | code | Speed & Initiative | Bard Jack of All Trades does not add half proficiency bonus to initiative | src/lib/characterStats.ts:793-794 (effectiveInitiativeBonus / effectiveInitiative compute no half-PB JoAT term) | RESOLVED 2026-07-04 |
 | 56 | 🟢 | code | Speed & Initiative | Speed bonus tag hard-labeled '(feat)' even for item-sourced bonuses | src/components/sheet/CombatBlock.tsx:332-336 | NEW |
 | 57 | 🟢 | code | Spellcasting Resources (slots, known/prepared, cantrips, pact) | Multiclass 'Spells Known' cap shows the primary class's count only | src/components/sheet/SpellBlock.tsx:274,412,416-417 | NEW |
 | 58 | 🟢 | code | Weapons & Attack Rolls | Versatile weapons cannot roll their two-handed die | src/lib/characterStats.ts:432,437-438 (damage built from weapon.damage_dice); EquipmentBlock.tsx WeaponRow Dmg dispatch (line 351); data: equipment.json Longsword properties = ['Versatile (1d10)'] | NEW |
@@ -3507,6 +3507,7 @@ Confirmed deviations from 2014 RAW, found by the code-trace pass and (rule premi
 - **App does:** skillModifiers only multiplies PB by 1 (proficient) or 2 (expertise), else 0 (src/lib/characterStats.ts:808). SkillProficiency type has no half tier (src/types/character.ts:18). The features exist in the data ('Jack of All Trades' and 'Reliable Talent' appear in classes.json; 'Remarkable Athlete' in subclasses.json) but deriveCharacterStats never reads them. Raw ability rolls likewise add no half-PB (src/store/dice.ts:92).
 - **Example:** Bard 4 (PB +2), DEX 14 (+2), NOT proficient in Stealth. RAW with Jack of All Trades: Stealth = +2 (DEX) + 1 (half PB, floor(2/2)) = +3. App shows Stealth = +2 only (no half-prof). At Bard 8 (PB +3) the gap widens: RAW +2 + 1 = +3 vs app +2.
 - **Correct handling:** Detect Jack of All Trades / Remarkable Athlete from the character's class/subclass features and, for non-proficient eligible checks, add floor(PB/2) (Remarkable Athlete: ceil(PB/2) on STR/DEX/CON). Requires a half-proficiency concept in skillModifiers and the raw-ability roll path.
+- **RESOLVED (2026-07-04, `feat/half-proficiency-checks`):** `half_proficiency_checks` FeatureEffect in `data/class-feature-effects.json` (bard class-keyed; `fighter:champion` subclass-keyed with a per-effect `level` gate). Applied in `deriveCharacterStats`: ledger rows on non-proficient skills (disable-able) + `abilityCheckBonuses` consumed by the dice store and roll-modal itemization for raw checks. Overlapping grants take the larger (never sum); proficient/expertise checks untouched. Vitest-covered.
 
 ### 33. 🟡 `code` Reliable Talent floor (treat d20 <10 as 10) not applied to proficient skill rolls
 
@@ -3696,6 +3697,7 @@ Confirmed deviations from 2014 RAW, found by the code-trace pass and (rule premi
 - **App does:** No Champion/subclass-level check exists in deriveCharacterStats; non-proficient STR/DEX/CON skill checks get abilityMod only (characterStats.ts:807-810).
 - **Example:** Champion Fighter 7 (PB +3), STR 16 (+3), NOT proficient in Athletics. RAW Athletics = d20 + 3 + ceil(3/2)=+2 → +5 total. App shows +3 — understated by 2 (the half-PB, rounded up).
 - **Correct handling:** When the character has the Champion subclass at Fighter level >= 7, add ceil(pb/2) to non-proficient skill/ability-check modifiers governed by STR/DEX/CON. Requires subclass-aware feature gating (not currently modeled for this passive).
+- **RESOLVED (2026-07-04, `feat/half-proficiency-checks`):** implemented via the new subclass-keyed class-feature-effects channel (`"fighter:champion"` entry, per-effect `level: 7` gate on the OWNING class's level, INV-2). See #32 for the shared mechanism.
 
 ### 54. 🟢 `code` Subrace hp_bonus_per_level data field is ignored; only a hardcoded hill-dwarf registry works
 
@@ -3714,6 +3716,7 @@ Confirmed deviations from 2014 RAW, found by the code-trace pass and (rule premi
 - **App does:** effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus + itemEffects.initiative (characterStats.ts:793). Jack of All Trades is a class feature, not a feat or item, and there is no class-feature initiative effect or half-PB logic anywhere in the codebase (grep for jack-of-all / half proficiency returns nothing). A Bard's initiative omits the JoAT bonus.
 - **Example:** Bard 5, DEX 16 (dexMod +3), proficiencyBonus +3, no init feats. RAW initiative = +3 (DEX) + floor(3/2)=+1 (JoAT) = +4. App shows effectiveInitiative = +3, missing the +1. At Bard 9 (PB +4) the gap is +2 (floor(4/2)).
 - **Correct handling:** Detect Jack of All Trades from the Bard class record (level >= 2) across character.classes[] (INV-2), and add floor(proficiencyBonus/2) into effectiveInitiativeBonus (and, when initiative becomes rollable, into that modifier). Note JoAT also applies to non-proficient skill/ability checks generally; scope appropriately if implemented. Treat as low priority since it is a niche, derive-only adjustment.
+- **RESOLVED (2026-07-04, `feat/half-proficiency-checks`):** the DEX grant from `half_proficiency_checks` feeds `effectiveInitiativeBonus` with a `feature:half-prof:initiative` provenance row (breakdown sum asserted). See #32 for the shared mechanism.
 
 ### 56. 🟢 `code` Speed bonus tag hard-labeled '(feat)' even for item-sourced bonuses
 

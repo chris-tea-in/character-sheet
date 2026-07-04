@@ -1189,3 +1189,89 @@ describe('deriveCharacterStats — ledger overrides applied + cascading', () => 
     expect(d.breakdowns.speed.some(s => s.id === 'c1' && s.kind === 'custom')).toBe(true)
   })
 })
+
+// ── Half-proficiency checks: Jack of All Trades / Remarkable Athlete (#32/#53/#55) ──
+describe('deriveCharacterStats — half-proficiency checks (JoAT / Remarkable Athlete)', () => {
+  const JOAT_CFE = { bard: { 'Jack of All Trades': [{ type: 'half_proficiency_checks' }] } }
+  const RA_CFE = { 'fighter:champion': { 'Remarkable Athlete': [{ type: 'half_proficiency_checks', roundUp: true, abilities: ['str', 'dex', 'con'], level: 7 }] } }
+  const bard = classWith('bard', { '2': ['Jack of All Trades'] })
+  const fighter = classWith('fighter', {})
+
+  function bardChar(level = 2, overrides: Partial<Character> = {}) {
+    return charWith({ level, classes: [{ classSlug: 'bard', subclassSlug: null, level }], ...overrides })
+  }
+  function championChar(level = 7) {
+    return charWith({ level, classes: [{ classSlug: 'fighter', subclassSlug: 'champion', level }] })
+  }
+
+  it('bard 2: a non-proficient skill gains floor(PB/2) with a labeled feature row', () => {
+    const d = deriveCharacterStats(bardChar(), { classes: [bard], classFeatureEffects: JOAT_CFE as never })
+    expect(d.skillModifiers.athletics).toBe(1) // STR +0 + floor(2/2)
+    expect(d.breakdowns.skills.athletics.some(s => s.kind === 'feature' && /Jack of All Trades/.test(s.label) && s.amount === 1)).toBe(true)
+    expect(sumOf(d.breakdowns.skills.athletics)).toBe(d.skillModifiers.athletics)
+  })
+
+  it('bard 2: proficient and expertise skills are untouched (no stacking)', () => {
+    const d = deriveCharacterStats(bardChar(2, {
+      skillProficiencies: { athletics: 'proficient', deception: 'expertise' },
+    }), { classes: [bard], classFeatureEffects: JOAT_CFE as never })
+    expect(d.skillModifiers.athletics).toBe(2)  // STR +0 + PB 2 — no half row
+    expect(d.skillModifiers.deception).toBe(4)  // CHA +0 + 2×PB
+    expect(d.breakdowns.skills.athletics.some(s => /Jack of All Trades/.test(s.label))).toBe(false)
+    expect(d.breakdowns.skills.deception.some(s => /Jack of All Trades/.test(s.label))).toBe(false)
+  })
+
+  it('bard 2: initiative gains floor(PB/2) with a provenance row; bard 1 gains nothing', () => {
+    const d2 = deriveCharacterStats(bardChar(), { classes: [bard], classFeatureEffects: JOAT_CFE as never })
+    expect(d2.effectiveInitiative).toBe(1) // DEX +0 + 1
+    expect(d2.breakdowns.initiative.some(s => s.id === 'feature:half-prof:initiative')).toBe(true)
+    const d1 = deriveCharacterStats(bardChar(1), { classes: [bard], classFeatureEffects: JOAT_CFE as never })
+    expect(d1.effectiveInitiative).toBe(0)
+    expect(d1.abilityCheckBonuses.str).toBeUndefined()
+  })
+
+  it('bard 2: passive perception includes the half-proficiency when not proficient', () => {
+    const d = deriveCharacterStats(bardChar(), { classes: [bard], classFeatureEffects: JOAT_CFE as never })
+    expect(d.passivePerception).toBe(11) // 10 + WIS 0 + 1
+  })
+
+  it('bard 2: raw ability checks read abilityCheckBonuses (dice-store modifier + total)', () => {
+    const d = deriveCharacterStats(bardChar(), { classes: [bard], classFeatureEffects: JOAT_CFE as never })
+    expect(d.abilityCheckBonuses.str).toEqual({ amount: 1, label: 'Jack of All Trades' })
+    const entry = useDiceStore.getState().roll({ type: 'ability', ability: 'str' }, d)
+    expect(entry.result.modifier).toBe(1)
+    expect(entry.result.total).toBe(entry.result.natural + 1)
+  })
+
+  it('champion 7: ceil(PB/2) on STR/DEX/CON checks only; champion 6 gets nothing (fighter-level gate)', () => {
+    const d7 = deriveCharacterStats(championChar(), { classes: [fighter], classFeatureEffects: RA_CFE as never })
+    expect(d7.skillModifiers.athletics).toBe(2)   // STR +0 + ceil(3/2)
+    expect(d7.skillModifiers.arcana).toBe(0)      // INT — not covered by Remarkable Athlete
+    expect(d7.abilityCheckBonuses.con?.amount).toBe(2)
+    expect(d7.abilityCheckBonuses.int).toBeUndefined()
+    expect(d7.effectiveInitiative).toBe(2)        // initiative is a DEX check
+    const d6 = deriveCharacterStats(championChar(6), { classes: [fighter], classFeatureEffects: RA_CFE as never })
+    expect(d6.skillModifiers.athletics).toBe(0)
+  })
+
+  it('bard 2 / champion 7 multiclass: overlapping grants take the larger, never the sum', () => {
+    const d = deriveCharacterStats(charWith({
+      level: 9,
+      classes: [
+        { classSlug: 'bard', subclassSlug: null, level: 2 },
+        { classSlug: 'fighter', subclassSlug: 'champion', level: 7 },
+      ],
+    }), { classes: [bard, fighter], classFeatureEffects: { ...JOAT_CFE, ...RA_CFE } as never })
+    // Total level 9 → PB +4: JoAT floor = 2, RA ceil = 2 → best is 2, NOT 4.
+    expect(d.skillModifiers.athletics).toBe(2)
+    expect(d.abilityCheckBonuses.str?.amount).toBe(2)
+    expect(d.abilityCheckBonuses.int?.amount).toBe(2) // JoAT-only ability still covered
+  })
+
+  it('the JoAT skill row is ledger-disableable', () => {
+    const d = deriveCharacterStats(bardChar(2, {
+      ledgerOverrides: { disabled: ['feature:half-prof:skill-athletics'], overrides: {}, custom: {} },
+    }), { classes: [bard], classFeatureEffects: JOAT_CFE as never })
+    expect(d.skillModifiers.athletics).toBe(0) // post-ledger value drops the disabled +1
+  })
+})

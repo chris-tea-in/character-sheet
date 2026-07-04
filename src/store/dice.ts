@@ -155,7 +155,10 @@ export const useDiceStore = create<DiceState>()((set) => ({
     } else if (kind.type === 'save') {
       modifier = derived.saveModifiers[kind.ability]
     } else if (kind.type === 'ability') {
+      // Raw ability checks add the half-proficiency grant (Jack of All Trades /
+      // Remarkable Athlete) — mirrored in useRollDispatch's bonus itemization.
       modifier = abilityModifier(derived.effectiveAbilities[kind.ability])
+        + (derived.abilityCheckBonuses[kind.ability]?.amount ?? 0)
     } else if (kind.type === 'attack' || kind.type === 'heal') {
       modifier = kind.modifier
     }
