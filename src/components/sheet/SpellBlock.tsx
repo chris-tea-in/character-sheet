@@ -173,9 +173,9 @@ function SpellRow({
             {spell.ritual && <span className="text-purple-400">Ritual</span>}
           </div>
           <span><span className="font-semibold text-foreground">Components:</span> {componentStr(spell.components)}</span>
-          <p className="text-foreground/80 leading-relaxed">{spell.description}</p>
+          <p className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{spell.description}</p>
           {spell.at_higher_levels && (
-            <p className="italic">{spell.at_higher_levels}</p>
+            <p className="italic whitespace-pre-wrap">{spell.at_higher_levels}</p>
           )}
 
           {/* Damage for the Dmg button. Auto-detected from the spell text (shown as

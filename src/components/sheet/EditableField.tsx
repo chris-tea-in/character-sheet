@@ -117,7 +117,7 @@ export function EditableTextarea({
       <div
         onClick={() => { setDraft(value); setEditing(true) }}
         className={cn(
-          'cursor-pointer hover:opacity-75 transition-opacity min-h-[40px] text-sm',
+          'cursor-pointer hover:opacity-75 transition-opacity min-h-[40px] text-sm whitespace-pre-wrap',
           !value && 'text-muted-foreground italic',
           className,
         )}
