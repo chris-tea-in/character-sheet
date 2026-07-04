@@ -46,8 +46,10 @@ export type ItemEffect =
   | { type: 'spell_damage'; amount: number }                        // flat bonus to spell damage rolls
   // Roll advantage/disadvantage on a save (one ability or 'all') or a skill, granted
   // while the item is active. Mirrors the FeatureEffect variant (Step 5e).
-  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
-  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
+  // `condition` (Tier-2 situational): RAW clause limiting when it applies ("checks that
+  // rely on sight") — present ⇒ never auto-netted, opt-in at roll time.
+  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
   | { type: 'language'; name: string }                              // grants a known language while active (Demon Armor → Abyssal)
   // Overrides the unarmed strike (Demon Armor: 1d8 slashing, +1 atk/dmg). Any
   // field omitted keeps the unarmed default (1 + STR bludgeoning, no bonus).
@@ -413,8 +415,10 @@ export type FeatureEffect =
   | { type: 'armor_proficiency'; armor: string[] }
   | { type: 'tool_proficiency'; tools: string[] }
   // Roll advantage/disadvantage on a save (one ability or 'all') or a skill.
-  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
-  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
+  // `condition` (Tier-2 situational): RAW clause limiting when it applies — present ⇒
+  // never auto-netted, opt-in at roll time (e.g. Danger Sense "vs. effects you can see").
+  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
 
 export interface FeatureOption {
   slug: string

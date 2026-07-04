@@ -51,9 +51,13 @@ export function StatBreakdown({ open, onClose, title, sources, signed, unit, rol
   const totalText = signed ? fmt(effective) : `${effective}${unit ? ` ${unit}` : ''}`
   const rawText = signed ? fmt(rawTotal) : `${rawTotal}${unit ? ` ${unit}` : ''}`
 
-  const hasAdv = !!rollSources?.some(s => s.mode === 'adv' && !s.disabled)
-  const hasDis = !!rollSources?.some(s => s.mode === 'dis' && !s.disabled)
+  // Situational (condition-bearing) sources never feed the net — must mirror the
+  // netSources filter in characterStats.ts or the row button and this popover disagree.
+  const hasAdv = !!rollSources?.some(s => s.mode === 'adv' && !s.disabled && !s.condition)
+  const hasDis = !!rollSources?.some(s => s.mode === 'dis' && !s.disabled && !s.condition)
   const net = hasAdv === hasDis ? 'Normal' : hasAdv ? 'Advantage' : 'Disadvantage'
+  const standingSources = rollSources?.filter(s => !s.condition) ?? []
+  const situationalSources = rollSources?.filter(s => s.condition) ?? []
 
   function toggleDisable(id: string) {
     if (!editable) return
@@ -226,7 +230,7 @@ export function StatBreakdown({ open, onClose, title, sources, signed, unit, rol
                 {net}
               </span>
             </div>
-            {rollSources.map((s, i) => {
+            {standingSources.map((s, i) => {
               const canToggle = editable && !!s.id
               return (
                 <div key={i} className="flex items-center justify-between text-xs gap-2">
@@ -255,6 +259,41 @@ export function StatBreakdown({ open, onClose, title, sources, signed, unit, rol
               <p className="text-[10px] text-muted-foreground italic">
                 Advantage and disadvantage cancel → roll normally (RAW).
               </p>
+            )}
+            {situationalSources.length > 0 && (
+              <>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs font-semibold text-muted-foreground">Situational</span>
+                  <span className="text-[10px] text-muted-foreground italic">opt in at roll time</span>
+                </div>
+                {situationalSources.map((s, i) => {
+                  const canToggle = editable && !!s.id
+                  return (
+                    <div key={`sit-${i}`} className="flex items-center justify-between text-xs gap-2">
+                      <span className={cn('flex items-center gap-1.5 min-w-0', s.disabled && 'opacity-40')}>
+                        {canToggle && (
+                          <button
+                            onClick={() => toggleDisable(s.id!)}
+                            className="flex-none text-muted-foreground hover:text-foreground transition-colors"
+                            title={s.disabled ? 'Re-enable' : 'Disable'}
+                          >
+                            {s.disabled ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                          </button>
+                        )}
+                        <span className={cn('truncate', s.disabled && 'line-through')}>
+                          {s.label} <span className="text-muted-foreground italic">· {s.condition}</span>
+                        </span>
+                      </span>
+                      <span
+                        className={cn('text-[10px] uppercase tracking-wide flex-none opacity-70', s.disabled && 'line-through opacity-40')}
+                        style={{ color: s.mode === 'adv' ? 'var(--color-accent-gold)' : 'var(--color-accent-red)' }}
+                      >
+                        {s.mode === 'adv' ? 'Adv' : 'Dis'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </>
             )}
           </div>
         )}

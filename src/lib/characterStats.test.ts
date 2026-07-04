@@ -461,12 +461,17 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
     expect(d.rollStates.skills.stealth).toBe('dis')
   })
 
-  it('a racial save advantage (Dwarf vs poison → CON) shows as advantage', () => {
+  it('a conditional racial save advantage (Dwarf vs poison) is situational — not auto-netted, on ALL saves with its condition', () => {
     const d = deriveCharacterStats(charWith({ race: 'dwarf' }), {})
-    expect(d.rollStates.saves.con).toBe('adv')
+    expect(d.rollStates.saves.con).toBeUndefined()
+    const con = d.rollStateSources.saves.con?.find(s => s.label === 'Dwarven Resilience')
+    expect(con?.mode).toBe('adv')
+    expect(con?.condition).toContain('poison')
+    // RAW scope: "saving throws against poison" — every save carries the source
+    expect(d.rollStateSources.saves.wis?.some(s => s.label === 'Dwarven Resilience')).toBe(true)
   })
 
-  it('6b-3: disabling a standing race save-advantage source nets it away (still shown)', () => {
+  it('6b-3: a situational race source is still id-tagged and ledger-disableable', () => {
     const on = deriveCharacterStats(charWith({ race: 'dwarf' }), {})
     const src = on.rollStateSources.saves.con!.find(s => s.id)!
     expect(src.id).toBeTruthy()
@@ -508,6 +513,80 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
     }), { classes: [barb], classFeatureEffects: cfe as never })
     expect(d.rollStates.saves.dex).toBe('adv')
     expect(d.rollStateSources.saves.dex?.some(s => s.label === 'Danger Sense')).toBe(true)
+  })
+
+  // ── Situational (condition-bearing) sources — EFFECT_AUDIT 2026-07 checklist ──
+  it('Fey Ancestry (elf) is situational on ALL saves — WIS save no longer standing (Adv)', () => {
+    const d = deriveCharacterStats(charWith({ race: 'elf' }), {})
+    expect(d.rollStates.saves.wis).toBeUndefined()
+    for (const ab of ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const) {
+      const fey = d.rollStateSources.saves[ab]?.find(s => s.label === 'Fey Ancestry')
+      expect(fey?.condition).toBe('vs. being charmed')
+    }
+  })
+
+  it('Verdan Telepathic Insight is genuinely unconditional — stays standing (checklist #10)', () => {
+    const d = deriveCharacterStats(charWith({ race: 'verdan' }), {})
+    expect(d.rollStates.saves.wis).toBe('adv')
+    expect(d.rollStates.saves.cha).toBe('adv')
+    expect(d.rollStates.saves.con).toBeUndefined()
+  })
+
+  it('duergar carries two situational sources (Dwarven + Duergar Resilience, checklist #3)', () => {
+    const d = deriveCharacterStats(charWith({ race: 'duergar' }), {})
+    const labels = (d.rollStateSources.saves.con ?? []).map(s => s.label)
+    expect(labels).toContain('Dwarven Resilience')
+    expect(labels).toContain('Duergar Resilience')
+    expect(d.rollStates.saves.con).toBeUndefined()
+  })
+
+  it('War Caster feat advantage is situational (concentration only, checklist #11)', () => {
+    const d = deriveCharacterStats(charWith({ feats: ['war-caster'] }), {})
+    expect(d.rollStates.saves.con).toBeUndefined()
+    expect(d.rollStateSources.saves.con?.some(s => s.condition?.includes('concentration'))).toBe(true)
+  })
+
+  it('standing + situational on the same target: net reflects standing only', () => {
+    const d = deriveCharacterStats(charWith({
+      race: 'elf',
+      ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [
+        { id: 'custom:blessing', label: 'Blessing', target: 'save', ability: 'wis', mode: 'adv' },
+      ] },
+    }), {})
+    expect(d.rollStates.saves.wis).toBe('adv') // from the standing custom grant only
+    expect(d.rollStateSources.saves.wis?.some(s => s.label === 'Fey Ancestry' && !!s.condition)).toBe(true)
+  })
+
+  it('a custom adv grant WITH a condition is situational — not netted', () => {
+    const d = deriveCharacterStats(charWith({
+      ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [
+        { id: 'custom:ward', label: 'Ward', target: 'save', ability: 'all', mode: 'adv', condition: 'vs. fear' },
+      ] },
+    }), {})
+    expect(d.rollStates.saves.wis).toBeUndefined()
+    expect(d.rollStateSources.saves.wis?.find(s => s.id === 'custom:ward')?.condition).toBe('vs. fear')
+  })
+
+  it('a data-driven item advantage WITH a condition is situational (untagged item data stays standing)', () => {
+    const goggles: WondrousItem = {
+      name: "Inquisitive's Goggles", category: 'wondrous_item', rarity: 'Rare', attunement: false,
+      effects: [{ type: 'advantage', target: 'skill', skill: 'insight', condition: 'to determine if a creature is lying' }],
+    }
+    const d = deriveCharacterStats(charWith({
+      equipment: [{ id: 'g', name: "Inquisitive's Goggles", quantity: 1, equipped: true }],
+    }), { catalog: { wondrous_items: [goggles] } })
+    expect(d.rollStates.skills.insight).toBeUndefined()
+    expect(d.rollStateSources.skills.insight?.[0]?.condition).toContain('lying')
+  })
+
+  it('a feature advantage WITH a condition (Danger Sense tagged) is situational', () => {
+    const barb = classWith('barbarian', { '2': ['Danger Sense'] })
+    const cfe = { barbarian: { 'Danger Sense': [{ type: 'advantage', target: 'save', ability: 'dex', condition: 'vs. effects you can see' }] } }
+    const d = deriveCharacterStats(charWith({
+      level: 3, classes: [{ classSlug: 'barbarian', subclassSlug: null, level: 3 }],
+    }), { classes: [barb], classFeatureEffects: cfe as never })
+    expect(d.rollStates.saves.dex).toBeUndefined()
+    expect(d.rollStateSources.saves.dex?.[0]?.condition).toContain('you can see')
   })
 })
 

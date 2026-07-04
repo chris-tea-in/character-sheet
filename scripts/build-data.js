@@ -95,6 +95,7 @@ function validateEffects(item, label) {
         if (e.target !== 'save' && e.target !== 'skill') errors.push(`${at} (${e.type}): "target" must be "save" or "skill"`)
         if (e.target === 'save' && e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (${e.type}): invalid save ability "${e.ability}"`)
         if (e.target === 'skill' && !EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (${e.type}): invalid skill "${e.skill}"`)
+        if (e.condition !== undefined && (typeof e.condition !== 'string' || e.condition.trim() === '')) errors.push(`${at} (${e.type}): "condition" must be a non-empty string when present`)
         break
       case 'unarmed':
         if (e.dice !== undefined && typeof e.dice !== 'string') errors.push(`${at} (unarmed): "dice" must be a string`)
@@ -238,6 +239,7 @@ function validateFeatureEffects(effects, label) {
         if (e.target !== 'save' && e.target !== 'skill') errors.push(`${at} (${e.type}): "target" must be "save" or "skill"`)
         if (e.target === 'save' && e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (${e.type}): invalid save ability "${e.ability}"`)
         if (e.target === 'skill' && !EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (${e.type}): invalid skill "${e.skill}"`)
+        if (e.condition !== undefined && (typeof e.condition !== 'string' || e.condition.trim() === '')) errors.push(`${at} (${e.type}): "condition" must be a non-empty string when present`)
         break
       default:
         errors.push(`${at}: unknown feature effect type "${e?.type}"`)

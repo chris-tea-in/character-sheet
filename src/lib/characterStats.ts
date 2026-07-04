@@ -269,10 +269,13 @@ export function hasFeatStatEffect(feat: FeatData): boolean {
 }
 
 // ── Advantage / disadvantage registry ─────────────────────────────────────────
-// Conditions stated in the rules (e.g. "vs poison", "vs charmed") are simplified:
-// the sheet maps them to the most relevant ability and applies them broadly.
-// Players retain responsibility to roll normally when inapplicable. Each entry
-// carries a `label` so the source is visible in the ledger breakdown (4b).
+// Sources whose RAW text limits them to a circumstance only the player can judge
+// ("vs. being charmed", "checks that rely on sight") carry a `condition` string:
+// they are NEVER auto-netted into the default roll state — they surface as opt-in
+// chips at roll time and as "Situational" rows in the breakdown. Unconditioned
+// sources stay standing (auto-netted). Scope + condition per the approved
+// EFFECT_AUDIT_2026-07.md checklist (#1-12). Each entry carries a `label` so the
+// source is visible in the ledger breakdown (4b).
 
 // One advantage/disadvantage source on a roll (for ledger provenance).
 export interface RollAdvSource {
@@ -283,40 +286,48 @@ export interface RollAdvSource {
   // `disabled` = suppressed from netting but still shown struck-through.
   id?: string
   disabled?: boolean
+  // Tier-2 situational: present ⇒ excluded from netSources; applied only when the
+  // player opts in at roll time (modal chip). Still id-tagged and ledger-disableable.
+  condition?: string
 }
 
-type AdvantageEntry = { saves?: AbilityName[]; skills?: SkillName[]; label: string; kind: ModifierKind }
+type AdvantageEntry = { saves?: AbilityName[]; skills?: SkillName[]; label: string; kind: ModifierKind; condition?: string }
 
 const ALL_SAVES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 
-const FEAT_ADVANTAGES: Partial<Record<string, AdvantageEntry>> = {
-  'war-caster': { saves: ['con'], label: 'War Caster (concentration)', kind: 'feat' },
-  'actor':      { skills: ['deception', 'performance'], label: 'Actor', kind: 'feat' },
+const FEAT_ADVANTAGES: Partial<Record<string, AdvantageEntry[]>> = {
+  'war-caster': [{ saves: ['con'], label: 'War Caster (concentration)', kind: 'feat', condition: 'to maintain concentration when you take damage' }],
+  'actor':      [{ skills: ['deception', 'performance'], label: 'Actor', kind: 'feat', condition: 'when impersonating another person' }],
 }
 
-// Fey Ancestry and similar charm/fear resistances → WIS (most charm saves are WIS)
-const RACE_ADVANTAGES: Partial<Record<string, AdvantageEntry>> = {
-  'dwarf':      { saves: ['con'], label: 'Dwarven Resilience', kind: 'race' },
-  'duergar':    { saves: ['con', 'wis'], label: 'Duergar Resilience', kind: 'race' },
-  'elf':        { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
-  'eladrin':    { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
-  'sea-elf':    { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
-  'shadar-kai': { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
-  'bugbear':    { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
-  'hobgoblin':  { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
-  'half-elf':   { saves: ['wis'], label: 'Fey Ancestry', kind: 'race' },
-  'gnome':      { saves: ['int', 'wis', 'cha'], label: 'Gnome Cunning', kind: 'race' },
-  'deep-gnome': { saves: ['int', 'wis', 'cha'], label: 'Gnome Cunning', kind: 'race' },
-  'githzerai':  { saves: ['wis'], label: 'Mental Discipline', kind: 'race' },
-  'halfling':   { saves: ['wis'], label: 'Brave', kind: 'race' },
-  'locathah':   { saves: ['wis', 'con'], label: 'Leviathan Will', kind: 'race' },
-  'satyr':      { saves: ALL_SAVES, label: 'Magic Resistance', kind: 'race' },
-  'yuan-ti':    { saves: ALL_SAVES, label: 'Magic Resistance', kind: 'race' },
-  'verdan':     { saves: ['wis', 'cha'], label: 'Telepathic Insight', kind: 'race' },
+// RAW: most "saves against X" traits grant advantage on ALL saving throws against X
+// (the old per-ability narrowing was part of the misread). Gnome Cunning keeps its
+// RAW INT/WIS/CHA scope; Verdan is the one genuinely unconditional row.
+const RACE_ADVANTAGES: Partial<Record<string, AdvantageEntry[]>> = {
+  'dwarf':      [{ saves: ALL_SAVES, label: 'Dwarven Resilience', kind: 'race', condition: 'vs. poison' }],
+  'duergar':    [
+    { saves: ALL_SAVES, label: 'Dwarven Resilience', kind: 'race', condition: 'vs. poison' },
+    { saves: ALL_SAVES, label: 'Duergar Resilience', kind: 'race', condition: 'vs. illusions, and vs. being charmed or paralyzed' },
+  ],
+  'elf':        [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
+  'eladrin':    [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
+  'sea-elf':    [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
+  'shadar-kai': [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
+  'bugbear':    [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
+  'hobgoblin':  [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
+  'half-elf':   [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
+  'gnome':      [{ saves: ['int', 'wis', 'cha'], label: 'Gnome Cunning', kind: 'race', condition: 'vs. magic' }],
+  'deep-gnome': [{ saves: ['int', 'wis', 'cha'], label: 'Gnome Cunning', kind: 'race', condition: 'vs. magic' }],
+  'githzerai':  [{ saves: ALL_SAVES, label: 'Mental Discipline', kind: 'race', condition: 'vs. being charmed or frightened' }],
+  'halfling':   [{ saves: ALL_SAVES, label: 'Brave', kind: 'race', condition: 'vs. being frightened' }],
+  'locathah':   [{ saves: ALL_SAVES, label: 'Leviathan Will', kind: 'race', condition: 'vs. being charmed, frightened, paralyzed, poisoned, stunned, or put to sleep' }],
+  'satyr':      [{ saves: ALL_SAVES, label: 'Magic Resistance', kind: 'race', condition: 'vs. spells and other magical effects' }],
+  'yuan-ti':    [{ saves: ALL_SAVES, label: 'Magic Resistance', kind: 'race', condition: 'vs. spells and other magical effects' }],
+  'verdan':     [{ saves: ['wis', 'cha'], label: 'Telepathic Insight', kind: 'race' }],
 }
 
-const SUBRACE_ADVANTAGES: Partial<Record<string, AdvantageEntry>> = {
-  'stout': { saves: ['con'], label: 'Stout Resilience', kind: 'subrace' },
+const SUBRACE_ADVANTAGES: Partial<Record<string, AdvantageEntry[]>> = {
+  'stout': [{ saves: ALL_SAVES, label: 'Stout Resilience', kind: 'subrace', condition: 'vs. poison' }],
 }
 
 // NOTE (2026-06-27): the old hardcoded `ITEM_ADV_ENTRIES`/`ITEM_ADV_MAP` (22 magic items
@@ -334,13 +345,13 @@ interface AdvSources { saves: Partial<Record<AbilityName, RollAdvSource[]>>; ski
 export function getCharacterAdvantages(character: Character): AdvSources {
   const out: AdvSources = { saves: {}, skills: {} }
   const add = (entry: AdvantageEntry) => {
-    const src: RollAdvSource = { mode: 'adv', label: entry.label, kind: entry.kind }
+    const src: RollAdvSource = { mode: 'adv', label: entry.label, kind: entry.kind, condition: entry.condition }
     for (const ab of (entry.saves ?? [])) (out.saves[ab] ??= []).push(src)
     for (const sk of (entry.skills ?? [])) (out.skills[sk] ??= []).push(src)
   }
-  for (const slug of character.feats) { const e = FEAT_ADVANTAGES[slug]; if (e) add(e) }
-  const raceEntry = RACE_ADVANTAGES[character.race]; if (raceEntry) add(raceEntry)
-  if (character.subrace) { const s = SUBRACE_ADVANTAGES[character.subrace.toLowerCase()]; if (s) add(s) }
+  for (const slug of character.feats) FEAT_ADVANTAGES[slug]?.forEach(add)
+  RACE_ADVANTAGES[character.race]?.forEach(add)
+  if (character.subrace) SUBRACE_ADVANTAGES[character.subrace.toLowerCase()]?.forEach(add)
   return out
 }
 
@@ -700,7 +711,7 @@ interface ActiveItemEffects {
   spellSaveDC: number
   spellSaveDCSources: { name: string; amount: number }[]
   spellDamage: number           // flat bonus to spell damage rolls
-  advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string }[]
+  advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string }[]
   languages: string[]
   unarmed: { dice?: string; damageType?: string; attackBonus: number; damageBonus: number }
 }
@@ -827,10 +838,10 @@ function computeActiveItemEffects(
           acc.spellDamage += e.amount
           break
         case 'advantage':
-          acc.advDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label: item.name })
+          acc.advDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label: item.name, condition: e.condition })
           break
         case 'disadvantage':
-          acc.advDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label: item.name })
+          acc.advDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label: item.name, condition: e.condition })
           break
       }
     }
@@ -912,7 +923,7 @@ interface FeatureEffectAccum {
   weaponProf: string[]
   armorProf: string[]
   toolProf: string[]
-  advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string }[]
+  advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string }[]
   greatWeaponFighting: boolean   // selected the Great Weapon Fighting style (reroll 1s/2s)
 }
 
@@ -949,8 +960,8 @@ function applyFeatureEffect(e: FeatureEffect, label: string, acc: FeatureEffectA
     case 'weapon_proficiency': for (const w of e.weapons) acc.weaponProf.push(w.toLowerCase()); break
     case 'armor_proficiency': for (const a of e.armor) acc.armorProf.push(a); break
     case 'tool_proficiency': for (const t of e.tools) acc.toolProf.push(t); break
-    case 'advantage': acc.advDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label }); break
-    case 'disadvantage': acc.advDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label }); break
+    case 'advantage': acc.advDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label, condition: e.condition }); break
+    case 'disadvantage': acc.advDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label, condition: e.condition }); break
   }
 }
 
@@ -1758,7 +1769,7 @@ export function deriveCharacterStats(
     getCharacterAdvantages(character)
   // Always-on feature adv/dis (e.g. Danger Sense → DEX save advantage).
   for (const a of featureFx.advDis) {
-    const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'feature' }
+    const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'feature', condition: a.condition }
     if (a.target === 'save') {
       const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
       for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
@@ -1768,7 +1779,7 @@ export function deriveCharacterStats(
   }
   // Active-item adv/dis (data-driven `advantage`/`disadvantage` ItemEffects — Step 5e).
   for (const a of itemEffects.advDis) {
-    const src: RollAdvSource = { mode: a.mode, label: `${a.label} (item)`, kind: 'item' }
+    const src: RollAdvSource = { mode: a.mode, label: `${a.label} (item)`, kind: 'item', condition: a.condition }
     if (a.target === 'save') {
       const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
       for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
@@ -1782,7 +1793,7 @@ export function deriveCharacterStats(
     for (const a of character.ledgerOverrides?.customAdvDis ?? []) {
       // Pushed even when disabled (struck-through in the breakdown); the tag pass below
       // sets the `disabled` flag from its id, and netSources skips it.
-      const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'custom', id: a.id }
+      const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'custom', id: a.id, condition: a.condition }
       if (a.target === 'save') {
         const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
         for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
@@ -1820,7 +1831,8 @@ export function deriveCharacterStats(
   for (const sk of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) rollStateSources.skills[sk]?.forEach(tagAdvSource)
 
   const netSources = (srcs?: RollAdvSource[]): RollMode | undefined => {
-    const live = srcs?.filter(s => !s.disabled)
+    // Situational (condition-bearing) sources never auto-net — they are opt-in at roll time.
+    const live = srcs?.filter(s => !s.disabled && !s.condition)
     const a = !!live?.some(s => s.mode === 'adv'), d = !!live?.some(s => s.mode === 'dis')
     return a === d ? undefined : a ? 'adv' : 'dis'
   }
