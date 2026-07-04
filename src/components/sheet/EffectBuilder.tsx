@@ -51,6 +51,9 @@ export function EffectBuilder({
   const [amount, setAmount] = useState('1')
   const [grantValue, setGrantValue] = useState('')
   const [grantAmount, setGrantAmount] = useState('60')
+  // Optional situational clause for adv/dis ("vs. being charmed"). Present ⇒ the
+  // effect becomes an opt-in chip at roll time instead of a standing (Adv).
+  const [condition, setCondition] = useState('')
 
   const isGrant = target.startsWith('grant:')
   const grantTarget = isGrant ? (target.split(':')[1] as GrantTarget) : null
@@ -90,7 +93,9 @@ export function EffectBuilder({
       return
     }
     if (advDisAllowed && valueKind !== 'number') {
-      emit({ kind: 'advdis', target: parsed as RollTarget, mode: valueKind === 'adv' ? 'adv' : 'dis' })
+      const cond = condition.trim()
+      emit({ kind: 'advdis', target: parsed as RollTarget, mode: valueKind === 'adv' ? 'adv' : 'dis', ...(cond ? { condition: cond } : {}) })
+      setCondition('')
       return
     }
     const n = Math.trunc(Number(amount))
@@ -224,6 +229,17 @@ export function EffectBuilder({
             onChange={e => setAmount(e.target.value)}
             className={`${fieldClass} w-16 text-right [color-scheme:dark] flex-none`}
             aria-label="Amount"
+          />
+        )}
+
+        {!isGrant && advDisAllowed && valueKind !== 'number' && (
+          <input
+            value={condition}
+            onChange={e => setCondition(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') add() }}
+            placeholder="Only when… (optional, e.g. vs. being charmed)"
+            className={`${fieldClass} w-full`}
+            aria-label="Condition (optional)"
           />
         )}
 

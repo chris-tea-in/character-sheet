@@ -30,6 +30,13 @@ describe('specToItemEffect', () => {
       .toEqual({ type: 'disadvantage', target: 'skill', skill: 'stealth' })
   })
 
+  it('threads a situational condition onto item adv/dis effects (blank dropped)', () => {
+    expect(specToItemEffect({ kind: 'advdis', target: { t: 'skill', skill: 'stealth' }, mode: 'adv', condition: 'in natural terrain' }))
+      .toEqual({ type: 'advantage', target: 'skill', skill: 'stealth', condition: 'in natural terrain' })
+    expect(specToItemEffect({ kind: 'advdis', target: { t: 'save', ability: 'all' }, mode: 'dis', condition: '  ' }))
+      .toEqual({ type: 'disadvantage', target: 'save', ability: 'all' })
+  })
+
   it('maps grant targets to resistance / immunity / language effects', () => {
     expect(specToItemEffect({ kind: 'grant', target: 'resistance', value: 'fire' }))
       .toEqual({ type: 'resistance', damageType: 'fire' })
@@ -49,6 +56,8 @@ describe('specToItemEffect', () => {
     expect(specLabel({ kind: 'number', target: { t: 'ability', ability: 'con' }, amount: 1 })).toBe('+1 CON')
     expect(specLabel({ kind: 'number', target: { t: 'save', ability: 'all' }, amount: 1 })).toBe('+1 all saves')
     expect(specLabel({ kind: 'advdis', target: { t: 'save', ability: 'dex' }, mode: 'adv' })).toBe('Advantage on DEX save')
+    expect(specLabel({ kind: 'advdis', target: { t: 'save', ability: 'all' }, mode: 'adv', condition: 'vs. being frightened' }))
+      .toBe('Advantage on all saves (only vs. being frightened)')
   })
 })
 
@@ -68,6 +77,11 @@ describe('specToLedgerCustom', () => {
   it('maps an adv/dis spec to a CustomAdvDis entry', () => {
     expect(specToLedgerCustom({ kind: 'advdis', target: { t: 'save', ability: 'dex' }, mode: 'adv' }, 'x'))
       .toEqual([{ kind: 'advdis', entry: { id: 'x', label: 'Advantage on DEX save', target: 'save', ability: 'dex', mode: 'adv' } }])
+  })
+
+  it('a conditional adv/dis spec stores the condition with a CLEAN label (no duplication)', () => {
+    expect(specToLedgerCustom({ kind: 'advdis', target: { t: 'save', ability: 'all' }, mode: 'adv', condition: 'vs. being frightened' }, 'x'))
+      .toEqual([{ kind: 'advdis', entry: { id: 'x', label: 'Advantage on all saves', target: 'save', ability: 'all', mode: 'adv', condition: 'vs. being frightened' } }])
   })
 
   it('returns [] for item-only targets (no ledger breakdown)', () => {

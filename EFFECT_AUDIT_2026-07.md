@@ -154,3 +154,12 @@ All 63 items approved as proposed. Chip UX approved same date: chips **group by 
 **F — new conditional authoring:** 54. Sunlight Sensitivity (drow, duergar, kobold) **dis** "in direct sunlight" · 55. Stone Camouflage · 56. Pack Tactics (defer — attack targets) · 57. Speech of Beast and Leaf · 58. Expert Forgery · 59. Wildhunt Shifting (defer — shift toggle) · 60. Shell Defense (defer — manual)
 
 **G — plan amendments:** 61. Tier 1b state-gated · 62. `ability:'all'` + condition authoring shape · 63. Part A method = full-description diff vs `effects[]`
+
+### Execution notes (2026-07-03, Phases 1–4 landed on `feat/situational-effects`)
+
+- #1–13, 19–28, 40–45, 47–53 executed as approved. #10/#17/#18/#29–39 confirmed no-change.
+- **#45 Demon Armor:** save half authored (`disadvantage save all · "vs. demons' abilities (cursed)"`); the **attack-roll half stays a GAP** (no attack target on adv/dis effects yet — same family as Pack Tactics #56).
+- **#46 Infernal Constitution:** deferred to Phase 5 (needs the FeatEffect `advantage` variant that migration introduces).
+- **#44 Belt of Dwarvenkind:** adv-vs-poison, poison resistance, conditional Persuasion, Dwarvish authored; **darkvision 60 is a GAP** (no item sense channel).
+- **#49 Akmon:** fire resistance + exhaustion-immunity chip authored; **smith's-tools proficiency/advantage is a GAP** (no item tool-prof channel).
+- **#53 Alert:** chip authored unconditional; the RAW "while conscious" clause is a noted simplification (set-membership grants have no state gate).

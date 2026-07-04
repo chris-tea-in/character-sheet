@@ -32,7 +32,9 @@ export type GrantTarget = 'resistance' | 'immunity' | 'language' | 'sense' | 'sk
 
 export type EffectSpec =
   | { kind: 'number'; target: NumberTarget; amount: number }
-  | { kind: 'advdis'; target: RollTarget; mode: 'adv' | 'dis' }
+  // `condition` (Tier-2 situational): optional clause limiting when the adv/dis applies
+  // ("vs. being charmed") — present ⇒ never auto-netted, opt-in chip at roll time.
+  | { kind: 'advdis'; target: RollTarget; mode: 'adv' | 'dis'; condition?: string }
   | { kind: 'grant'; target: GrantTarget; value: string; amount?: number }
 
 const fmt = (n: number) => (n >= 0 ? `+${n}` : `${n}`)
@@ -60,7 +62,9 @@ export function specLabel(spec: EffectSpec): string {
     t.t === 'save' ? `${t.ability === 'all' ? 'all' : t.ability.toUpperCase()} save${t.ability === 'all' ? 's' : ''}` :
     t.t === 'skill' ? SKILL_DISPLAY_MAP[t.skill] :
     NUMBER_TARGET_LABEL[t.t]
-  if (spec.kind === 'advdis') return `${spec.mode === 'adv' ? 'Advantage' : 'Disadvantage'} on ${targetText}`
+  if (spec.kind === 'advdis') {
+    return `${spec.mode === 'adv' ? 'Advantage' : 'Disadvantage'} on ${targetText}${spec.condition ? ` (only ${spec.condition})` : ''}`
+  }
   return `${fmt(spec.amount)} ${targetText}`
 }
 
@@ -93,9 +97,12 @@ export function specToLedgerCustom(spec: EffectSpec, id: string): LedgerGrant[] 
     return [{ kind: 'grant', entry: { id, label, target: spec.target, value: spec.value, ...(spec.amount != null ? { amount: spec.amount } : {}) } }]
   }
   if (spec.kind === 'advdis') {
+    // Stored label stays clean — the breakdown/panel render the condition separately.
+    const cleanLabel = specLabel({ ...spec, condition: undefined })
+    const cond = spec.condition?.trim() ? { condition: spec.condition.trim() } : {}
     const entry: CustomAdvDis = spec.target.t === 'save'
-      ? { id, label, target: 'save', ability: spec.target.ability, mode: spec.mode }
-      : { id, label, target: 'skill', skill: spec.target.skill, mode: spec.mode }
+      ? { id, label: cleanLabel, target: 'save', ability: spec.target.ability, mode: spec.mode, ...cond }
+      : { id, label: cleanLabel, target: 'skill', skill: spec.target.skill, mode: spec.mode, ...cond }
     return [{ kind: 'advdis', entry }]
   }
   const { target, amount } = spec
@@ -128,14 +135,15 @@ export function specToItemEffect(spec: EffectSpec): ItemEffect | null {
     return null // sense / skillProf / saveProf — no ItemEffect
   }
   if (spec.kind === 'advdis') {
+    const cond = spec.condition?.trim() ? { condition: spec.condition.trim() } : {}
     if (spec.mode === 'adv') {
       return spec.target.t === 'save'
-        ? { type: 'advantage', target: 'save', ability: spec.target.ability }
-        : { type: 'advantage', target: 'skill', skill: spec.target.skill }
+        ? { type: 'advantage', target: 'save', ability: spec.target.ability, ...cond }
+        : { type: 'advantage', target: 'skill', skill: spec.target.skill, ...cond }
     }
     return spec.target.t === 'save'
-      ? { type: 'disadvantage', target: 'save', ability: spec.target.ability }
-      : { type: 'disadvantage', target: 'skill', skill: spec.target.skill }
+      ? { type: 'disadvantage', target: 'save', ability: spec.target.ability, ...cond }
+      : { type: 'disadvantage', target: 'skill', skill: spec.target.skill, ...cond }
   }
   const { target, amount } = spec
   switch (target.t) {
