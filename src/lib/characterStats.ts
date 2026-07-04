@@ -268,14 +268,16 @@ export function hasFeatStatEffect(feat: FeatData): boolean {
   return (feat.effects ?? []).length > 0
 }
 
-// ── Advantage / disadvantage registry ─────────────────────────────────────────
+// ── Advantage / disadvantage sources ──────────────────────────────────────────
+// All adv/dis sources are DATA-DRIVEN and aggregated in deriveCharacterStats:
+// race trait effects (RaceEffect), feat effects (FeatEffect), always-on class
+// features (FeatureEffect), active items (ItemEffect), ledger custom grants, and
+// runtime conditions. (The old hardcoded FEAT/RACE/SUBRACE_ADVANTAGES maps and
+// ITEM_ADV_MAP are fully dissolved into data — EFFECT_AUDIT 2026-07, Phase 5.)
 // Sources whose RAW text limits them to a circumstance only the player can judge
 // ("vs. being charmed", "checks that rely on sight") carry a `condition` string:
 // they are NEVER auto-netted into the default roll state — they surface as opt-in
-// chips at roll time and as "Situational" rows in the breakdown. Unconditioned
-// sources stay standing (auto-netted). Scope + condition per the approved
-// EFFECT_AUDIT_2026-07.md checklist (#1-12). Each entry carries a `label` so the
-// source is visible in the ledger breakdown (4b).
+// chips at roll time and as "Situational" rows in the breakdown.
 
 // One advantage/disadvantage source on a roll (for ledger provenance).
 export interface RollAdvSource {
@@ -289,70 +291,6 @@ export interface RollAdvSource {
   // Tier-2 situational: present ⇒ excluded from netSources; applied only when the
   // player opts in at roll time (modal chip). Still id-tagged and ledger-disableable.
   condition?: string
-}
-
-type AdvantageEntry = { saves?: AbilityName[]; skills?: SkillName[]; label: string; kind: ModifierKind; condition?: string }
-
-const ALL_SAVES: AbilityName[] = ['str', 'dex', 'con', 'int', 'wis', 'cha']
-
-const FEAT_ADVANTAGES: Partial<Record<string, AdvantageEntry[]>> = {
-  'war-caster': [{ saves: ['con'], label: 'War Caster (concentration)', kind: 'feat', condition: 'to maintain concentration when you take damage' }],
-  'actor':      [{ skills: ['deception', 'performance'], label: 'Actor', kind: 'feat', condition: 'when impersonating another person' }],
-}
-
-// RAW: most "saves against X" traits grant advantage on ALL saving throws against X
-// (the old per-ability narrowing was part of the misread). Gnome Cunning keeps its
-// RAW INT/WIS/CHA scope; Verdan is the one genuinely unconditional row.
-const RACE_ADVANTAGES: Partial<Record<string, AdvantageEntry[]>> = {
-  'dwarf':      [{ saves: ALL_SAVES, label: 'Dwarven Resilience', kind: 'race', condition: 'vs. poison' }],
-  'duergar':    [
-    { saves: ALL_SAVES, label: 'Dwarven Resilience', kind: 'race', condition: 'vs. poison' },
-    { saves: ALL_SAVES, label: 'Duergar Resilience', kind: 'race', condition: 'vs. illusions, and vs. being charmed or paralyzed' },
-  ],
-  'elf':        [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
-  'eladrin':    [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
-  'sea-elf':    [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
-  'shadar-kai': [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
-  'bugbear':    [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
-  'hobgoblin':  [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
-  'half-elf':   [{ saves: ALL_SAVES, label: 'Fey Ancestry', kind: 'race', condition: 'vs. being charmed' }],
-  'gnome':      [{ saves: ['int', 'wis', 'cha'], label: 'Gnome Cunning', kind: 'race', condition: 'vs. magic' }],
-  'deep-gnome': [{ saves: ['int', 'wis', 'cha'], label: 'Gnome Cunning', kind: 'race', condition: 'vs. magic' }],
-  'githzerai':  [{ saves: ALL_SAVES, label: 'Mental Discipline', kind: 'race', condition: 'vs. being charmed or frightened' }],
-  'halfling':   [{ saves: ALL_SAVES, label: 'Brave', kind: 'race', condition: 'vs. being frightened' }],
-  'locathah':   [{ saves: ALL_SAVES, label: 'Leviathan Will', kind: 'race', condition: 'vs. being charmed, frightened, paralyzed, poisoned, stunned, or put to sleep' }],
-  'satyr':      [{ saves: ALL_SAVES, label: 'Magic Resistance', kind: 'race', condition: 'vs. spells and other magical effects' }],
-  'yuan-ti':    [{ saves: ALL_SAVES, label: 'Magic Resistance', kind: 'race', condition: 'vs. spells and other magical effects' }],
-  'verdan':     [{ saves: ['wis', 'cha'], label: 'Telepathic Insight', kind: 'race' }],
-}
-
-const SUBRACE_ADVANTAGES: Partial<Record<string, AdvantageEntry[]>> = {
-  'stout': [{ saves: ALL_SAVES, label: 'Stout Resilience', kind: 'subrace', condition: 'vs. poison' }],
-}
-
-// NOTE (2026-06-27): the old hardcoded `ITEM_ADV_ENTRIES`/`ITEM_ADV_MAP` (22 magic items
-// granting skill/save advantage by mere ownership) were retired. Those advantages are now
-// authored as data-driven `advantage` ItemEffects in `data/equipment/*.json` and applied by
-// `computeActiveItemEffects.advDis` → the item adv/dis loop in `deriveCharacterStats`. That
-// path gates on the item being ACTIVE (equipped/attuned) — RAW-correct ("while you wear it")
-// rather than merely owned — so an item must be worn/held for its advantage to apply.
-
-interface AdvSources { saves: Partial<Record<AbilityName, RollAdvSource[]>>; skills: Partial<Record<SkillName, RollAdvSource[]>> }
-
-// Labeled advantage sources from the hardcoded registries (feats, race/subrace).
-// Item advantages are data-driven (see note above); disadvantage sources (armor stealth,
-// data effects) are merged in deriveCharacterStats.
-export function getCharacterAdvantages(character: Character): AdvSources {
-  const out: AdvSources = { saves: {}, skills: {} }
-  const add = (entry: AdvantageEntry) => {
-    const src: RollAdvSource = { mode: 'adv', label: entry.label, kind: entry.kind, condition: entry.condition }
-    for (const ab of (entry.saves ?? [])) (out.saves[ab] ??= []).push(src)
-    for (const sk of (entry.skills ?? [])) (out.skills[sk] ??= []).push(src)
-  }
-  for (const slug of character.feats) FEAT_ADVANTAGES[slug]?.forEach(add)
-  RACE_ADVANTAGES[character.race]?.forEach(add)
-  if (character.subrace) SUBRACE_ADVANTAGES[character.subrace.toLowerCase()]?.forEach(add)
-  return out
 }
 
 // ── Conditions ─────────────────────────────────────────────────────────────
@@ -1041,10 +979,11 @@ export function computeFeatureWeaponBonus(
 
 // ── Racial trait effects ───────────────────────────────────────────────────
 // Single render-time application point (INV-1) for structured racial grants —
-// parallel to computeActiveItemEffects. Reads the new RaceEffect[] (skill/weapon/
-// tool/armor proficiencies, resistances/immunities, natural armor) PLUS the clean
+// parallel to computeActiveItemEffects. Reads RaceEffect[] (skill/weapon/tool/armor
+// proficiencies, resistances/immunities, natural armor, adv/dis) PLUS the clean
 // structured fields (languages, senses, hp_bonus_per_level). Save/skill advantages
-// are intentionally excluded here (still applied by getCharacterAdvantages).
+// are data-driven `advantage` entries since Phase 5 (the hardcoded maps are gone);
+// `origin` preserves the race-vs-subrace ModifierKind for stable ledger ids.
 
 interface RaceEffects {
   skillProficiencies: SkillName[]
@@ -1057,12 +996,14 @@ interface RaceEffects {
   languages: string[]
   senses: Record<string, number>  // e.g. { darkvision: 60 }
   hpPerLevel: number
+  advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string; origin: 'race' | 'subrace' }[]
 }
 
 function computeRaceEffects(race: Race | null | undefined, subraceSlug?: string | null): RaceEffects {
   const acc: RaceEffects = {
     skillProficiencies: [], weaponProficiencies: [], toolProficiencies: [], armorProficiencies: [],
     resistances: [], immunities: [], naturalArmor: null, languages: [], senses: {}, hpPerLevel: 0,
+    advDis: [],
   }
   if (!race) return acc
 
@@ -1073,7 +1014,7 @@ function computeRaceEffects(race: Race | null | undefined, subraceSlug?: string 
       if (typeof v === 'number') acc.senses[k] = Math.max(acc.senses[k] ?? 0, v)
     }
   }
-  const applyEffects = (effects: RaceEffect[] | undefined) => {
+  const applyEffects = (effects: RaceEffect[] | undefined, origin: 'race' | 'subrace') => {
     for (const e of (effects ?? [])) {
       switch (e.type) {
         case 'skill_proficiency':  if (!acc.skillProficiencies.includes(e.skill)) acc.skillProficiencies.push(e.skill); break
@@ -1083,17 +1024,19 @@ function computeRaceEffects(race: Race | null | undefined, subraceSlug?: string 
         case 'resistance':         pushUniq(acc.resistances, e.damageType.toLowerCase()); break
         case 'immunity':           pushUniq(acc.immunities, e.damageType.toLowerCase()); break
         case 'natural_armor':      acc.naturalArmor = { base: e.base, addDex: e.addDex ?? false, maxDex: e.maxDex ?? Infinity }; break
+        case 'advantage':          acc.advDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label: e.label, condition: e.condition, origin }); break
+        case 'disadvantage':       acc.advDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label: e.label, condition: e.condition, origin }); break
       }
     }
   }
 
   for (const l of race.base.languages) pushUniq(acc.languages, l)
   addSenses(race.base.senses)
-  applyEffects(race.base.effects)
+  applyEffects(race.base.effects, 'race')
   if (subrace) {
     for (const l of subrace.languages) pushUniq(acc.languages, l)
     addSenses(subrace.senses)
-    applyEffects(subrace.effects)
+    applyEffects(subrace.effects, 'subrace')
     acc.hpPerLevel += subrace.hp_bonus_per_level ?? 0
   }
   return acc
@@ -1172,6 +1115,8 @@ export function deriveCharacterStats(
   const featWeaponProf: string[] = []
   const featArmorProf: string[] = []
   const featToolProf: string[] = []
+  // Data-driven feat adv/dis (War Caster, Actor, Infernal Constitution — label = feat name).
+  const featAdvDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string }[] = []
 
   if (featData) {
     for (const slug of character.feats) {
@@ -1217,6 +1162,8 @@ export function deriveCharacterStats(
         else if (e.type === 'weapon_proficiency') for (const w of e.weapons) featWeaponProf.push(w.toLowerCase())
         else if (e.type === 'armor_proficiency') for (const a of e.armor) featArmorProf.push(a)
         else if (e.type === 'tool_proficiency') for (const t of e.tools) featToolProf.push(t)
+        else if (e.type === 'advantage') featAdvDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label: feat.name, condition: e.condition })
+        else if (e.type === 'disadvantage') featAdvDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label: feat.name, condition: e.condition })
       }
     }
   }
@@ -1786,7 +1733,28 @@ export function deriveCharacterStats(
   // Collect every adv/dis source with its label (ledger provenance), then net per
   // target: any advantage + any disadvantage cancel to normal.
   const rollStateSources: { saves: Partial<Record<AbilityName, RollAdvSource[]>>; skills: Partial<Record<SkillName, RollAdvSource[]>> } =
-    getCharacterAdvantages(character)
+    { saves: {}, skills: {} }
+  // Racial trait adv/dis (data-driven RaceEffect). ONE shared source object per trait
+  // entry — a multi-save trait shows/toggles as one; `origin` keeps race-vs-subrace ids.
+  for (const a of raceEffects.advDis) {
+    const src: RollAdvSource = { mode: a.mode, label: a.label, kind: a.origin, condition: a.condition }
+    if (a.target === 'save') {
+      const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
+      for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
+    } else if (a.skill) {
+      (rollStateSources.skills[a.skill] ??= []).push(src)
+    }
+  }
+  // Feat adv/dis (data-driven FeatEffect; label = the feat's name).
+  for (const a of featAdvDis) {
+    const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'feat', condition: a.condition }
+    if (a.target === 'save') {
+      const abs = a.ability === 'all' ? ALL_ABILITIES : a.ability ? [a.ability] : []
+      for (const ab of abs) (rollStateSources.saves[ab] ??= []).push(src)
+    } else if (a.skill) {
+      (rollStateSources.skills[a.skill] ??= []).push(src)
+    }
+  }
   // Always-on feature adv/dis (e.g. Danger Sense → DEX save advantage).
   for (const a of featureFx.advDis) {
     const src: RollAdvSource = { mode: a.mode, label: a.label, kind: 'feature', condition: a.condition }
@@ -1841,11 +1809,18 @@ export function deriveCharacterStats(
   // disableable) + a `disabled` flag from the ledger, so each can be toggled off and
   // still render struck-through. The same source object shared across targets is tagged
   // once. netSources then nets only the ENABLED sources.
+  // Ledger-disable ids that moved when the hardcoded maps dissolved into data
+  // (Phase 5): the War Caster feat label became the feat's name. Old stored
+  // disables (and imports of old exports) keep working via these aliases.
+  const LEGACY_ADVDIS_ALIASES: Record<string, string[]> = {
+    'advdis:feat:war-caster': ['advdis:feat:war-caster-concentration'],
+  }
   const tagAdvSource = (s: RollAdvSource) => {
     if (s.id === undefined && s.kind !== 'condition') {
       s.id = `advdis:${s.kind}:${s.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
     }
-    s.disabled = s.id ? ledgerDisabled.has(s.id) : false
+    const ids = s.id ? [s.id, ...(LEGACY_ADVDIS_ALIASES[s.id] ?? [])] : []
+    s.disabled = ids.some(id => ledgerDisabled.has(id))
   }
   for (const ab of ALL_ABILITIES) rollStateSources.saves[ab]?.forEach(tagAdvSource)
   for (const sk of Object.keys(SKILL_ABILITY_MAP) as SkillName[]) rollStateSources.skills[sk]?.forEach(tagAdvSource)

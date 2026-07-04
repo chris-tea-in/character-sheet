@@ -327,12 +327,28 @@ describe('deriveCharacterStats — save / skill / maxHp / spell breakdowns', () 
 
 // ── Step 2: structured race-effect system ────────────────────────────────────
 type RaceEffect = import('../types/data').RaceEffect
-function raceWith(effects: RaceEffect[]): import('../types/data').Race {
+function raceWith(effects: RaceEffect[], subraces: unknown[] = []): import('../types/data').Race {
   return {
     name: 'Test Race', slug: 'test-race', description: '',
     base: { ability_score_increases: {}, asi_choices: [], speed: 30, size: 'Medium', languages: ['Common'], senses: { darkvision: 60 }, proficiencies: [], traits: {}, effects },
-    subraces: [],
+    subraces,
   } as unknown as import('../types/data').Race
+}
+
+// Phase 5 — the hardcoded advantage maps are gone; racial/feat adv-dis is data-driven.
+const FEY_RACE = raceWith([{ type: 'advantage', target: 'save', ability: 'all', label: 'Fey Ancestry', condition: 'vs. being charmed' }])
+const DWARF_RACE = raceWith([{ type: 'advantage', target: 'save', ability: 'all', label: 'Dwarven Resilience', condition: 'vs. poison' }])
+const DUERGAR_RACE = raceWith([
+  { type: 'advantage', target: 'save', ability: 'all', label: 'Dwarven Resilience', condition: 'vs. poison' },
+  { type: 'advantage', target: 'save', ability: 'all', label: 'Duergar Resilience', condition: 'vs. illusions, and vs. being charmed or paralyzed' },
+])
+const VERDAN_RACE = raceWith([
+  { type: 'advantage', target: 'save', ability: 'wis', label: 'Telepathic Insight' },
+  { type: 'advantage', target: 'save', ability: 'cha', label: 'Telepathic Insight' },
+])
+const WAR_CASTER_FEATS: Record<string, FeatData> = {
+  'war-caster': { name: 'War Caster', slug: 'war-caster', prerequisites: [], description: '',
+    effects: [{ type: 'advantage', target: 'save', ability: 'con', condition: 'to maintain concentration when you take damage' }] },
 }
 
 // ── Step 4d: conditions ──────────────────────────────────────────────────────
@@ -462,7 +478,7 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
   })
 
   it('a conditional racial save advantage (Dwarf vs poison) is situational — not auto-netted, on ALL saves with its condition', () => {
-    const d = deriveCharacterStats(charWith({ race: 'dwarf' }), {})
+    const d = deriveCharacterStats(charWith({ race: 'dwarf' }), { race: DWARF_RACE })
     expect(d.rollStates.saves.con).toBeUndefined()
     const con = d.rollStateSources.saves.con?.find(s => s.label === 'Dwarven Resilience')
     expect(con?.mode).toBe('adv')
@@ -472,13 +488,13 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
   })
 
   it('6b-3: a situational race source is still id-tagged and ledger-disableable', () => {
-    const on = deriveCharacterStats(charWith({ race: 'dwarf' }), {})
+    const on = deriveCharacterStats(charWith({ race: 'dwarf' }), { race: DWARF_RACE })
     const src = on.rollStateSources.saves.con!.find(s => s.id)!
     expect(src.id).toBeTruthy()
     const off = deriveCharacterStats(charWith({
       race: 'dwarf',
       ledgerOverrides: { disabled: [src.id!], overrides: {}, custom: {} },
-    }), {})
+    }), { race: DWARF_RACE })
     expect(off.rollStates.saves.con).toBeUndefined()
     expect(off.rollStateSources.saves.con!.find(s => s.id === src.id)!.disabled).toBe(true)
   })
@@ -501,7 +517,7 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
   })
 
   it('adv/dis sources are labeled for the ledger breakdown', () => {
-    const d = deriveCharacterStats(charWith({ race: 'dwarf' }), {})
+    const d = deriveCharacterStats(charWith({ race: 'dwarf' }), { race: DWARF_RACE })
     expect(d.rollStateSources.saves.con?.some(s => s.label === 'Dwarven Resilience' && s.mode === 'adv')).toBe(true)
   })
 
@@ -517,7 +533,7 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
 
   // ── Situational (condition-bearing) sources — EFFECT_AUDIT 2026-07 checklist ──
   it('Fey Ancestry (elf) is situational on ALL saves — WIS save no longer standing (Adv)', () => {
-    const d = deriveCharacterStats(charWith({ race: 'elf' }), {})
+    const d = deriveCharacterStats(charWith({ race: 'elf' }), { race: FEY_RACE })
     expect(d.rollStates.saves.wis).toBeUndefined()
     for (const ab of ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const) {
       const fey = d.rollStateSources.saves[ab]?.find(s => s.label === 'Fey Ancestry')
@@ -526,14 +542,14 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
   })
 
   it('Verdan Telepathic Insight is genuinely unconditional — stays standing (checklist #10)', () => {
-    const d = deriveCharacterStats(charWith({ race: 'verdan' }), {})
+    const d = deriveCharacterStats(charWith({ race: 'verdan' }), { race: VERDAN_RACE })
     expect(d.rollStates.saves.wis).toBe('adv')
     expect(d.rollStates.saves.cha).toBe('adv')
     expect(d.rollStates.saves.con).toBeUndefined()
   })
 
   it('duergar carries two situational sources (Dwarven + Duergar Resilience, checklist #3)', () => {
-    const d = deriveCharacterStats(charWith({ race: 'duergar' }), {})
+    const d = deriveCharacterStats(charWith({ race: 'duergar' }), { race: DUERGAR_RACE })
     const labels = (d.rollStateSources.saves.con ?? []).map(s => s.label)
     expect(labels).toContain('Dwarven Resilience')
     expect(labels).toContain('Duergar Resilience')
@@ -541,7 +557,7 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
   })
 
   it('War Caster feat advantage is situational (concentration only, checklist #11)', () => {
-    const d = deriveCharacterStats(charWith({ feats: ['war-caster'] }), {})
+    const d = deriveCharacterStats(charWith({ feats: ['war-caster'] }), { featData: WAR_CASTER_FEATS })
     expect(d.rollStates.saves.con).toBeUndefined()
     expect(d.rollStateSources.saves.con?.some(s => s.condition?.includes('concentration'))).toBe(true)
   })
@@ -552,7 +568,7 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
       ledgerOverrides: { disabled: [], overrides: {}, custom: {}, customAdvDis: [
         { id: 'custom:blessing', label: 'Blessing', target: 'save', ability: 'wis', mode: 'adv' },
       ] },
-    }), {})
+    }), { race: FEY_RACE })
     expect(d.rollStates.saves.wis).toBe('adv') // from the standing custom grant only
     expect(d.rollStateSources.saves.wis?.some(s => s.label === 'Fey Ancestry' && !!s.condition)).toBe(true)
   })
@@ -577,6 +593,34 @@ describe('deriveCharacterStats — roll states (adv/dis netting)', () => {
     }), { catalog: { wondrous_items: [goggles] } })
     expect(d.rollStates.skills.insight).toBeUndefined()
     expect(d.rollStateSources.skills.insight?.[0]?.condition).toContain('lying')
+  })
+
+  // ── Phase 5: hardcoded maps dissolved into data — id stability ─────────────
+  it('data-driven race source keeps the legacy id (advdis:race:fey-ancestry)', () => {
+    const d = deriveCharacterStats(charWith({}), { race: FEY_RACE })
+    expect(d.rollStateSources.saves.wis?.find(s => s.label === 'Fey Ancestry')?.id).toBe('advdis:race:fey-ancestry')
+  })
+
+  it('a legacy war-caster disable id still suppresses the renamed data source (alias shim)', () => {
+    const d = deriveCharacterStats(charWith({
+      feats: ['war-caster'],
+      ledgerOverrides: { disabled: ['advdis:feat:war-caster-concentration'], overrides: {}, custom: {} },
+    }), { featData: WAR_CASTER_FEATS })
+    const src = d.rollStateSources.saves.con?.find(s => s.label === 'War Caster')
+    expect(src?.id).toBe('advdis:feat:war-caster')
+    expect(src?.disabled).toBe(true)
+  })
+
+  it('a subrace advantage keeps its subrace kind and id (advdis:subrace:stout-resilience)', () => {
+    const halfling = raceWith(
+      [{ type: 'advantage', target: 'save', ability: 'all', label: 'Brave', condition: 'vs. being frightened' }],
+      [{ name: 'Stout', ability_score_increases: {}, asi_choices: [], languages: [], senses: {}, effects: [{ type: 'advantage', target: 'save', ability: 'all', label: 'Stout Resilience', condition: 'vs. poison' }] }],
+    )
+    const d = deriveCharacterStats(charWith({ subrace: 'stout' }), { race: halfling })
+    const stout = d.rollStateSources.saves.con?.find(s => s.label === 'Stout Resilience')
+    expect(stout?.kind).toBe('subrace')
+    expect(stout?.id).toBe('advdis:subrace:stout-resilience')
+    expect(d.rollStates.saves.con).toBeUndefined()
   })
 
   it('a feature advantage WITH a condition (Danger Sense tagged) is situational', () => {

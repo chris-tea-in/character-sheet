@@ -143,8 +143,78 @@ function validateRaceEffects(effects, label) {
         if (e.addDex !== undefined && typeof e.addDex !== 'boolean') errors.push(`${at} (natural_armor): "addDex" must be a boolean`)
         if (e.maxDex !== undefined && !isNum(e.maxDex)) errors.push(`${at} (natural_armor): "maxDex" must be a number`)
         break
+      case 'advantage': case 'disadvantage':
+        if (e.target !== 'save' && e.target !== 'skill') errors.push(`${at} (${e.type}): "target" must be "save" or "skill"`)
+        if (e.target === 'save' && e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (${e.type}): invalid save ability "${e.ability}"`)
+        if (e.target === 'skill' && !EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (${e.type}): invalid skill "${e.skill}"`)
+        if (typeof e.label !== 'string' || e.label.trim() === '') errors.push(`${at} (${e.type}): "label" (the trait name) is required`)
+        if (e.condition !== undefined && (typeof e.condition !== 'string' || e.condition.trim() === '')) errors.push(`${at} (${e.type}): "condition" must be a non-empty string when present`)
+        break
       default:
         errors.push(`${at}: unknown race effect type "${e?.type}"`)
+    }
+  })
+}
+
+// ── FeatEffect validation (mirrors FeatEffect union in src/types/data.ts) ──
+// Feat effects were previously entirely unvalidated — this closes that hole.
+function validateFeatEffects(effects, label) {
+  if (effects === undefined) return
+  if (!Array.isArray(effects)) {
+    errors.push(`${label}: "effects" must be an array`)
+    return
+  }
+  const isStrArr = a => Array.isArray(a) && a.length > 0 && a.every(s => typeof s === 'string' && s.trim() !== '')
+  effects.forEach((e, i) => {
+    const at = `${label}: effects[${i}]`
+    switch (e?.type) {
+      case 'asi':
+        if (e.subtype === 'fixed') {
+          if (typeof e.ability !== 'string' || e.ability.trim() === '') errors.push(`${at} (asi fixed): "ability" must be a string`)
+          if (!isNum(e.amount)) errors.push(`${at} (asi fixed): "amount" must be a number`)
+        } else if (e.subtype === 'choice') {
+          if (!isStrArr(e.options)) errors.push(`${at} (asi choice): "options" must be a non-empty string array`)
+          if (!isNum(e.amount)) errors.push(`${at} (asi choice): "amount" must be a number`)
+        } else {
+          errors.push(`${at} (asi): "subtype" must be "fixed" or "choice"`)
+        }
+        break
+      case 'initiative': case 'speed':
+        if (!isNum(e.amount)) errors.push(`${at} (${e.type}): "amount" must be a number`)
+        break
+      case 'save_proficiency':
+        if (typeof e.ability !== 'string' || e.ability.trim() === '') errors.push(`${at} (save_proficiency): "ability" must be a string`)
+        break
+      case 'skill_proficiency': case 'expertise':
+        if (!isNum(e.count)) errors.push(`${at} (${e.type}): "count" must be a number`)
+        break
+      case 'max_hp':
+        if (e.amount !== undefined && !isNum(e.amount)) errors.push(`${at} (max_hp): "amount" must be a number`)
+        if (e.perLevel !== undefined && !isNum(e.perLevel)) errors.push(`${at} (max_hp): "perLevel" must be a number`)
+        break
+      case 'resistance': case 'immunity':
+        if (typeof e.damageType !== 'string' || e.damageType.trim() === '') errors.push(`${at} (${e.type}): "damageType" must be a non-empty string`)
+        break
+      case 'language':
+        if (typeof e.name !== 'string' || e.name.trim() === '') errors.push(`${at} (language): "name" must be a non-empty string`)
+        break
+      case 'weapon_proficiency':
+        if (!isStrArr(e.weapons)) errors.push(`${at} (weapon_proficiency): "weapons" must be a non-empty string array`)
+        break
+      case 'armor_proficiency':
+        if (!isStrArr(e.armor)) errors.push(`${at} (armor_proficiency): "armor" must be a non-empty string array`)
+        break
+      case 'tool_proficiency':
+        if (!isStrArr(e.tools)) errors.push(`${at} (tool_proficiency): "tools" must be a non-empty string array`)
+        break
+      case 'advantage': case 'disadvantage':
+        if (e.target !== 'save' && e.target !== 'skill') errors.push(`${at} (${e.type}): "target" must be "save" or "skill"`)
+        if (e.target === 'save' && e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (${e.type}): invalid save ability "${e.ability}"`)
+        if (e.target === 'skill' && !EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (${e.type}): invalid skill "${e.skill}"`)
+        if (e.condition !== undefined && (typeof e.condition !== 'string' || e.condition.trim() === '')) errors.push(`${at} (${e.type}): "condition" must be a non-empty string when present`)
+        break
+      default:
+        errors.push(`${at}: unknown feat effect type "${e?.type}"`)
     }
   })
 }
@@ -348,7 +418,8 @@ const subclasses = (() => {
   return out
 })()
 
-const feats = buildKeyed('feats', ['name', 'slug', 'description'])
+const feats = buildKeyed('feats', ['name', 'slug', 'description'],
+  (entry, _slug, label) => validateFeatEffects(entry.effects, label))
 
 const backgrounds = buildKeyed('backgrounds',
   ['name', 'slug', 'description', 'skill_proficiencies', 'feature', 'starting_equipment', 'personality_traits', 'ideals', 'bonds', 'flaws']

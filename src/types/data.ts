@@ -246,6 +246,12 @@ export type RaceEffect =
   | { type: 'immunity';   damageType: string }
   // Natural armor sets the unarmored AC base (Lizardfolk 13 + DEX, Tortle 17 flat).
   | { type: 'natural_armor'; base: number; addDex?: boolean; maxDex?: number }
+  // Roll advantage/disadvantage granted by a racial trait (Fey Ancestry, Brave, …).
+  // `label` is the trait name — REQUIRED: it keys the stable ledger id
+  // `advdis:race:<label-slug>` (entries sharing a label share one disable).
+  // `condition` (Tier-2 situational) makes it an opt-in chip at roll time.
+  | { type: 'advantage';    target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string }
 
 export interface Subrace {
   name: string
@@ -367,6 +373,10 @@ export type FeatEffect =
   | { type: 'weapon_proficiency'; weapons: string[] }
   | { type: 'armor_proficiency'; armor: string[] }           // light | medium | heavy | shield
   | { type: 'tool_proficiency'; tools: string[] }
+  // Roll advantage/disadvantage (label = the feat's name at apply time). `condition`
+  // (Tier-2 situational) makes it an opt-in chip at roll time (War Caster, Actor).
+  | { type: 'advantage';    target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
 
 export interface FeatData {
   name: string
