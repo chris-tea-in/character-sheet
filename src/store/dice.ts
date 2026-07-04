@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { generateId } from '../lib/uuid'
 import { rollDie, abilityModifier, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '../lib/dice'
 import { computeDamageGroups, rollDamageGroups } from '../lib/damage'
+import { netModes, type SituationalOption } from '../lib/rollSituational'
 import type { DerivedStats } from '../lib/characterStats'
 import type { RollKind, RollEntry, ExtraDamage, ExtraDamageResult, DamageSpec, RollBonus, AddedBonus } from '../types/dice'
 
@@ -44,6 +45,12 @@ export interface ModalState {
   reliableTalent?: boolean
   // Character has the Lucky feat → show the "🍀 Lucky" reroll button on this d20 roll.
   hasLuckyFeat?: boolean
+  // Situational opt-in chips for THIS roll: the target's condition-bearing adv/dis
+  // sources, grouped by condition. Per-roll only — never stored (mirrors addedBonuses).
+  situational?: SituationalOption[]
+  // The standing netted mode at dispatch (undefined = normal). Chip toggles net
+  // against this snapshot, not against whatever the dice currently show.
+  baseMode?: 'adv' | 'dis'
   // Itemized contributors to this roll's modifier (DEX mod, proficiency, …) — shown
   // under the die. Sums to entry.result.modifier. Empty/absent for plain dice rolls.
   bonuses?: RollBonus[]
@@ -78,6 +85,9 @@ interface DiceState {
   rollIndependent: (count: number) => void
   // Lucky (feat): roll one extra d20 for the current d20 roll and keep the better result.
   luckyReroll: () => void
+  // Toggle a situational chip: re-resolves the roll when the netted mode changes
+  // (fresh dice per RAW); relabels in place when it can't (redundant same-mode chip).
+  toggleSituational: (key: string) => void
   openModal: (state: ModalState) => void
   openDamage: (spec: DamageSpec) => void
   setCastLevel: (level: number) => void
@@ -238,6 +248,52 @@ export const useDiceStore = create<DiceState>()((set) => ({
     return {
       rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS),
       modal: { ...m, entry, isCrit: kt === 'attack' && natural === 20 },
+    }
+  }),
+
+  toggleSituational: (key) => set(s => {
+    const m = s.modal
+    if (!m || !m.situational?.length) return {}
+    const kt = m.entry.kind.type
+    if (kt !== 'attack' && kt !== 'skill' && kt !== 'save' && kt !== 'ability') return {}
+    const situational = m.situational.map(o => o.key === key ? { ...o, active: !o.active } : o)
+    const activeModes = (opts: SituationalOption[]) => opts.filter(o => o.active).map(o => o.mode)
+    const before = netModes([m.baseMode, ...activeModes(m.situational)])
+    const after = netModes([m.baseMode, ...activeModes(situational)])
+    const notes = situational.filter(o => o.active).map(o => ` [${o.sources.join(' + ')}: ${o.short}]`).join('')
+    const modifier = m.entry.result.modifier
+    // Preserve a Reliable Talent annotation across relabels (the floor already applied).
+    const priorReliable = m.entry.label.includes(' [Reliable Talent]') ? ' [Reliable Talent]' : ''
+
+    if (after === before) {
+      // Net unchanged (redundant same-mode chip, or adv+dis toggles canceling) —
+      // annotate the existing roll, keep the dice.
+      const entry: RollEntry = { ...m.entry, label: buildLabel(m.entry.kind, modifier) + notes + priorReliable }
+      return {
+        rolls: s.rolls.map(r => (r.id === entry.id ? entry : r)),
+        modal: { ...m, situational, entry },
+      }
+    }
+
+    // Net changed — re-resolve fresh at the new mode (2d20 keep best/worst, or a
+    // single d20 when advantage and disadvantage cancel to normal).
+    const adv = after === 'adv'
+    const d1 = rollDie(20)
+    const d2 = after !== undefined ? rollDie(20) : undefined
+    let natural = d2 !== undefined ? (adv ? Math.max(d1, d2) : Math.min(d1, d2)) : d1
+    const natural2 = d2 !== undefined ? (adv ? Math.min(d1, d2) : Math.max(d1, d2)) : undefined
+    let reliableNote = ''
+    if (m.reliableTalent && natural < 10) { natural = 10; reliableNote = ' [Reliable Talent]' }
+    const kind = { ...m.entry.kind, advantage: after === undefined ? undefined : adv } as RollKind
+    const entry: RollEntry = {
+      id: generateId(), kind,
+      result: { natural, natural2, modifier, total: natural + modifier },
+      label: buildLabel(kind, modifier) + notes + reliableNote,
+      timestamp: Date.now(),
+    }
+    return {
+      rolls: [entry, ...s.rolls].slice(0, MAX_ROLLS),
+      modal: { ...m, situational, entry, isCrit: kt === 'attack' && natural === 20 },
     }
   }),
 

@@ -8,7 +8,22 @@ import { RollButton } from '@/components/sheet/RollButton'
 import { StatBreakdown } from './StatBreakdown'
 import type { AbilityName, Character, NewCharacter, SkillName } from '@/types/character'
 import type { ClassData } from '@/types/data'
-import type { DerivedStats } from '@/lib/characterStats'
+import type { DerivedStats, RollAdvSource } from '@/lib/characterStats'
+
+// Muted hollow dot marking a row that has situational (opt-in at roll time) adv/dis
+// sources — the row deliberately shows no standing (Adv); the detail lives in the
+// breakdown's Situational section and the roll modal's chips.
+function SituationalDot({ sources }: { sources: RollAdvSource[] | undefined }) {
+  const live = (sources ?? []).filter(s => s.condition && !s.disabled)
+  if (live.length === 0) return null
+  return (
+    <span
+      className="flex-none w-1.5 h-1.5 rounded-full border"
+      style={{ borderColor: 'var(--color-accent-gold)' }}
+      title={`Situational: ${live.map(s => `${s.label} (${s.condition})`).join(' · ')}`}
+    />
+  )
+}
 
 // Small inline pencil that opens a stat's modifier breakdown (Modifier Ledger).
 function BreakdownPencil({ onClick, title }: { onClick: () => void; title: string }) {
@@ -365,6 +380,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     onClick={() => setOpenSaveBreakdown(ability)}
                     title={`What's affecting the ${ABILITY_LABELS[ability]} save?`}
                   />
+                  <SituationalDot sources={derived.rollStateSources.saves[ability]} />
                   <RollButton
                     onClick={() => dispatch({ type: 'save', ability, advantage: rollMode === 'adv' ? true : rollMode === 'dis' ? false : undefined })}
                     rollMode={rollMode}
@@ -465,6 +481,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
                     onClick={() => setOpenSkillBreakdown(skill)}
                     title={`What's affecting ${SKILL_DISPLAY_MAP[skill]}?`}
                   />
+                  <SituationalDot sources={derived.rollStateSources.skills[skill]} />
                   <RollButton
                     onClick={() => dispatch({ type: 'skill', skill, advantage: rollMode === 'adv' ? true : rollMode === 'dis' ? false : undefined })}
                     rollMode={rollMode}
