@@ -652,6 +652,30 @@ describe('deriveCharacterStats — always-on class-feature effects', () => {
     expect(armored.breakdowns.speed.reduce((t, s) => t + s.amount, 0)).toBe(30)
   })
 
+  // ── Tier-3 exemption chips (EFFECT_AUDIT #50-53) ───────────────────────────
+  it('a feat immunity (Alert → surprise) reaches the Defenses set with feat provenance', () => {
+    const feats: Record<string, FeatData> = {
+      alert: { name: 'Alert', slug: 'alert', prerequisites: [], description: '',
+        effects: [{ type: 'initiative', amount: 5 }, { type: 'immunity', damageType: 'surprise' }] },
+    }
+    const d = deriveCharacterStats(charWith({ feats: ['alert'] }), { featData: feats })
+    expect(d.immunities).toContain('surprise')
+    expect(d.immunitySources.some(s => s.kind === 'feat' && s.value === 'surprise')).toBe(true)
+  })
+
+  it('Divine Health + Aura of Courage grant condition-exemption chips (disease, frightened)', () => {
+    const paladin = classWith('paladin', { '3': ['Divine Health'], '10': ['Aura of Courage'] })
+    const cfe = { paladin: {
+      'Divine Health': [{ type: 'immunity', damageType: 'disease' }],
+      'Aura of Courage': [{ type: 'immunity', damageType: 'frightened' }],
+    } }
+    const d = deriveCharacterStats(charWith({
+      level: 10, classes: [{ classSlug: 'paladin', subclassSlug: null, level: 10 }],
+    }), { classes: [paladin], classFeatureEffects: cfe as never })
+    expect(d.immunities).toContain('disease')
+    expect(d.immunities).toContain('frightened')
+  })
+
   it('Diamond Soul grants proficiency in all saves', () => {
     const monk = classWith('monk', { '14': ['Diamond Soul'] })
     const cfe = { monk: { 'Diamond Soul': [{ type: 'save_proficiency', ability: 'all' }] } }

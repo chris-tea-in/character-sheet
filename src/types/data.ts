@@ -362,6 +362,7 @@ export type FeatEffect =
   // Data-driven equivalents of the old hardcoded FEAT_EFFECTS registry + new grants.
   | { type: 'max_hp'; amount?: number; perLevel?: number }   // Tough → perLevel 2; Dwarven Toughness-style
   | { type: 'resistance'; damageType: string }               // e.g. feats granting a damage resistance
+  | { type: 'immunity'; damageType: string }                 // free string — incl. exemption chips (Alert → "surprise")
   | { type: 'language'; name: string }
   | { type: 'weapon_proficiency'; weapons: string[] }
   | { type: 'armor_proficiency'; armor: string[] }           // light | medium | heavy | shield

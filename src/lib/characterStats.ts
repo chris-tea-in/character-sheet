@@ -1167,6 +1167,7 @@ export function deriveCharacterStats(
   // Data-driven feat effects (Step 3 — max_hp/resistance/language/proficiency).
   const featMaxHpSources: { slug: string; name: string; amount: number }[] = []
   const featResistances: string[] = []
+  const featImmunities: string[] = []
   const featLanguages: string[] = []
   const featWeaponProf: string[] = []
   const featArmorProf: string[] = []
@@ -1211,6 +1212,7 @@ export function deriveCharacterStats(
           const amt = (e.amount ?? 0) + (e.perLevel ?? 0) * character.level
           if (amt) featMaxHpSources.push({ slug, name: feat.name, amount: amt })
         } else if (e.type === 'resistance') featResistances.push(e.damageType.toLowerCase())
+        else if (e.type === 'immunity') featImmunities.push(e.damageType.toLowerCase())
         else if (e.type === 'language') featLanguages.push(e.name)
         else if (e.type === 'weapon_proficiency') for (const w of e.weapons) featWeaponProf.push(w.toLowerCase())
         else if (e.type === 'armor_proficiency') for (const a of e.armor) featArmorProf.push(a)
@@ -1754,7 +1756,7 @@ export function deriveCharacterStats(
     featureFx.resistances, allSetGrants.filter(g => g.target === 'resistance'),
   )
   const immunitySources = buildSetSources(
-    'immune', itemEffects.immunities, raceEffects.immunities, [],
+    'immune', itemEffects.immunities, raceEffects.immunities, featImmunities,
     featureFx.immunities, allSetGrants.filter(g => g.target === 'immunity'),
   )
   const resistances = [...new Set(resistanceSources.filter(s => !s.disabled).map(s => s.value))]
