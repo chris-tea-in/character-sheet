@@ -163,4 +163,61 @@ All 63 items approved as proposed. Chip UX approved same date: chips **group by 
 - **#44 Belt of Dwarvenkind:** adv-vs-poison, poison resistance, conditional Persuasion, Dwarvish authored; **darkvision 60 is a GAP** (no item sense channel).
 - **#49 Akmon:** fire resistance + exhaustion-immunity chip authored; **smith's-tools proficiency/advantage is a GAP** (no item tool-prof channel).
 - **#53 Alert:** chip authored unconditional; the RAW "while conscious" clause is a noted simplification (set-membership grants have no state gate).
+---
+
+## Part A — applied-effects verification (manual run, 2026-07-03)
+
+Method: full-description read per entry (dig protocol); local descriptions are the wiki-derived evidence base; wiki-verify flagged at fix time. Channels already fully covered by Part 0 + Phases 1–5: hardcoded rows (#1–12), class-feature-effects (#13–18), item advantage entries (#19–39) + item under-authoring (#40–49).
+
+### A-feats (105 files; effects verified against descriptions)
+
+**OK (verified):** all authored ASIs match their descriptions (incl. dragon-fear, dwarven-fortitude, fey-touched, gunner, keen-mind, resilient, shadow-touched, skill-expert, squat-nimbleness ASI+speed, weapon-master, heavily/lightly/moderately-armored, prodigy's skill+expertise, skilled count=3, tough, observant, mobile, sentinel-alert initiative, infernal-constitution, war-caster, actor).
+
+**UNAUTHORED (modelable now — Batch-2 fixes):**
+| Feat | Missing effect |
+|---|---|
+| poisoner | `tool_proficiency tools:["Poisoner's kit"]` |
+| squat-nimbleness | `skill_proficiency count:1` (RAW restricts to Acrobatics/Athletics — restriction unenforced, noted) + situational adv on Athletics & Acrobatics · "to escape a grapple" |
+| mage-slayer | situational adv, all saves · "vs. spells cast within 5 feet of you" |
+| dungeon-delver | situational adv, all saves · "vs. traps" |
+
+**GAP (no channel — matrix backlog):** gunner firearms proficiency (weapon-prof matcher has no category support — DND-WPN1 family); weapon-master 4-weapon choice + prodigy/artificer-initiate tool-or-language *choice* grants (fixed-array channels only); medium-armor-master (+3 medium AC cap); dual-wielder +1 AC while dual-wielding (weapon-state AC); shield-master shield-bonus-to-DEX-saves; blind-fighting blindsight (no feat sense channel); dungeon-delver trap-damage resistance (conditional resistance); planar-wanderer / scion-of-the-outer-planes choice resistances; skulker dim-light Perception-dis suppression; grappler / mounted-combatant attack-roll advantage (attack targets pending).
+
+**WITHDRAWN → corrected:** an initial "description truncation family" finding was an artifact of the audit's own extraction regex (a Source-prefix strip that ate through the first period), not data corruption — raw files re-read and confirmed intact (dual-wielder, charger, and the rest are complete). During the false alarm, 5 files were normalized to canonical PHB text (`defensive-duelist`, `savage-attacker`, `skilled` rewritten; `blind-fighting`, `polearm-master` leads prepended) — all five re-verified coherent and RAW-correct afterward. **Method lesson (now part of the audit protocol): re-read the raw file before declaring data corrupt; never classify from a transformed display.**
+
+### A-races (46 files — authored effects + structured fields vs trait text)
+
+All authored effects match their trait text. Findings: **UNAUTHORED:** sea-elf cold resistance (Child of the Sea) — *fixed*. **TIER:** grung + yuan-ti are immune to the *poisoned condition*, not just poison damage → `poisoned (condition)` chips — *fixed*. **GAP:** choice-based grants (centaur/changeling/kenku/orc/minotaur/lizardfolk/half-elf versatility/variant human — policy: player-managed, OOS); harengon Hare-Trigger (+PB initiative — no race initiative channel, PB-derived); fly/climb speeds (aarakocra/fairy/owlin/tabaxi); natural weapons (aarakocra/tabaxi); Stonecunning (situational expertise); hobgoblin 2-martial-weapon choice; dwarf/duergar artisan-tool choice; satyr instrument choice.
+
+### A-backgrounds (48 grant lists)
+
+**WRONG:** fisher tools were "Vehicles (water)"; RAW grants fishing tackle — *fixed*. **Verified OK:** marine ("Vehicles (land & water)" is RAW), all other 46 grant lists match their sources. **Notes:** gladiator lists an instrument where RAW swaps it for an "unusual weapon" (minor, left as-is); `"None"` as a literal string in `languages` arrays is a data smell feeding the known literal-language bug; haunted-one's exotic-language prose + `language_choices:1` double-encodes one grant (wizard behavior should be confirmed when the language-choice UI is revisited).
+
+### A-items wrap-up
+
+Remaining 7 equipment categories scanned: zero effect-bearing entries — channel closed. **Platinum Scarf source-mismatch (user review):** the wikidot item of this name (Breath of Life / Platinum Shield / Radiant Hammer) is a completely different item from our local text (all-saves advantage + pullable threads); either our entry is homebrew/adventure-variant (then its effect matches its own text → OK-as-homebrew) or it needs replacing. Piwafwi of Fire Resistance + Cloak of the Bat verdicts (#30/#34) re-confirmed FLAT per RAW recall; low-risk.
+
+### Part A fixes applied (2026-07-03, hybrid Batch 1/2)
+
+fisher tools · sea-elf cold resistance · grung/yuan-ti poisoned-condition chips · poisoner tool prof · squat-nimbleness skill pick + 2 conditional grapple-escape advantages · mage-slayer conditional save adv · dungeon-delver conditional save adv · 5 feat descriptions normalized to canonical PHB text. Build + validators green; 94/94 characterStats tests.
+
+---
+
+## Part B — proposals for unmodeled prose (user review before authoring)
+
+Full sweep of 122 subclasses + 14 base classes (keyword extraction + manual classification). Actions, resources, rerolls, spellcasting, ally-facing and target-side effects are tier 4 (not listed). Ready-to-author unless marked otherwise.
+
+**Tier 1 — standing grants (authorable in `class-feature-effects.json` today; needs subclass-key support for subclass rows):**
+- *Proficiencies:* artificer specialists (alchemist alchemist's supplies · armorer heavy armor + smith's · artillerist woodcarver's · battle-smith smith's + martial weapons) · bard swords (medium armor + scimitar) · bard valor (medium + shields + martial) · cleric domains (arcana → Arcana skill; death/tempest/war/twilight → martial+heavy; forge → heavy + smith's; life/nature/order → heavy) · fighter banneret Persuasion · rune-knight smith's tools + Giant language · **samurai L7 WIS save proficiency** · drunken-master Performance + brewer's supplies · mercy Insight + Medicine + herbalism kit · assassin disguise + poisoner's kits · mastermind disguise + forgery kits · scout Nature + Survival (expertise rider needs a FeatureEffect `expertise` variant) · bladesinger light armor + Performance · **hexblade medium armor + shields + martial weapons**
+- *Resistances/immunities:* alchemist L15 acid+poison resist (+poisoned chip) · forge L6 fire resist, L17 fire immunity · ghostslayer necrotic · psi-warrior L10 psychic · mutant L7 poison immunity (+poisoned chip) · great-old-one L10 psychic · celestial L6 radiant · fathomless L6 cold · storm-sorcery L6 lightning+thunder resist, L18 immunities · aberrant-mind L6 psychic · undead-warlock L10 necrotic · land-druid L10 poison immunity · war-cleric L17 / oathbreaker L15 nonmagical B/P/S (free-string) · ancients L7 + abjurer L14 "spell damage" resistance (free-string)
+- *Numerics:* **draconic sorcerer +1 HP/level (`max_hp perLevel:1`)** · scout L9 +10 speed · glory-paladin L7 +10 speed · **blood-hunter Dark Augmentation: +5 speed AND +CON to STR/DEX saves (`derived_save` channel exists)**
+
+**Tier 2 — situational advantage entries (condition-tagged):** crown-paladin L15 "vs. becoming paralyzed or stunned" · aberrant-mind + blood-hunter Hardened Soul "vs. being charmed or frightened" · undying-warlock "vs. disease" · abjurer L14 "vs. spells" · land-druid L6 + ranger Land's Stride "vs. plants magically impeding movement" · cavalier "vs. falling off your mount" · lycan Perception "relying on hearing or smell" · inquisitive L9 Perception/Investigation + thief L9 Stealth "if you move no more than half your speed" · assassin Impostor Deception "to avoid detection while impersonating" · ranger Favored Enemy + blood-hunter Hunter's Bane tracking checks "vs. chosen/fey-fiend-undead foes" · totem L6 bear STR checks "to push, pull, lift, or break"
+
+**Tier 3 — exemption chips:** archfey L10 `charmed` · devotion aura `charmed` ("while conscious" noted) · spores L14 `blinded`+`deafened`+`frightened`+`poisoned` · land-druid L10 `disease` (+ charm/fear vs elementals/fey as a qualified note)
+
+**Tier 1b — state-gated (needs the named toggle first):** **Rage bundle** (adv STR checks+saves, B/P/S resistance; berserker charm/fear chips; totem bear all-but-psychic — needs rage toggle + set-with-exception) · shifter Shifting bundles (Beasthide +1 AC, Swiftstride +10, Wildhunt WIS-check adv) · rune-knight Giant's Might · bladesinger Bladesong (+INT AC, +10 speed, adv Acrobatics) · monk Unarmored Movement (+10/+ scaling — needs an `unarmored` whileNot value) · astral-self/undead-warlock form gates · stars-druid Starry Form B/P/S resist · forge L6 "+1 AC in heavy armor" / L17 heavy-armor B/P/S resist (needs heavy-specific armored gate)
+
+**GAP register (new model work; matrix backlog):** initiative advantage (Feral Instinct, Ambush Master — joins Sentinel Shield #24/25) · derived initiative (+CHA Rakish Audacity, +PB Watchers aura, harengon) · half-proficiency (Jack of All Trades, Remarkable Athlete, artificer Tool Expertise) · feature-granted senses (twilight 300 ft, shadow-magic 120 ft, blindsight) · unarmored AC bases from features (Draconic Resilience 13+DEX) · feature `expertise` variant (scout, knowledge domain) · choice grants (lore bard 3 skills, kensei weapons, fiend/genie/drakewarden chosen resistances) · attack-roll adv/dis family (Reckless Attack, Assassinate, Steady Aim, Pack Tactics, Demon Armor's attack half)
+
 - **Phase 5 (maps → data):** `FEAT_ADVANTAGES`/`RACE_ADVANTAGES`/`SUBRACE_ADVANTAGES`/`getCharacterAdvantages` deleted from code; `RaceEffect` (label required) + `FeatEffect` advantage/disadvantage variants added; all 17 races + stout subrace + war-caster/actor authored in `data/` (gnome/deep-gnome as 3 per-ability entries per RAW scope; verdan flat). **#46 Infernal Constitution authored** (all saves · "vs. being poisoned"). Ledger ids preserved (`advdis:race:<trait-slug>` unchanged; war-caster rename covered by an alias shim). NEW `validateFeatEffects` closes the feats-unvalidated hole — all 105 feat files pass. Custom races can now carry advantage traits via race data (BUG-70 path unblocked).
