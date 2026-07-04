@@ -205,12 +205,14 @@ function validateFeatureEffects(effects, label) {
         if (e.ability !== 'all' && !EFFECT_ABILITIES.has(e.ability)) errors.push(`${at} (derived_save): invalid ability "${e.ability}"`)
         if (!EFFECT_ABILITIES.has(e.from)) errors.push(`${at} (derived_save): invalid "from" ability "${e.from}"`)
         if (e.min !== undefined && !isNum(e.min)) errors.push(`${at} (derived_save): "min" must be a number`)
+        if (e.whileNot !== undefined && e.whileNot !== 'heavy-armor' && e.whileNot !== 'incapacitated') errors.push(`${at} (derived_save): "whileNot" must be "heavy-armor" or "incapacitated"`)
         break
       case 'resistance': case 'immunity':
         if (typeof e.damageType !== 'string' || e.damageType.trim() === '') errors.push(`${at} (${e.type}): "damageType" must be a non-empty string`)
         break
       case 'speed':
         if (!isNum(e.amount)) errors.push(`${at} (speed): "amount" must be a number`)
+        if (e.whileNot !== undefined && e.whileNot !== 'heavy-armor' && e.whileNot !== 'incapacitated') errors.push(`${at} (speed): "whileNot" must be "heavy-armor" or "incapacitated"`)
         break
       case 'speed_set':
         if (!isNum(e.value)) errors.push(`${at} (speed_set): "value" must be a number`)

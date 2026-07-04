@@ -614,6 +614,44 @@ describe('deriveCharacterStats — always-on class-feature effects', () => {
     expect(d.breakdowns.saves.wis.some(s => s.kind === 'feature' && /Aura of Protection/.test(s.label))).toBe(true)
   })
 
+  // ── Tier-1b state gates (EFFECT_AUDIT #14/#15) ─────────────────────────────
+  it('Aura of Protection is suppressed while an incapacitating condition is active', () => {
+    const paladin = classWith('paladin', { '6': ['Aura of Protection'] })
+    const cfe = { paladin: { 'Aura of Protection': [{ type: 'derived_save', ability: 'all', from: 'cha', min: 1, whileNot: 'incapacitated' }] } }
+    const base = {
+      level: 6,
+      classes: [{ classSlug: 'paladin', subclassSlug: null, level: 6 }],
+      savingThrowProficiencies: [] as never[],
+      abilities: { str: 14, dex: 10, con: 12, int: 10, wis: 10, cha: 16 },
+    }
+    const up = deriveCharacterStats(charWith(base), { classes: [paladin], classFeatureEffects: cfe as never })
+    expect(up.saveModifiers.str).toBe(5) // +2 STR + 3 CHA aura
+    // 'stunned' includes Incapacitated per RAW — the aura drops, with a visible 0-row
+    const down = deriveCharacterStats(charWith({
+      ...base, conditions: { active: ['stunned'], exhaustion: 0 },
+    }), { classes: [paladin], classFeatureEffects: cfe as never })
+    expect(down.saveModifiers.str).toBe(2)
+    expect(down.breakdowns.saves.str.some(s => /suppressed: incapacitated/.test(s.label) && s.amount === 0)).toBe(true)
+    expect(sumOf(down.breakdowns.saves.str)).toBe(down.saveModifiers.str)
+  })
+
+  it('Fast Movement is suppressed while wearing heavy armor (visible 0-row, sum intact)', () => {
+    const barb = classWith('barbarian', { '5': ['Fast Movement'] })
+    const cfe = { barbarian: { 'Fast Movement': [{ type: 'speed', amount: 10, whileNot: 'heavy-armor' }] } }
+    const base = {
+      level: 5, speed: 30,
+      classes: [{ classSlug: 'barbarian', subclassSlug: null, level: 5 }],
+    }
+    const unarmored = deriveCharacterStats(charWith(base), { classes: [barb], classFeatureEffects: cfe as never })
+    expect(unarmored.effectiveSpeed).toBe(40)
+    const armored = deriveCharacterStats(charWith({
+      ...base, equipment: [{ id: 'p', name: 'Plate', quantity: 1, equipped: true }],
+    }), { classes: [barb], classFeatureEffects: cfe as never, catalog: { armor: [plate] } })
+    expect(armored.effectiveSpeed).toBe(30)
+    expect(armored.breakdowns.speed.some(s => /suppressed: wearing heavy armor/.test(s.label) && s.amount === 0)).toBe(true)
+    expect(armored.breakdowns.speed.reduce((t, s) => t + s.amount, 0)).toBe(30)
+  })
+
   it('Diamond Soul grants proficiency in all saves', () => {
     const monk = classWith('monk', { '14': ['Diamond Soul'] })
     const cfe = { monk: { 'Diamond Soul': [{ type: 'save_proficiency', ability: 'all' }] } }

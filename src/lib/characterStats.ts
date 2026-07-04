@@ -912,10 +912,10 @@ interface FeatureEffectAccum {
   // Step 3 — labeled so the ledger breakdowns can show the granting feature.
   saveProf: { label: string; ability: AbilityName | 'all' }[]
   saveBonus: { label: string; ability: AbilityName | 'all'; amount: number }[]
-  derivedSave: { label: string; ability: AbilityName | 'all'; from: AbilityName; min: number }[]
+  derivedSave: { label: string; ability: AbilityName | 'all'; from: AbilityName; min: number; whileNot?: 'incapacitated' | 'heavy-armor' }[]
   resistances: { label: string; damageType: string }[]
   immunities: { label: string; damageType: string }[]
-  speed: { label: string; amount: number }[]
+  speed: { label: string; amount: number; whileNot?: 'heavy-armor' | 'incapacitated' }[]
   speedSet: { label: string; value: number }[]    // floor: set speed to value if higher
   speedMult: { label: string; factor: number }[]  // multiply post-floor speed
   maxHp: { label: string; amount: number }[]
@@ -949,10 +949,10 @@ function applyFeatureEffect(e: FeatureEffect, label: string, acc: FeatureEffectA
     case 'weapon_attack': case 'weapon_damage': acc.weaponEffects.push(e); break
     case 'save_proficiency': acc.saveProf.push({ label, ability: e.ability }); break
     case 'save_bonus': acc.saveBonus.push({ label, ability: e.ability, amount: e.amount }); break
-    case 'derived_save': acc.derivedSave.push({ label, ability: e.ability, from: e.from, min: e.min ?? 0 }); break
+    case 'derived_save': acc.derivedSave.push({ label, ability: e.ability, from: e.from, min: e.min ?? 0, whileNot: e.whileNot }); break
     case 'resistance': acc.resistances.push({ label, damageType: e.damageType.toLowerCase() }); break
     case 'immunity': acc.immunities.push({ label, damageType: e.damageType.toLowerCase() }); break
-    case 'speed': acc.speed.push({ label, amount: e.amount }); break
+    case 'speed': acc.speed.push({ label, amount: e.amount, whileNot: e.whileNot }); break
     case 'speed_set': acc.speedSet.push({ label, value: e.value }); break
     case 'speed_multiplier': acc.speedMult.push({ label, factor: e.factor }); break
     case 'max_hp': { const hp = (e.amount ?? 0) + (e.perLevel ?? 0) * level; if (hp) acc.maxHp.push({ label, amount: hp }); break }
@@ -1324,7 +1324,21 @@ export function deriveCharacterStats(
 
   // ── Combat stats ──────────────────────────────────────────────────────────
   const dexMod = abilityModifier(effectiveAbilities.dex)
-  const featureSpeed = featureFx.speed.reduce((t, s) => t + s.amount, 0)
+  // Tier-1b state gates (EFFECT_AUDIT #14/#15): conditions the app CAN adjudicate
+  // from tracked state. Gated rows stay visible in their breakdown as explicit
+  // 0-amount "suppressed" rows — transparency over silent removal.
+  const wearsHeavyArmor = !!catalog?.armor && character.equipment.some(e => {
+    if (!e.equipped && !e.attuned) return false
+    const rec = catalog.armor!.find(a => a.name.toLowerCase() === e.name.toLowerCase())
+    return !!rec && /heavy/i.test(rec.armor_type)
+  })
+  // RAW: Paralyzed / Petrified / Stunned / Unconscious each include Incapacitated.
+  const INCAPACITATING = ['incapacitated', 'paralyzed', 'petrified', 'stunned', 'unconscious']
+  const isIncapacitated = (character.conditions?.active ?? []).some(c => INCAPACITATING.includes(c))
+  const stateGated = (whileNot?: 'heavy-armor' | 'incapacitated') =>
+    (whileNot === 'heavy-armor' && wearsHeavyArmor) || (whileNot === 'incapacitated' && isIncapacitated)
+
+  const featureSpeed = featureFx.speed.reduce((t, s) => t + (stateGated(s.whileNot) ? 0 : s.amount), 0)
   const additiveSpeed = character.speed + featSpeedBonus + itemEffects.speed + featureSpeed
   // 5a — non-additive speed semantics, applied in RAW order AFTER the additive sum:
   // floor/set (max) → multiplier → condition (half/zero). Each non-additive step lands
@@ -1369,7 +1383,9 @@ export function deriveCharacterStats(
     { id: 'base:race:speed', label: 'Base speed', amount: character.speed, kind: 'base', removable: false },
     ...featSpeedSources.map(s => ({ id: `feat:${s.slug}:speed`, label: `${s.name} (feat)`, amount: s.amount, kind: 'feat' as const, removable: true })),
     ...itemEffects.speedSources.map(s => ({ id: `item:${slugifyName(s.name)}:speed`, label: `${s.name} (item)`, amount: s.amount, kind: 'item' as const, removable: true })),
-    ...featureFx.speed.map(s => ({ id: `feature:${slugifyName(s.label)}:speed`, label: `${s.label} (feature)`, amount: s.amount, kind: 'feature' as const, removable: true })),
+    ...featureFx.speed.map(s => stateGated(s.whileNot)
+      ? { id: `feature:${slugifyName(s.label)}:speed`, label: `${s.label} (suppressed: ${s.whileNot === 'heavy-armor' ? 'wearing heavy armor' : 'incapacitated'})`, amount: 0, kind: 'feature' as const, removable: false }
+      : { id: `feature:${slugifyName(s.label)}:speed`, label: `${s.label} (feature)`, amount: s.amount, kind: 'feature' as const, removable: true }),
     ...speedExtraRows,
     ...(conditionSpeedDelta !== 0 ? [{ id: 'condition:speed:speed', label: `${conditionEffects.speed!.label} (${conditionEffects.speed!.mode === 'zero' ? 'speed 0' : 'speed halved'})`, amount: conditionSpeedDelta, kind: 'condition' as const, removable: true }] : []),
   ]
@@ -1454,7 +1470,9 @@ export function deriveCharacterStats(
       ...featureFx.saveBonus.filter(b => b.ability === ability || b.ability === 'all')
         .map(b => ({ label: b.label, amount: b.amount })),
       ...featureFx.derivedSave.filter(d => d.ability === ability || d.ability === 'all')
-        .map(d => ({ label: `${d.label} (+${ABILITY_ABBR[d.from]})`, amount: Math.max(d.min, abilityModifier(effectiveAbilities[d.from])) })),
+        .map(d => stateGated(d.whileNot)
+          ? { label: `${d.label} (suppressed: incapacitated)`, amount: 0 }
+          : { label: `${d.label} (+${ABILITY_ABBR[d.from]})`, amount: Math.max(d.min, abilityModifier(effectiveAbilities[d.from])) }),
     ]
     const featSaveTotal = featSaveRows.reduce((t, r) => t + r.amount, 0)
     saveModifiers[ability] = abilMod + (isProficient ? pb : 0) + itemSave + featSaveTotal

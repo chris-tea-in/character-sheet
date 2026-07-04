@@ -402,10 +402,13 @@ export type FeatureEffect =
   // from another ability (Aura of Protection → +CHA to all saves, min 1).
   | { type: 'save_proficiency'; ability: AbilityName | 'all' }
   | { type: 'save_bonus'; ability: AbilityName | 'all'; amount: number }
-  | { type: 'derived_save'; ability: AbilityName | 'all'; from: AbilityName; min?: number }
+  // `whileNot` (Tier-1b state gate): the effect is suppressed while the app-tracked
+  // state holds — 'heavy-armor' = wearing heavy body armor (Fast Movement),
+  // 'incapacitated' = an incapacitating condition is active (Aura of Protection).
+  | { type: 'derived_save'; ability: AbilityName | 'all'; from: AbilityName; min?: number; whileNot?: 'incapacitated' | 'heavy-armor' }
   | { type: 'resistance'; damageType: string }
   | { type: 'immunity'; damageType: string }
-  | { type: 'speed'; amount: number }
+  | { type: 'speed'; amount: number; whileNot?: 'heavy-armor' | 'incapacitated' }
   // Non-additive speed (5a) — floor (set-if-higher) and multiplier, same semantics as ItemEffect.
   | { type: 'speed_set'; value: number }
   | { type: 'speed_multiplier'; factor: number }
