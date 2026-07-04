@@ -3,9 +3,9 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
-import { buildCustomWeapon, buildCustomArmor, buildCustomWondrous, buildAcFormula } from '@/lib/customContent'
+import { buildCustomWeapon, buildCustomArmor, buildCustomWondrous, buildAcFormula, parseAcFormulaParts } from '@/lib/customContent'
 import { EffectBuilder } from './EffectBuilder'
-import { specToItemEffect } from '@/lib/effectSpec'
+import { specToItemEffect, itemEffectToSpec } from '@/lib/effectSpec'
 import type { EffectSpec } from '@/lib/effectSpec'
 import type { WeaponItem, ArmorItem, WondrousItem, ItemEffect } from '@/types/data'
 
@@ -41,21 +41,33 @@ const ARMOR_DEFAULTS: Record<ArmorItem['armor_type'], { base: number; dex: boole
 }
 
 /**
- * Create a homebrew weapon, armor, or generic (wondrous) item. On submit it builds
- * a catalog-shaped def (lib/customContent) and hands it back via `onCreate`; the
- * caller stores it on the character and adds the loadout instance. Armor uses a
- * friendly AC builder that generates the ac_formula for the user (#5).
+ * Create — or, with `initial` set, edit — a homebrew weapon, armor, or generic
+ * (wondrous) item. On submit it builds a catalog-shaped def (lib/customContent) and
+ * hands it back via `onCreate` (new) or `onEdit` (existing, keyed by the original
+ * name); the caller stores it on the character. Armor uses a friendly AC builder
+ * that generates the ac_formula for the user (#5).
  */
 export function CustomItemDialog({
   open,
   kind,
   onClose,
   onCreate,
+  onEdit,
+  initial,
+  showQuantity,
 }: {
   open: boolean
   kind: CustomItemKind
   onClose: () => void
-  onCreate: (def: WeaponItem | ArmorItem | WondrousItem) => void
+  onCreate: (def: WeaponItem | ArmorItem | WondrousItem, quantity?: number) => void
+  /** Edit mode: called instead of onCreate, with the def's pre-edit name (the join
+   * key for equipment instances). */
+  onEdit?: (originalName: string, def: WeaponItem | ArmorItem | WondrousItem) => void
+  /** Edit mode: the existing custom def to prefill from. */
+  initial?: WeaponItem | ArmorItem | WondrousItem
+  /** Show a Quantity field for generic items (loadout callers only — catalog-def
+   * callers like campaign homebrew have no instance to count). Hidden in edit mode. */
+  showQuantity?: boolean
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -75,20 +87,49 @@ export function CustomItemDialog({
   // generic item
   const [rarity, setRarity] = useState<WondrousItem['rarity']>('Uncommon')
   const [attunement, setAttunement] = useState(false)
+  const [quantity, setQuantity] = useState(1)
   // structured effects (apply while equipped/attuned) — armor + generic items
   const [effects, setEffects] = useState<EffectSpec[]>([])
 
-  // Reset every time it opens so a previous draft never leaks in.
+  // Reset every time it opens so a previous draft never leaks in; in edit mode,
+  // prefill every field from the existing def instead.
   useEffect(() => {
-    if (open) {
-      setName(''); setDescription('')
+    if (!open) return
+    setName(initial?.name ?? '')
+    setDescription(initial?.description ?? '')
+    setQuantity(1)
+    setEffects((initial?.effects ?? []).map(itemEffectToSpec).filter((s): s is EffectSpec => s !== null))
+    if (initial?.category === 'weapon') {
+      setWeaponType(initial.weapon_type)
+      setDamageDice(initial.damage_dice ?? '')
+      setDamageType(initial.damage_type ?? 'slashing')
+      setProperties([...initial.properties])
+    } else {
       setWeaponType('Martial Melee'); setDamageDice(''); setDamageType('slashing'); setProperties([])
+    }
+    if (initial && (initial.category === 'armor' || initial.category === 'shield')) {
+      const t = initial.armor_type
+      setArmorType(t)
+      const parts = parseAcFormulaParts(t, initial.ac_formula) ?? {
+        base: ARMOR_DEFAULTS[t].base,
+        addsDex: ARMOR_DEFAULTS[t].dex,
+        dexCap: ARMOR_DEFAULTS[t].cap,
+        flatBonus: 0,
+      }
+      setBaseAc(parts.base); setAddsDex(parts.addsDex)
+      setHasCap(parts.dexCap != null); setDexCap(parts.dexCap ?? 2)
+      setFlatBonus(parts.flatBonus)
+      setStealthDisadvantage(!!initial.stealth_disadvantage)
+    } else {
       setArmorType('Medium'); setBaseAc(14); setAddsDex(true); setHasCap(true); setDexCap(2)
       setFlatBonus(0); setStealthDisadvantage(false)
-      setRarity('Uncommon'); setAttunement(false)
-      setEffects([])
     }
-  }, [open])
+    if (initial?.category === 'wondrous_item') {
+      setRarity(initial.rarity); setAttunement(!!initial.attunement)
+    } else {
+      setRarity('Uncommon'); setAttunement(false)
+    }
+  }, [open, initial])
 
   // When the armor type changes, snap the AC inputs to that type's defaults.
   function pickArmorType(t: ArmorItem['armor_type']) {
@@ -108,23 +149,24 @@ export function CustomItemDialog({
   function submit() {
     if (!valid) return
     const itemEffects = effects.map(specToItemEffect).filter((e): e is ItemEffect => e !== null)
-    if (kind === 'weapon') {
-      onCreate(buildCustomWeapon({ name, weaponType, damageDice, damageType, properties, description, effects: itemEffects }))
-    } else if (kind === 'armor') {
-      onCreate(buildCustomArmor({ name, armorType, acFormula: acPreview, stealthDisadvantage, description, effects: itemEffects }))
-    } else {
-      onCreate(buildCustomWondrous({ name, rarity, attunement, description, effects: itemEffects }))
-    }
+    const def =
+      kind === 'weapon' ? buildCustomWeapon({ name, weaponType, damageDice, damageType, properties, description, effects: itemEffects })
+      : kind === 'armor' ? buildCustomArmor({ name, armorType, acFormula: acPreview, stealthDisadvantage, description, effects: itemEffects })
+      : buildCustomWondrous({ name, rarity, attunement, description, effects: itemEffects })
+    if (initial && onEdit) onEdit(initial.name, def)
+    else if (kind === 'item') onCreate(def, quantity)
+    else onCreate(def)
     onClose()
   }
 
   const title = kind === 'weapon' ? 'Weapon' : kind === 'armor' ? 'Armor' : 'Item'
+  const editing = !!initial
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-sm max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Custom {title}</DialogTitle>
+          <DialogTitle>{editing ? `Edit ${title}` : `Custom ${title}`}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3 py-1">
@@ -279,6 +321,17 @@ export function CustomItemDialog({
                   {RARITIES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </label>
+              {showQuantity && !editing && (
+                <label className="block w-20">
+                  <span className="text-xs font-semibold text-muted-foreground">Quantity</span>
+                  <input
+                    type="number" min={1}
+                    value={quantity}
+                    onChange={e => setQuantity(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                    className={fieldClass}
+                  />
+                </label>
+              )}
               <label className="flex items-end gap-2 text-sm cursor-pointer select-none pb-1.5">
                 <input type="checkbox" checked={attunement} onChange={() => setAttunement(v => !v)} className="h-4 w-4 accent-[var(--color-accent-gold)]" />
                 Attunement
@@ -308,7 +361,7 @@ export function CustomItemDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={!valid}>Add</Button>
+          <Button onClick={submit} disabled={!valid}>{editing ? 'Save' : 'Add'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

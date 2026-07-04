@@ -37,6 +37,10 @@ interface SelectionListProps {
   groupOrder?: string[]
   multiSelect?: boolean
   tabs?: TabConfig[]
+  /** When set, the list view shows a back link (e.g. "Back to bag") that calls
+   * this instead of only offering the dialog close. */
+  onBack?: () => void
+  backLabel?: string
 }
 
 type View = 'list' | 'detail'
@@ -112,6 +116,8 @@ export function SelectionList({
   groupOrder,
   multiSelect,
   tabs,
+  onBack,
+  backLabel,
 }: SelectionListProps) {
   const [view, setView] = useState<View>('list')
   const [search, setSearch] = useState('')
@@ -245,6 +251,15 @@ export function SelectionList({
         ) : (
           <>
             <DialogHeader className="flex-none px-4 pt-4 pb-3 border-b border-border space-y-2">
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground -ml-0.5 transition-colors"
+                >
+                  <ArrowLeft className="h-3 w-3" />
+                  {backLabel ?? 'Back'}
+                </button>
+              )}
               <DialogTitle>{title}</DialogTitle>
 
               {tabs && tabs.length > 1 && (

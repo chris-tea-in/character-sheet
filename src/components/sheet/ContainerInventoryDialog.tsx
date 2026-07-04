@@ -372,7 +372,7 @@ export function ContainerInventoryDialog({
               </label>
               <div className="flex items-center gap-3">
                 <span className="text-xs font-semibold text-muted-foreground">Quantity</span>
-                <StepperField value={cQty} onSave={v => setCQty(Math.max(1, v))} min={1} size="sm" />
+                <StepperField value={cQty} onSave={v => setCQty(Math.max(1, v))} min={1} size="sm" typeable />
               </div>
               <label className="block">
                 <span className="text-xs font-semibold text-muted-foreground">Damage <span className="font-normal">(optional)</span></span>
@@ -414,7 +414,7 @@ function ContainedRow({
           {item.name}
           {item.quantity > 1 && <span className="text-xs text-muted-foreground ml-1.5">×{item.quantity}</span>}
         </button>
-        <StepperField value={item.quantity} onSave={onQty} min={1} size="sm" />
+        <StepperField value={item.quantity} onSave={onQty} min={1} size="sm" typeable />
         <button onClick={onTakeOut} className="text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap" title="Move back onto your sheet">
           Take out
         </button>
@@ -425,7 +425,7 @@ function ContainedRow({
       {expanded && hasDetail && (
         <div className="px-3 pb-2 -mt-1 text-xs text-muted-foreground space-y-1">
           {item.customDamage && <p><span className="font-semibold text-foreground">Damage:</span> {item.customDamage}</p>}
-          {item.notes && <p>{item.notes}</p>}
+          {item.notes && <p className="whitespace-pre-wrap">{item.notes}</p>}
         </div>
       )}
     </div>

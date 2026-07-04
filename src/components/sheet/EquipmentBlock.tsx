@@ -7,7 +7,7 @@ import { StepperField } from './StepperField'
 import { EditableField } from './EditableField'
 import { ToolsSection } from './ToolsSection'
 import { ValueAdjustModal } from './ValueAdjustModal'
-import { CustomItemDialog } from './CustomItemDialog'
+import { CustomItemDialog, type CustomItemKind } from './CustomItemDialog'
 import { ContainerInventoryDialog } from './ContainerInventoryDialog'
 import { generateId } from '@/lib/uuid'
 import { mergeCustomEquipment } from '@/lib/customContent'
@@ -266,6 +266,7 @@ function WeaponRow({
   variableBase = false,
   onChooseBase,
   moveControl,
+  editControl,
 }: {
   item: EquipmentItem
   weapon: WeaponItem
@@ -281,6 +282,7 @@ function WeaponRow({
   variableBase?: boolean
   onChooseBase?: () => void
   moveControl?: ReactNode
+  editControl?: ReactNode
 }) {
   const { dispatch, dispatchDamage } = useRollDispatch(derived)
   const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects, derived.itemAttackBonus, item.id)
@@ -395,7 +397,7 @@ function WeaponRow({
 
       {expanded && (
         <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
-          {weapon.description && <p>{weapon.description}</p>}
+          {weapon.description && <p className="whitespace-pre-wrap">{weapon.description}</p>}
           {variableBase && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-foreground">Base weapon:</span>
@@ -478,6 +480,7 @@ function WeaponRow({
                 <span>Edit stats</span>
               </button>
               <div className="ml-auto flex items-center gap-3">
+                {editControl}
                 {moveControl}
                 <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
                 <button
@@ -525,6 +528,7 @@ function ArmorRow({
   active,
   onToggleActive,
   moveControl,
+  editControl,
 }: {
   item: EquipmentItem
   armor: ArmorItem
@@ -533,6 +537,7 @@ function ArmorRow({
   active: boolean
   onToggleActive?: () => void
   moveControl?: ReactNode
+  editControl?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -562,7 +567,7 @@ function ArmorRow({
 
       {expanded && (
         <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
-          {armor.description && <p>{armor.description}</p>}
+          {armor.description && <p className="whitespace-pre-wrap">{armor.description}</p>}
           <div className="flex gap-x-4 gap-y-1 flex-wrap">
             <span><span className="font-semibold text-foreground">Type:</span> {armor.armor_type}</span>
             <span><span className="font-semibold text-foreground">AC:</span> {armor.ac_formula}</span>
@@ -580,6 +585,7 @@ function ArmorRow({
             )}
           </div>
           <div className="flex justify-end items-center gap-3">
+            {editControl}
             {moveControl}
             <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
@@ -605,6 +611,7 @@ function ItemRow({
   onToggleActive,
   moveControl,
   containerButton,
+  editControl,
   heal,
   onDrink,
 }: {
@@ -616,6 +623,7 @@ function ItemRow({
   onToggleActive?: () => void
   moveControl?: ReactNode
   containerButton?: ReactNode
+  editControl?: ReactNode
   heal?: { dice: string; bonus: number }   // consumable heal (potions) → shows a Drink action
   onDrink?: () => void
 }) {
@@ -673,6 +681,7 @@ function ItemRow({
               onSave={v => onUpdate({ quantity: Math.max(1, v) })}
               min={1}
               size="sm"
+              typeable
             />
             <span className="text-xs text-muted-foreground">qty</span>
             <button
@@ -683,6 +692,7 @@ function ItemRow({
               <Pencil className="h-3 w-3" />
             </button>
             <div className="ml-auto flex items-center gap-3 text-xs">
+              {editControl}
               {moveControl}
               <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
               <button
@@ -719,6 +729,7 @@ function MagicItemRow({
   onToggleActive,
   moveControl,
   containerButton,
+  editControl,
 }: {
   item: EquipmentItem
   wondrousItem: WondrousItem
@@ -729,6 +740,7 @@ function MagicItemRow({
   onToggleActive?: () => void
   moveControl?: ReactNode
   containerButton?: ReactNode
+  editControl?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const rarityColor = RARITY_COLORS[wondrousItem.rarity] ?? 'var(--color-text-muted)'
@@ -742,6 +754,9 @@ function MagicItemRow({
             className="text-left text-sm font-medium hover:opacity-75 transition-opacity w-full block"
           >
             {item.name}
+            {item.quantity > 1 && (
+              <span className="text-xs text-muted-foreground ml-1.5">×{item.quantity}</span>
+            )}
           </button>
           {/* Rarity / attune on their own line so the name gets full width (BUG-55/65) */}
           <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs mt-0.5">
@@ -760,12 +775,23 @@ function MagicItemRow({
       {expanded && (
         <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
           {wondrousItem.description && (
-            <p>{wondrousItem.description}</p>
+            <p className="whitespace-pre-wrap">{wondrousItem.description}</p>
           )}
           {wondrousItem.charges && (
             <ChargesTracker charges={wondrousItem.charges} used={item.chargesUsed ?? 0} onSetCharges={u => onUpdate({ chargesUsed: u })} />
           )}
+          <div className="flex items-center gap-3">
+            <StepperField
+              value={item.quantity}
+              onSave={v => onUpdate({ quantity: Math.max(1, v) })}
+              min={1}
+              size="sm"
+              typeable
+            />
+            <span>qty</span>
+          </div>
           <div className="flex justify-end items-center gap-3">
+            {editControl}
             {moveControl}
             <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
@@ -793,6 +819,7 @@ function MagicArmorRow({
   variableBase = false,
   onChooseBase,
   moveControl,
+  editControl,
 }: {
   item: EquipmentItem
   armor: ArmorItem
@@ -804,6 +831,7 @@ function MagicArmorRow({
   variableBase?: boolean
   onChooseBase?: () => void
   moveControl?: ReactNode
+  editControl?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const rarityColor = RARITY_COLORS[armor.rarity ?? ''] ?? 'var(--color-text-muted)'
@@ -843,7 +871,7 @@ function MagicArmorRow({
       </div>
       {expanded && (
         <div className="pb-3 px-1 space-y-2 text-xs text-muted-foreground">
-          {armor.description && <p>{armor.description}</p>}
+          {armor.description && <p className="whitespace-pre-wrap">{armor.description}</p>}
           {variableBase && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-foreground">Base armor:</span>
@@ -864,6 +892,7 @@ function MagicArmorRow({
             <ChargesTracker charges={armor.charges} used={item.chargesUsed ?? 0} onSetCharges={u => onUpdate({ chargesUsed: u })} />
           )}
           <div className="flex justify-end items-center gap-3">
+            {editControl}
             {moveControl}
             <ActivateToggle requiresAttunement={requiresAttunement} active={active} onToggle={onToggleActive} />
             <button
@@ -985,6 +1014,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   const [gearPickerOpen, setGearPickerOpen] = useState(false)
   // Custom weapon/armor creation dialog (null = closed).
   const [customDialog, setCustomDialog] = useState<'weapon' | 'armor' | 'item' | null>(null)
+  const [editCustom, setEditCustom] = useState<{ kind: CustomItemKind; def: WeaponItem | ArmorItem | WondrousItem } | null>(null)
   // Currency whose add/subtract modal is open (null = closed).
   const [currencyModal, setCurrencyModal] = useState<keyof Currency | null>(null)
   // Container (bag of holding etc.) whose inventory dialog is open (null = closed).
@@ -1176,15 +1206,54 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
       </button>
     )
   }
+  // Editing an existing custom def: replace it in the matching custom array; on a
+  // rename, re-point every equipment instance (name is the def↔instance join key).
+  function updateCustomDef(originalName: string, def: WeaponItem | ArmorItem | WondrousItem) {
+    const changes: Partial<NewCharacter> =
+      def.category === 'weapon'
+        ? { customWeapons: (character.customWeapons ?? []).map(d => d.name === originalName ? def as WeaponItem : d) }
+      : def.category === 'wondrous_item'
+        ? { customItems: (character.customItems ?? []).map(d => d.name === originalName ? def as WondrousItem : d) }
+        : { customArmor: (character.customArmor ?? []).map(d => d.name === originalName ? def as ArmorItem : d) }
+    if (def.name !== originalName) {
+      changes.equipment = character.equipment.map(e => e.name === originalName ? { ...e, name: def.name } : e)
+    }
+    onSave(changes)
+  }
+  // An equipment row is editable homebrew when its name resolves to one of this
+  // character's own custom defs (never for catalog/campaign items).
+  function findCustomDef(name: string): { kind: CustomItemKind; def: WeaponItem | ArmorItem | WondrousItem } | null {
+    const w = (character.customWeapons ?? []).find(d => d.name === name)
+    if (w) return { kind: 'weapon', def: w }
+    const a = (character.customArmor ?? []).find(d => d.name === name)
+    if (a) return { kind: 'armor', def: a }
+    const i = (character.customItems ?? []).find(d => d.name === name)
+    if (i) return { kind: 'item', def: i }
+    return null
+  }
+  function buildEditControl(item: EquipmentItem): ReactNode {
+    const found = findCustomDef(item.name)
+    if (!found) return null
+    return (
+      <button
+        onClick={() => setEditCustom(found)}
+        className="flex items-center gap-1 hover:opacity-75 transition-opacity"
+        title="Edit this homebrew item's definition"
+      >
+        <Pencil className="h-3 w-3" />
+        <span>Edit item</span>
+      </button>
+    )
+  }
   // A homebrew weapon/armor/item: store the definition (so its stats resolve by
   // name via the merged catalog) AND drop a loadout instance referencing it, in one
   // write. Wondrous items also set displayCategory so they file under Items.
-  function createCustomDef(def: WeaponItem | ArmorItem | WondrousItem) {
+  function createCustomDef(def: WeaponItem | ArmorItem | WondrousItem, quantity = 1) {
     const changes: Partial<NewCharacter> =
       def.category === 'weapon' ? { customWeapons: [...(character.customWeapons ?? []), def as WeaponItem] }
       : def.category === 'wondrous_item' ? { customItems: [...(character.customItems ?? []), def as WondrousItem] }
       : { customArmor: [...(character.customArmor ?? []), def as ArmorItem] }
-    const instance: EquipmentItem = { id: generateId(), name: def.name, quantity: 1 }
+    const instance: EquipmentItem = { id: generateId(), name: def.name, quantity: Math.max(1, Math.floor(quantity)) }
     if (def.category === 'wondrous_item') instance.displayCategory = 'item'
     changes.equipment = [...character.equipment, instance]
     onSave(changes)
@@ -1304,13 +1373,14 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           variableBase={variableBase}
           onChooseBase={() => setBasePickerItem(item)}
           moveControl={moveControl}
+          editControl={buildEditControl(item)}
         />
       )
     }
     const armor = armorByName.get(n)
     if (armor) {
       if (!armor.magical) {
-        return <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} requiresAttunement={reqAtt} active={active} onToggleActive={onToggleActive} moveControl={moveControl} />
+        return <ArmorRow key={item.id} item={item} armor={armor} onRemove={() => removeItem(item.id)} requiresAttunement={reqAtt} active={active} onToggleActive={onToggleActive} moveControl={moveControl} editControl={buildEditControl(item)} />
       }
       // "Any armor / Varies" magic armor: resolve the chosen mundane base so the row
       // shows a real AC formula; the AC derivation does the same resolution.
@@ -1341,6 +1411,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           variableBase={variableBase}
           onChooseBase={() => setBasePickerItem(item)}
           moveControl={moveControl}
+          editControl={buildEditControl(item)}
         />
       )
     }
@@ -1358,6 +1429,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           onToggleActive={onToggleActive}
           moveControl={moveControl}
           containerButton={containerButton}
+          editControl={buildEditControl(item)}
         />
       )
     }
@@ -1373,6 +1445,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         onToggleActive={onToggleActive}
         moveControl={moveControl}
         containerButton={containerButton}
+        editControl={buildEditControl(item)}
         heal={heal}
         onDrink={heal ? () => {
           // Roll the healing (shared heal modal, no auto-HP — like Hit Dice/spells) and
@@ -1627,6 +1700,17 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         kind={customDialog ?? 'weapon'}
         onClose={() => setCustomDialog(null)}
         onCreate={createCustomDef}
+        showQuantity
+      />
+
+      {/* Edit an existing homebrew def (opened from a row's "Edit item" control) */}
+      <CustomItemDialog
+        open={editCustom !== null}
+        kind={editCustom?.kind ?? 'item'}
+        initial={editCustom?.def}
+        onClose={() => setEditCustom(null)}
+        onCreate={createCustomDef}
+        onEdit={updateCustomDef}
       />
 
       <SelectionList
@@ -1635,6 +1719,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         title="Add Weapon"
         open={weaponPickerOpen}
         onClose={() => { setWeaponPickerOpen(false); setAddTargetContainerId(null) }}
+        onBack={addTargetContainerId ? () => { setWeaponPickerOpen(false); setAddTargetContainerId(null) } : undefined}
+        backLabel="Back to bag"
         tabs={weaponTabs}
         onSelect={name => {
           addItem(name)
@@ -1647,6 +1733,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         title="Add Armor"
         open={armorPickerOpen}
         onClose={() => { setArmorPickerOpen(false); setAddTargetContainerId(null) }}
+        onBack={addTargetContainerId ? () => { setArmorPickerOpen(false); setAddTargetContainerId(null) } : undefined}
+        backLabel="Back to bag"
         tabs={armorTabs}
         onSelect={name => {
           addItem(name)
@@ -1659,6 +1747,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
         title="Add Item"
         open={gearPickerOpen}
         onClose={() => { setGearPickerOpen(false); setAddTargetContainerId(null) }}
+        onBack={addTargetContainerId ? () => { setGearPickerOpen(false); setAddTargetContainerId(null) } : undefined}
+        backLabel="Back to bag"
         tabs={itemsTabs}
         onSelect={name => {
           addItem(name, wondrousItemByName.has(name.toLowerCase()) ? 'item' : undefined)

@@ -19,7 +19,7 @@ export function DetailBody({ item }: DetailBodyProps) {
       )}
 
       {item.description && (
-        <p className="text-sm leading-relaxed">{item.description}</p>
+        <p className="text-sm leading-relaxed whitespace-pre-wrap">{item.description}</p>
       )}
 
       {item.sections && item.sections.length > 0 && (
