@@ -69,6 +69,8 @@ export function ClassAbilitiesSection({ character, abilities, featureDescription
           const costUsed = costPool ? usedFor(costPool.key, costMax) : 0
           const costRemaining = costMax - costUsed
           const costLabel = costPool?.resource?.label ?? 'resource'
+          // "1 ki point", "2 ki points" — depluralize the label for a single spend.
+          const costNoun = cost?.amount === 1 ? costLabel.toLowerCase().replace(/s$/, '') : costLabel.toLowerCase()
 
           return (
             <div key={a.key} className="py-2 space-y-1.5">
@@ -95,7 +97,7 @@ export function ClassAbilitiesSection({ character, abilities, featureDescription
                       ? `Spends ${cost.amount} from ${costLabel} (${costRemaining} left)`
                       : 'Requires a resource this character does not have'}
                   >
-                    Use ({cost.amount} {costLabel.toLowerCase()})
+                    Use ({cost.amount} {costNoun})
                   </button>
                 )}
               </div>
