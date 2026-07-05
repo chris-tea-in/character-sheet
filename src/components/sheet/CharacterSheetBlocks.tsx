@@ -67,6 +67,8 @@ export function CharacterSheetBlocks({
           classRecord={sheet.classRecord}
           classLevel={sheet.primaryClassLevel}
           derived={sheet.derived}
+          classAbilities={data.setupData?.classAbilities ?? []}
+          featureDescriptions={data.setupData?.featureDescriptions ?? {}}
           overrideSlotProfile={sheet.multiclassSlotProfile ?? undefined}
           overrideCasterKind={sheet.multiclassCasterKind}
           onSave={save}

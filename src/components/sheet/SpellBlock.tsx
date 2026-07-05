@@ -20,8 +20,10 @@ import { mergeCustomSpells } from '@/lib/customContent'
 import { CustomSpellDialog } from './CustomSpellDialog'
 import { StatBreakdown } from './StatBreakdown'
 import { ResourcePips } from './ResourcePips'
+import { ClassAbilitiesSection } from './ClassAbilitiesSection'
 import type { CustomSpellDamage } from './CustomSpellDialog'
-import type { ClassData, SpellData } from '@/types/data'
+import type { FeatureDescriptions } from '@/lib/data'
+import type { ClassAbility, ClassData, SpellData } from '@/types/data'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
 import type { DerivedStats } from '@/lib/characterStats'
@@ -31,6 +33,11 @@ interface Props {
   classRecord: ClassData
   classLevel: number
   derived: DerivedStats
+  // Resource-backed class abilities (Lay on Hands, Rage, Ki …) shown as a section
+  // of this block; gated/sized per OWNING class inside ClassAbilitiesSection —
+  // never by the primary-class `classLevel` prop above (INV-2).
+  classAbilities: ClassAbility[]
+  featureDescriptions: FeatureDescriptions
   overrideSlotProfile?: SpellcastingProfile
   overrideCasterKind?: CasterKind
   onSave: (changes: Partial<NewCharacter>) => void
@@ -235,7 +242,7 @@ function SpellRow({
 }
 
 
-export function SpellBlock({ character, classRecord, classLevel, derived, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
+export function SpellBlock({ character, classRecord, classLevel, derived, classAbilities, featureDescriptions, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
   const [customSpellOpen, setCustomSpellOpen] = useState(false)
@@ -525,6 +532,15 @@ export function SpellBlock({ character, classRecord, classLevel, derived, overri
         <p className="text-[11px] text-muted-foreground">Tap a pip to use or restore a slot</p>
       </div>
       )}
+
+      {/* Class abilities — resource-backed features (Lay on Hands, Rage, Ki …), not spells */}
+      <ClassAbilitiesSection
+        character={character}
+        abilities={classAbilities}
+        featureDescriptions={featureDescriptions}
+        derived={derived}
+        onSave={onSave}
+      />
 
       {/* Spell list */}
       <div className="rounded-lg border border-border bg-card p-3">

@@ -483,3 +483,41 @@ export interface FeatureChoiceGroup {
 
 /** Compiled class-features.json — keyed by group key. */
 export type ClassFeatureData = Record<string, FeatureChoiceGroup>
+
+// ── Class abilities (resource-backed, action-typed — Lay on Hands, Rage, Ki …) ──
+// Compiled verbatim from data/class-abilities.json. Distinct from FeatureChoiceGroup
+// (nothing to choose) and from ClassFeatureEffects (no passive stat effect): these
+// are play-time features with a spendable resource and an action-economy type,
+// rendered in the Spells area (ClassAbilitiesSection).
+
+export type ClassAbilityAction = 'action' | 'bonus_action' | 'reaction' | 'other'
+
+/** Resource sizing — exactly one sizing field is set: `perLevel` (Lay on Hands
+ * 5 × level, Ki 1 × level), `by` (level-stepped uses — Rage, Action Surge), or
+ * `abilityMod` (Bardic Inspiration = CHA mod, min 1). */
+export interface ClassAbilityResource {
+  label: string
+  kind: 'pool' | 'uses'          // pool = numeric points (stepper UI); uses = pips
+  perLevel?: number
+  by?: FeatureResourceStep[]
+  abilityMod?: AbilityName
+  rest?: 'short' | 'long'        // informational — the app has no rest system
+}
+
+export interface ClassAbility {
+  /** Namespaced "ability:<class>:<slug>" — the prefix keeps these from colliding
+   * with feature-choice group keys in the shared featureResourcesUsed record.
+   * Enforced by build-data. */
+  key: string
+  /** Granted by this class (optionally only with this subclass); gating AND
+   * resource sizing use the OWNING class's level (INV-2). */
+  source: { classSlug: string; subclassSlug?: string | null }
+  level: number
+  name: string
+  action: ClassAbilityAction
+  resource?: ClassAbilityResource
+  /** Spends N from ANOTHER ability's resource (Flurry of Blows → Ki). */
+  cost?: { key: string; amount: number }
+  /** Spend-UI hint; 'heal-pool' = pool points are hit points healed. */
+  effect?: { kind: 'heal-pool' }
+}

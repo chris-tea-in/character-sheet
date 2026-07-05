@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   owningClassLevel, knownCount, resourceCount, applicableGroups, levelUpFeatureChoices,
-  meetsFeatureOptionPrereqs, allSelectedOptionSlugs,
+  meetsFeatureOptionPrereqs, allSelectedOptionSlugs, resolveResourceMax, earnedAbilities,
 } from './classFeatures'
 import { computeFeatureWeaponBonus, type FeatureWeaponEffect } from './characterStats'
 import { defaultCharacter } from '../types/character'
-import type { Character, ClassEntry } from '../types/character'
-import type { FeatureChoiceGroup, ClassFeatureData, FeatureOption, WeaponItem } from '../types/data'
+import type { Abilities, Character, ClassEntry } from '../types/character'
+import type { FeatureChoiceGroup, ClassFeatureData, FeatureOption, WeaponItem, ClassAbility } from '../types/data'
 
 function makeCharacter(classes: ClassEntry[]): Character {
   return { ...defaultCharacter('Test'), id: 'c1', createdAt: 0, updatedAt: 0, classes }
@@ -167,6 +167,114 @@ describe('allSelectedOptionSlugs', () => {
   it('flattens all group selections into one set', () => {
     const set = allSelectedOptionSlugs({ a: ['x', 'y'], b: ['z'] })
     expect(set).toEqual(new Set(['x', 'y', 'z']))
+  })
+})
+
+// ── Class abilities (resource-backed — Lay on Hands, Rage, Ki …) ───────────────
+
+const flatAbilities = (over: Partial<Abilities> = {}): Abilities =>
+  ({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10, ...over })
+
+const layOnHands: ClassAbility = {
+  key: 'ability:paladin:lay-on-hands', source: { classSlug: 'paladin' },
+  level: 1, name: 'Lay on Hands', action: 'action',
+  resource: { label: 'Healing Pool', kind: 'pool', perLevel: 5, rest: 'long' },
+  effect: { kind: 'heal-pool' },
+}
+const paladinChannelDivinity: ClassAbility = {
+  key: 'ability:paladin:channel-divinity', source: { classSlug: 'paladin' },
+  level: 3, name: 'Channel Divinity', action: 'other',
+  resource: { label: 'Uses', kind: 'uses', by: [{ level: 3, n: 1 }], rest: 'short' },
+}
+const actionSurge: ClassAbility = {
+  key: 'ability:fighter:action-surge', source: { classSlug: 'fighter' },
+  level: 2, name: 'Action Surge', action: 'other',
+  resource: { label: 'Uses', kind: 'uses', by: [{ level: 2, n: 1 }, { level: 17, n: 2 }], rest: 'short' },
+}
+const bardicInspiration: ClassAbility = {
+  key: 'ability:bard:bardic-inspiration', source: { classSlug: 'bard' },
+  level: 1, name: 'Bardic Inspiration', action: 'bonus_action',
+  resource: { label: 'Inspiration Dice', kind: 'uses', abilityMod: 'cha', rest: 'long' },
+}
+const wildShape: ClassAbility = {
+  key: 'ability:druid:wild-shape', source: { classSlug: 'druid' },
+  level: 2, name: 'Wild Shape', action: 'action',
+  resource: { label: 'Uses', kind: 'uses', by: [{ level: 2, n: 2 }], rest: 'short' },
+}
+const subclassAbility: ClassAbility = {
+  key: 'ability:cleric:war-priest', source: { classSlug: 'cleric', subclassSlug: 'war-domain' },
+  level: 1, name: 'War Priest', action: 'bonus_action',
+  resource: { label: 'Uses', kind: 'uses', abilityMod: 'wis', rest: 'long' },
+}
+const abilityCatalog = [layOnHands, paladinChannelDivinity, actionSurge, bardicInspiration, wildShape, subclassAbility]
+
+describe('resolveResourceMax', () => {
+  it('perLevel scales with the OWNING class level (Lay on Hands 5 × 3 = 15)', () => {
+    expect(resolveResourceMax(layOnHands.resource!, 3, flatAbilities())).toBe(15)
+    expect(resolveResourceMax(layOnHands.resource!, 20, flatAbilities())).toBe(100)
+  })
+
+  it('by-table takes the highest reached step (Action Surge: 1, then 2 at 17)', () => {
+    expect(resolveResourceMax(actionSurge.resource!, 1, flatAbilities())).toBe(0)
+    expect(resolveResourceMax(actionSurge.resource!, 2, flatAbilities())).toBe(1)
+    expect(resolveResourceMax(actionSurge.resource!, 16, flatAbilities())).toBe(1)
+    expect(resolveResourceMax(actionSurge.resource!, 17, flatAbilities())).toBe(2)
+  })
+
+  it('abilityMod reads effective abilities and floors at 1 ("minimum of once")', () => {
+    expect(resolveResourceMax(bardicInspiration.resource!, 2, flatAbilities({ cha: 16 }))).toBe(3)
+    expect(resolveResourceMax(bardicInspiration.resource!, 2, flatAbilities({ cha: 8 }))).toBe(1)
+    expect(resolveResourceMax(bardicInspiration.resource!, 2, flatAbilities({ cha: 10 }))).toBe(1)
+  })
+
+  it('owning level 0 → 0 even for abilityMod resources', () => {
+    expect(resolveResourceMax(bardicInspiration.resource!, 0, flatAbilities({ cha: 20 }))).toBe(0)
+  })
+})
+
+describe('earnedAbilities — owning-class gating and sizing (INV-2)', () => {
+  it('paladin 3 earns Lay on Hands + paladin Channel Divinity, nothing from other classes', () => {
+    const ch = makeCharacter([{ classSlug: 'paladin', subclassSlug: null, level: 3 }])
+    const keys = earnedAbilities(ch, abilityCatalog).map(a => a.key)
+    expect(keys).toEqual(['ability:paladin:lay-on-hands', 'ability:paladin:channel-divinity'])
+  })
+
+  it('paladin 2 does not yet earn Channel Divinity (level 3 gate)', () => {
+    const ch = makeCharacter([{ classSlug: 'paladin', subclassSlug: null, level: 2 }])
+    const keys = earnedAbilities(ch, abilityCatalog).map(a => a.key)
+    expect(keys).toContain('ability:paladin:lay-on-hands')
+    expect(keys).not.toContain('ability:paladin:channel-divinity')
+  })
+
+  it('bard 5 / paladin 3 multiclass: Lay on Hands pool sizes by PALADIN level (15, not 40)', () => {
+    const ch = makeCharacter([
+      { classSlug: 'bard', subclassSlug: null, level: 5 },
+      { classSlug: 'paladin', subclassSlug: null, level: 3 },
+    ])
+    const earned = earnedAbilities(ch, abilityCatalog)
+    const loh = earned.find(a => a.key === layOnHands.key)!
+    expect(earned.map(a => a.key)).toContain(bardicInspiration.key)
+    expect(resolveResourceMax(loh.resource!, owningClassLevel(ch, loh), flatAbilities())).toBe(15)
+  })
+
+  it('subclass-sourced ability requires the matching subclass', () => {
+    const wrongSub = makeCharacter([{ classSlug: 'cleric', subclassSlug: 'life-domain', level: 5 }])
+    const rightSub = makeCharacter([{ classSlug: 'cleric', subclassSlug: 'war-domain', level: 5 }])
+    expect(earnedAbilities(wrongSub, [subclassAbility])).toEqual([])
+    expect(earnedAbilities(rightSub, [subclassAbility])).toEqual([subclassAbility])
+  })
+
+  it('legacy single-class record (empty classes[]) still gates by class/level', () => {
+    const ch: Character = { ...makeCharacter([]), class: 'druid', level: 2 }
+    expect(earnedAbilities(ch, abilityCatalog).map(a => a.key)).toEqual([wildShape.key])
+  })
+})
+
+describe('class-ability key namespace', () => {
+  it('every starter key carries the "ability:" prefix (featureResourcesUsed collision guard)', () => {
+    for (const a of abilityCatalog) expect(a.key).toMatch(/^ability:/)
+    // …and therefore can never equal a feature-choice group key like "fighter:fighting-style".
+    expect(abilityCatalog.some(a => a.key === fightingStyle.key)).toBe(false)
   })
 })
 
