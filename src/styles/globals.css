@@ -84,6 +84,14 @@ body {
   }
 }
 
+/* Tab panels (top-level sheet tabs in CharacterPage + ProficienciesBlock's
+   skills/saves sub-tabs) stay MOUNTED so block state survives switches; inactive
+   ones hide here. No !important — the @media print rule below (equal specificity,
+   !important) overrides it so every panel prints. */
+[role="tabpanel"][data-state="inactive"] {
+  display: none;
+}
+
 @media print {
   /* Switch to light theme for ink-friendly output */
   :root {
@@ -109,8 +117,9 @@ body {
     display: none !important;
   }
 
-  /* ProficienciesBlock uses Radix Tabs — force all panels visible so skills,
-     saves, and tools all appear on the printed sheet, not just the active tab. */
+  /* Always-mounted tab panels (top-level sheet tabs + ProficienciesBlock's
+     skills/saves sub-tabs) are hidden by the app-level data-state rule above —
+     force them all visible so the printed sheet includes every section. */
   [role="tabpanel"][data-state="inactive"] {
     display: block !important;
   }

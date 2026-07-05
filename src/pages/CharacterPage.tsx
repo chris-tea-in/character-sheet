@@ -35,6 +35,7 @@ import {
   slugToTitle, ABILITY_ORDER, ABILITY_LABELS, toSubraceSlug, ABILITY_FULL_TO_SHORT,
 } from '@/lib/characterSetup'
 import { SKILL_DISPLAY_MAP } from '@/lib/dice'
+import { cn } from '@/lib/utils'
 import { ALL_LANGUAGES, toSkillName, parseBackgroundSkills, backgroundGrantedSkills } from '@/lib/characterSetup'
 import type { SetupData } from '@/lib/data'
 import type { ClassData, Race, Subrace, Background, EquipmentData, FeatData } from '@/types/data'
@@ -44,6 +45,20 @@ import type { SelectionEntry } from '@/components/SelectionList'
 import type { DetailItem } from '@/types/detail-item'
 
 type IdentityList = 'class' | 'subclass' | 'race' | 'subrace' | 'background' | 'alignment' | null
+
+// Top-level sheet tabs. Every panel stays MOUNTED (block state survives switches;
+// print shows all); inactive panels hide via the app-level
+// [role="tabpanel"][data-state="inactive"] rule in globals.css, which the
+// @media print rule there overrides so the whole sheet prints.
+const SHEET_TABS = [
+  { key: 'combat', label: 'Combat' },
+  { key: 'spells', label: 'Spells' },
+  { key: 'character', label: 'Character' },
+  { key: 'inventory', label: 'Inventory' },
+  { key: 'notes', label: 'Notes' },
+] as const
+type SheetTab = (typeof SHEET_TABS)[number]['key']
+const isSheetTab = (v: string | null): v is SheetTab => SHEET_TABS.some(t => t.key === v)
 
 function classSavesToAbilities(saves: string[]): AbilityName[] {
   return saves.map(s => ABILITY_FULL_TO_SHORT[s.toLowerCase()]).filter(Boolean) as AbilityName[]
@@ -588,6 +603,21 @@ export default function CharacterPage() {
   const [addClassOpen, setAddClassOpen] = useState(false)
   const [addClassTotalLevel, setAddClassTotalLevel] = useState<number | null>(null)
 
+  // Active top-level tab — per character, session-scoped (sessionStorage), default
+  // Combat. Only data-state flips on switch; panels never unmount.
+  const [activeTab, setActiveTab] = useState<SheetTab>(() => {
+    const stored = sessionStorage.getItem(`sheet-tab:${id}`)
+    return isSheetTab(stored) ? stored : 'combat'
+  })
+  useEffect(() => {
+    const stored = sessionStorage.getItem(`sheet-tab:${id}`)
+    setActiveTab(isSheetTab(stored) ? stored : 'combat')
+  }, [id])
+  function selectTab(t: SheetTab) {
+    setActiveTab(t)
+    sessionStorage.setItem(`sheet-tab:${id}`, t)
+  }
+
   useEffect(() => {
     loadSetupData()
       .then(data => {
@@ -906,10 +936,14 @@ export default function CharacterPage() {
     setLevelPickerPending(null)
   }
 
+  // The Spells tab needs a class record; until then treat a stored 'spells' pick
+  // as Combat (it snaps back once setupData resolves the class).
+  const effectiveTab: SheetTab = activeTab === 'spells' && !classRecord ? 'combat' : activeTab
+
   return (
     <div className="min-h-dvh flex flex-col pb-[52px] print:pb-0">
-      {/* Page header — sits at the top of the page and scrolls away (not sticky). */}
-      <header className="border-b border-border bg-background">
+      {/* Sticky header — character name + tab bar stay visible while the sheet scrolls. */}
+      <header className="sticky top-0 z-30 border-b border-border bg-background print:static">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-start gap-3">
           <button
             onClick={() => navigate('/')}
@@ -932,52 +966,91 @@ export default function CharacterPage() {
             Edit
           </button>
         </div>
+        <div
+          role="tablist"
+          aria-label="Sheet sections"
+          className="max-w-2xl mx-auto px-4 pb-2 flex items-center gap-1 overflow-x-auto print:hidden"
+        >
+          {SHEET_TABS.map(t => {
+            if (t.key === 'spells' && !classRecord) return null
+            const active = effectiveTab === t.key
+            return (
+              <button
+                key={t.key}
+                role="tab"
+                id={`sheet-tab-${t.key}`}
+                aria-selected={active}
+                aria-controls={`sheet-panel-${t.key}`}
+                onClick={() => selectTab(t.key)}
+                className={cn(
+                  'px-3 py-1 text-xs rounded-md font-semibold uppercase tracking-wide transition-colors whitespace-nowrap flex-none',
+                  active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t.label}
+              </button>
+            )
+          })}
+        </div>
       </header>
 
       <main className="flex-1">
-        <div className="max-w-2xl mx-auto px-4 py-4 space-y-6">
+        <div className="max-w-2xl mx-auto px-4 py-4">
 
-          <IdentitySection
-            character={character}
-            setupData={setupData}
-            displayClass={displayClass}
-            displayRace={displayRace}
-            displaySubrace={displaySubrace}
-            subraceEntries={subraceEntries}
-            currentRaceData={currentRaceData}
-            subclassEntries={subclassEntries}
-            onOpenList={setActiveList}
-            onSave={save}
-            onLevelChange={handleLevelChange}
-            onCustomizeRace={() => currentRaceData && setRaceDialog({ mode: 'edit', base: currentRaceData })}
-          />
-
-          <AbilityBlock character={character} derived={derived} onSave={save} />
-          <CombatBlock
-            character={character}
-            derived={derived}
-            onSave={save}
-            classHitDice={classHitDice}
-          />
-          <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} derived={derived} onSave={save} />
-          <FeaturesBlock character={character} setupData={setupData} onSave={save} />
-          <FeatsBlock character={character} derived={derived} onSave={save} />
-          <EquipmentBlock character={character} derived={derived} onSave={save} catalog={sheetCatalog} classRecord={classRecord} />
-          {classRecord && (
-            <SpellBlock
+          <div role="tabpanel" id="sheet-panel-combat" aria-labelledby="sheet-tab-combat" data-state={effectiveTab === 'combat' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
+            <CombatBlock
               character={character}
-              classRecord={classRecord}
-              classLevel={primaryClassLevel}
               derived={derived}
-              classAbilities={setupData?.classAbilities ?? []}
-              featureDescriptions={setupData?.featureDescriptions ?? {}}
-              overrideSlotProfile={multiclassSlotProfile ?? undefined}
-              overrideCasterKind={multiclassCasterKind}
               onSave={save}
+              classHitDice={classHitDice}
             />
-          )}
-          <DescriptionBlock character={character} derived={derived} onSave={save} />
-          <CustomEffectsBlock character={character} onSave={save} />
+          </div>
+
+          <div role="tabpanel" id="sheet-panel-spells" aria-labelledby="sheet-tab-spells" data-state={effectiveTab === 'spells' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
+            {classRecord && (
+              <SpellBlock
+                character={character}
+                classRecord={classRecord}
+                classLevel={primaryClassLevel}
+                derived={derived}
+                classAbilities={setupData?.classAbilities ?? []}
+                featureDescriptions={setupData?.featureDescriptions ?? {}}
+                overrideSlotProfile={multiclassSlotProfile ?? undefined}
+                overrideCasterKind={multiclassCasterKind}
+                onSave={save}
+              />
+            )}
+          </div>
+
+          <div role="tabpanel" id="sheet-panel-character" aria-labelledby="sheet-tab-character" data-state={effectiveTab === 'character' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
+            <IdentitySection
+              character={character}
+              setupData={setupData}
+              displayClass={displayClass}
+              displayRace={displayRace}
+              displaySubrace={displaySubrace}
+              subraceEntries={subraceEntries}
+              currentRaceData={currentRaceData}
+              subclassEntries={subclassEntries}
+              onOpenList={setActiveList}
+              onSave={save}
+              onLevelChange={handleLevelChange}
+              onCustomizeRace={() => currentRaceData && setRaceDialog({ mode: 'edit', base: currentRaceData })}
+            />
+            <AbilityBlock character={character} derived={derived} onSave={save} />
+            <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} derived={derived} onSave={save} />
+            <FeaturesBlock character={character} setupData={setupData} onSave={save} />
+            <FeatsBlock character={character} derived={derived} onSave={save} />
+            <CustomEffectsBlock character={character} onSave={save} />
+          </div>
+
+          <div role="tabpanel" id="sheet-panel-inventory" aria-labelledby="sheet-tab-inventory" data-state={effectiveTab === 'inventory' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
+            <EquipmentBlock character={character} derived={derived} onSave={save} catalog={sheetCatalog} classRecord={classRecord} />
+          </div>
+
+          <div role="tabpanel" id="sheet-panel-notes" aria-labelledby="sheet-tab-notes" data-state={effectiveTab === 'notes' ? 'active' : 'inactive'} className="space-y-6">
+            <DescriptionBlock character={character} derived={derived} onSave={save} />
+          </div>
 
         </div>
       </main>
