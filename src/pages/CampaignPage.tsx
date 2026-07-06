@@ -14,6 +14,8 @@ import {
 } from '@/lib/syncApi'
 import type { CampaignMember, RosterMember, CampaignItem } from '@/lib/syncApi'
 import { CustomItemDialog } from '@/components/sheet/CustomItemDialog'
+import { CampaignCompanionsSection } from '@/components/campaign/CampaignCompanionsSection'
+import { cn } from '@/lib/utils'
 import { slugToTitle } from '@/lib/characterSetup'
 import { loadSetupData } from '@/lib/data'
 import type { Character } from '@/types/character'
@@ -52,6 +54,10 @@ export default function CampaignPage() {
   const [removing, setRemoving] = useState<{ id: string; name: string; scope: 'mine' | 'other' } | null>(null)
   // The character whose class disguise the player is editing.
   const [disguising, setDisguising] = useState<Character | null>(null)
+
+  // Party section tab: the roster and the campaign's companions are siblings
+  // (companions — including the DM's unassigned pool — live in their own tab).
+  const [partyTab, setPartyTab] = useState<'players' | 'companions'>('players')
 
   // Class options for the disguise decoy picker (slugs from the compiled data).
   const [classOptions, setClassOptions] = useState<{ slug: string; title: string }[]>([])
@@ -172,36 +178,70 @@ export default function CampaignPage() {
           View Campaign Notes
         </Button>
 
-        {/* The other players in the party. The DM can open and remove their
-            characters; a player only sees the list (names + classes, with any
-            disguise applied server-side). */}
+        {/* The party section — Players and Companions are sibling tabs. Panels
+            render conditionally (no data-state attribute), deliberately outside
+            the tabpanel show/hide CSS: the @media print force-show rule must not
+            print cloud companion content, and an unmounted Companions panel
+            spends no D1 reads until it's opened (read-on-demand). The roster
+            fetch lives at page level, so switching tabs loses nothing. */}
         <section className="space-y-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players</h2>
-          {roster === null ? (
-            <p className="text-sm text-muted-foreground">Loading players…</p>
-          ) : roster.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No other players have joined yet.</p>
-          ) : (
-            roster.map(member => (
-              <div key={member.email} className="space-y-2">
-                <p className="text-xs text-muted-foreground">{member.username ?? member.email}</p>
-                {member.characters.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic">No character yet.</p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {member.characters.map(ch => (
-                      <CharRow
-                        key={ch.id}
-                        name={ch.name}
-                        sub={ch.classLabel}
-                        onClick={isDm ? () => navigate(`/campaign/${campaign.id}/character/${ch.id}`) : undefined}
-                        onRemove={isDm ? () => setRemoving({ id: ch.id, name: ch.name, scope: 'other' }) : undefined}
-                      />
-                    ))}
-                  </div>
+          <div role="tablist" aria-label="Party" className="flex items-center gap-1">
+            {(['players', 'companions'] as const).map(k => (
+              <button
+                key={k}
+                role="tab"
+                id={`party-tab-${k}`}
+                aria-selected={partyTab === k}
+                aria-controls={`party-panel-${k}`}
+                onClick={() => setPartyTab(k)}
+                className={cn(
+                  'px-3 py-1 text-xs rounded-md font-semibold uppercase tracking-wide transition-colors whitespace-nowrap',
+                  partyTab === k ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
                 )}
-              </div>
-            ))
+              >
+                {k === 'players' ? 'Players' : 'Companions'}
+              </button>
+            ))}
+          </div>
+
+          {partyTab === 'players' && (
+            <div role="tabpanel" id="party-panel-players" aria-labelledby="party-tab-players" className="space-y-4">
+              {/* The other players in the party. The DM can open and remove their
+                  characters; a player only sees the list (names + classes, with any
+                  disguise applied server-side). */}
+              {roster === null ? (
+                <p className="text-sm text-muted-foreground">Loading players…</p>
+              ) : roster.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No other players have joined yet.</p>
+              ) : (
+                roster.map(member => (
+                  <div key={member.email} className="space-y-2">
+                    <p className="text-xs text-muted-foreground">{member.username ?? member.email}</p>
+                    {member.characters.length === 0 ? (
+                      <p className="text-sm text-muted-foreground italic">No character yet.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {member.characters.map(ch => (
+                          <CharRow
+                            key={ch.id}
+                            name={ch.name}
+                            sub={ch.classLabel}
+                            onClick={isDm ? () => navigate(`/campaign/${campaign.id}/character/${ch.id}`) : undefined}
+                            onRemove={isDm ? () => setRemoving({ id: ch.id, name: ch.name, scope: 'other' }) : undefined}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {partyTab === 'companions' && (
+            <div role="tabpanel" id="party-panel-companions" aria-labelledby="party-tab-companions">
+              <CampaignCompanionsSection campaignId={campaign.id} isDm={isDm} />
+            </div>
           )}
         </section>
       </main>
