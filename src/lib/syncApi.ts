@@ -287,3 +287,167 @@ export function deleteCampaignItem(id: string, itemId: string): Promise<SyncResu
     { method: 'DELETE' },
   )
 }
+
+// ── Campaign notes / locations / NPCs (Phase F) ─────────────────────────────────
+// Fetch on open + manual refresh only — no polling (the /api/* PWA rule is
+// NetworkOnly, and the free-tier budget assumes read-on-demand).
+// IMPORTANT for callers: write paths must surface {ok:false} visibly (inline
+// "couldn't save" + KEEP the typed text) — never fire-and-forget a note body.
+
+export type NoteSubjectKind = 'campaign' | 'character' | 'location' | 'npc'
+
+export interface CampaignNote {
+  id: string
+  subjectKind: NoteSubjectKind
+  subjectId: string | null
+  authorEmail: string
+  authorUsername: string | null
+  visibility: 'public' | 'hidden'
+  body: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CampaignLocation {
+  id: string
+  name: string
+  description: string
+  authorEmail: string
+  authorUsername: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CampaignNpc {
+  id: string
+  locationId: string | null
+  name: string
+  description: string
+  authorEmail: string
+  authorUsername: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** Any member: the notes THIS viewer may see for a subject (visibility is
+ * enforced server-side in SQL — hidden bodies never arrive for other players). */
+export async function campaignNotes(
+  id: string,
+  subjectKind: NoteSubjectKind,
+  subjectId?: string,
+): Promise<SyncResult<CampaignNote[]>> {
+  const params = new URLSearchParams({ subjectKind })
+  if (subjectId) params.set('subjectId', subjectId)
+  const res = await request<{ notes: CampaignNote[] }>(
+    `/api/campaigns/${encodeURIComponent(id)}/notes?${params}`,
+  )
+  return res.ok ? { ok: true, data: res.data.notes } : res
+}
+
+export function createCampaignNote(
+  id: string,
+  note: { subjectKind: NoteSubjectKind; subjectId?: string; visibility: 'public' | 'hidden'; body: string },
+): Promise<SyncResult<CampaignNote>> {
+  return request<CampaignNote>(`/api/campaigns/${encodeURIComponent(id)}/notes`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(note),
+  })
+}
+
+/** Author-or-DM: edit a note's body and/or visibility. */
+export function updateCampaignNote(
+  id: string,
+  noteId: string,
+  patch: { body?: string; visibility?: 'public' | 'hidden' },
+): Promise<SyncResult<{ ok: true; updatedAt: number }>> {
+  return request(`/api/campaigns/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+/** Author-or-DM: soft-delete a note. */
+export function deleteCampaignNote(id: string, noteId: string): Promise<SyncResult<unknown>> {
+  return request(`/api/campaigns/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function campaignLocations(id: string): Promise<SyncResult<CampaignLocation[]>> {
+  const res = await request<{ locations: CampaignLocation[] }>(
+    `/api/campaigns/${encodeURIComponent(id)}/locations`,
+  )
+  return res.ok ? { ok: true, data: res.data.locations } : res
+}
+
+export function createCampaignLocation(
+  id: string,
+  loc: { name: string; description?: string },
+): Promise<SyncResult<CampaignLocation>> {
+  return request<CampaignLocation>(`/api/campaigns/${encodeURIComponent(id)}/locations`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(loc),
+  })
+}
+
+/** Author-or-DM: edit a location. */
+export function updateCampaignLocation(
+  id: string,
+  locId: string,
+  patch: { name?: string; description?: string },
+): Promise<SyncResult<{ ok: true; updatedAt: number }>> {
+  return request(`/api/campaigns/${encodeURIComponent(id)}/locations/${encodeURIComponent(locId)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+/** Author-or-DM: soft-delete a location. */
+export function deleteCampaignLocation(id: string, locId: string): Promise<SyncResult<unknown>> {
+  return request(`/api/campaigns/${encodeURIComponent(id)}/locations/${encodeURIComponent(locId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function campaignNpcs(id: string, locationId?: string): Promise<SyncResult<CampaignNpc[]>> {
+  const suffix = locationId ? `?locationId=${encodeURIComponent(locationId)}` : ''
+  const res = await request<{ npcs: CampaignNpc[] }>(
+    `/api/campaigns/${encodeURIComponent(id)}/npcs${suffix}`,
+  )
+  return res.ok ? { ok: true, data: res.data.npcs } : res
+}
+
+export function createCampaignNpc(
+  id: string,
+  npc: { name: string; description?: string; locationId?: string },
+): Promise<SyncResult<CampaignNpc>> {
+  return request<CampaignNpc>(`/api/campaigns/${encodeURIComponent(id)}/npcs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(npc),
+  })
+}
+
+/** Author-or-DM: edit an NPC (locationId: null unpins it). */
+export function updateCampaignNpc(
+  id: string,
+  npcId: string,
+  patch: { name?: string; description?: string; locationId?: string | null },
+): Promise<SyncResult<{ ok: true; updatedAt: number }>> {
+  return request(`/api/campaigns/${encodeURIComponent(id)}/npcs/${encodeURIComponent(npcId)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+/** Author-or-DM: soft-delete an NPC. */
+export function deleteCampaignNpc(id: string, npcId: string): Promise<SyncResult<unknown>> {
+  return request(`/api/campaigns/${encodeURIComponent(id)}/npcs/${encodeURIComponent(npcId)}`, {
+    method: 'DELETE',
+  })
+}

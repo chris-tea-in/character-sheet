@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, RefreshCw, Trash2, UserMinus, Plus, X, Eye, EyeOff } from 'lucide-react'
+import { ArrowLeft, Copy, Check, NotebookPen, RefreshCw, Trash2, UserMinus, Plus, X, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose,
@@ -160,6 +160,17 @@ export default function CampaignPage() {
             </div>
           )}
         </section>
+
+        {/* The shared notebook (general notes + location tabs) lives on its own
+            page — every member. */}
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => navigate(`/campaign/${campaign.id}/notes`)}
+        >
+          <NotebookPen className="h-4 w-4" />
+          View Campaign Notes
+        </Button>
 
         {/* The other players in the party. The DM can open and remove their
             characters; a player only sees the list (names + classes, with any
