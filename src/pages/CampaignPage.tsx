@@ -11,8 +11,11 @@ import {
   campaignRoster, campaignMembers, removeMember as apiRemoveMember,
   removeCampaignCharacter,
   campaignItems, createCampaignItem, deleteCampaignItem,
+  campaignLocations, createCampaignLocation, deleteCampaignLocation,
 } from '@/lib/syncApi'
-import type { CampaignMember, RosterMember, CampaignItem } from '@/lib/syncApi'
+import type { CampaignMember, RosterMember, CampaignItem, CampaignLocation } from '@/lib/syncApi'
+import { CampaignNotesPanel } from '@/components/campaign/CampaignNotesPanel'
+import { useSyncStore } from '@/store/sync'
 import { CustomItemDialog } from '@/components/sheet/CustomItemDialog'
 import { slugToTitle } from '@/lib/characterSetup'
 import { loadSetupData } from '@/lib/data'
@@ -130,6 +133,12 @@ export default function CampaignPage() {
           onDelete={() => setDeleteOpen(true)} />}
 
         {isDm && <CampaignItemsSection campaignId={campaign.id} />}
+
+        {/* Shared campaign notebook + places (Phase F) — every member */}
+        <section className="space-y-3 rounded-lg border border-border bg-card p-4">
+          <CampaignNotesPanel campaignId={campaign.id} subjectKind="campaign" isDm={isDm} title="Campaign Notes" />
+        </section>
+        <CampaignLocationsSection campaignId={campaign.id} isDm={isDm} />
 
         {/* The current user's own characters in this campaign */}
         <section className="space-y-3">
@@ -443,6 +452,95 @@ function DmControls({
         <Trash2 className="h-4 w-4" />
         Delete campaign
       </Button>
+    </section>
+  )
+}
+
+// ── Campaign locations (Phase F): list + quick-add; each links to its page ─────
+
+function CampaignLocationsSection({ campaignId, isDm }: { campaignId: string; isDm: boolean }) {
+  const navigate = useNavigate()
+  const me = useSyncStore(s => s.me)
+  const [locations, setLocations] = useState<CampaignLocation[] | null>(null)
+  const [name, setName] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function load() {
+    void campaignLocations(campaignId).then(res => { if (res.ok) setLocations(res.data) })
+  }
+  useEffect(() => { load() }, [campaignId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function add() {
+    const trimmed = name.trim()
+    if (!trimmed || adding) return
+    setAdding(true)
+    const res = await createCampaignLocation(campaignId, { name: trimmed })
+    setAdding(false)
+    if (res.ok) {
+      // Keep-the-text contract: clear only after a confirmed save.
+      setName('')
+      setError(null)
+      load()
+    } else {
+      setError('Couldn’t add the location — check your connection or session; the name is kept.')
+    }
+  }
+
+  async function remove(locId: string) {
+    const res = await deleteCampaignLocation(campaignId, locId)
+    if (res.ok) load()
+    else setError('Couldn’t delete the location — check your connection or session.')
+  }
+
+  return (
+    <section className="space-y-3 rounded-lg border border-border bg-card p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Locations</p>
+      {error && <p className="text-xs" style={{ color: 'var(--color-accent-red)' }}>{error}</p>}
+      {locations === null ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : locations.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No locations yet — add the places your party visits.</p>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {locations.map(l => {
+            const mine = me?.email && l.authorEmail.toLowerCase() === me.email.toLowerCase()
+            return (
+              <li key={l.id} className="flex items-center gap-2 px-3 py-2">
+                <button
+                  onClick={() => navigate(`/campaign/${campaignId}/location/${l.id}`)}
+                  className="flex-1 min-w-0 text-left text-sm hover:opacity-75 transition-opacity truncate"
+                >
+                  {l.name}
+                </button>
+                {(mine || isDm) && (
+                  <button
+                    onClick={() => remove(l.id)}
+                    className="flex-none text-muted-foreground hover:text-destructive transition-colors"
+                    title={`Delete ${l.name}`}
+                    aria-label={`Delete ${l.name}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <div className="flex items-center gap-2">
+        <input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') void add() }}
+          placeholder="New location name…"
+          className="flex-1 bg-[var(--color-surface-2)] border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-ring"
+        />
+        <Button size="sm" variant="outline" onClick={add} disabled={adding || !name.trim()}>
+          <Plus className="h-4 w-4" />
+          {adding ? 'Adding…' : 'Add'}
+        </Button>
+      </div>
     </section>
   )
 }

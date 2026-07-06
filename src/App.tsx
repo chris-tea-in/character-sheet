@@ -5,6 +5,7 @@ import CreateCharacterPage from './pages/CreateCharacterPage'
 import CharacterPage from './pages/CharacterPage'
 import CampaignPage from './pages/CampaignPage'
 import CampaignCharacterPage from './pages/CampaignCharacterPage'
+import LocationPage from './pages/LocationPage'
 import JoinCampaignPage from './pages/JoinCampaignPage'
 import type { DbInitResult } from './storage'
 import { useCharacterStore } from './store/characters'
@@ -62,6 +63,7 @@ export default function App({ dbResult }: AppProps) {
         <Route path="/character/:id/edit" element={<CreateCharacterPage />} />
         <Route path="/campaign/:id" element={<CampaignPage />} />
         <Route path="/campaign/:id/character/:charId" element={<CampaignCharacterPage />} />
+        <Route path="/campaign/:id/location/:locationId" element={<LocationPage />} />
         <Route path="/join/:code" element={<JoinCampaignPage />} />
       </Routes>
       {/* First-run gate: once cloud identity loads with no username yet, block until set.

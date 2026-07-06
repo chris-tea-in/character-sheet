@@ -7,6 +7,10 @@ import { onRequestPut as putChar, onRequestDelete as delChar } from './api/chara
 import { onRequestGet as listChars } from './api/characters'
 import { onRequestGet as campaignChars } from './api/campaigns/[id]/characters'
 import { onRequestPut as putMe } from './api/me'
+import { onRequestGet as listNotes, onRequestPost as postNote } from './api/campaigns/[id]/notes'
+import { onRequestPut as putNote, onRequestDelete as delNote } from './api/campaigns/[id]/notes/[noteId]'
+import { onRequestPost as postLocation } from './api/campaigns/[id]/locations'
+import { onRequestPost as postNpc } from './api/campaigns/[id]/npcs'
 
 // Backend authority tests. The handlers run against a REAL local D1 (Miniflare,
 // in-process, zero Cloudflare/free-tier usage), so the WHERE-scoping, json_set,
@@ -59,16 +63,20 @@ beforeAll(async () => {
 afterAll(async () => { await mf.dispose() })
 
 beforeEach(async () => {
-  for (const t of ['characters', 'campaigns', 'campaign_members', 'users']) {
+  // Every table any suite writes to — a missing entry here leaks rows across
+  // tests and silently rots count/visibility assertions.
+  for (const t of ['characters', 'campaigns', 'campaign_members', 'users',
+    'campaign_items', 'campaign_notes', 'campaign_locations', 'campaign_npcs']) {
     await env.DB.prepare(`DELETE FROM ${t}`).run()
   }
 })
 
-function request(method: string, opts: { body?: unknown; email?: string } = {}): Request {
+function request(method: string, opts: { body?: unknown; email?: string; url?: string } = {}): Request {
   const headers: Record<string, string> = {}
   if (opts.email) headers['x-dev-email'] = opts.email
   if (opts.body !== undefined) headers['content-type'] = 'application/json'
-  return new Request('https://app.example/api', {
+  // `url` matters for handlers that read query params (notes subject filters).
+  return new Request(opts.url ?? 'https://app.example/api', {
     method,
     headers,
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -204,6 +212,123 @@ describe('GET /api/campaigns/:id/characters — visibility', () => {
 
     const outRes = await campaignChars(ctx(request('GET', { email: 'outsider@a.com' }), { id: 'camp2' }))
     expect(outRes.status).toBe(403)
+  })
+})
+
+// ── Campaign notes / locations / NPCs (Phase F) ─────────────────────────────────
+
+const notesUrl = (subjectKind = 'campaign', subjectId?: string) => {
+  const p = new URLSearchParams({ subjectKind })
+  if (subjectId) p.set('subjectId', subjectId)
+  return `https://app.example/api/notes?${p}`
+}
+
+async function addNote(camp: string, email: string, body: Record<string, unknown>) {
+  return postNote(ctx(request('POST', { body, email }), { id: camp }))
+}
+
+describe('campaign notes — hidden-note privacy is enforced in SQL', () => {
+  it('a player cannot read another player’s hidden note; the DM can, with authorship', async () => {
+    await seedCampaign('cn1', 'dm@a.com', ['p1@a.com', 'p2@a.com'])
+    await addNote('cn1', 'p1@a.com', { subjectKind: 'campaign', visibility: 'public', body: 'The tavern is safe.' })
+    await addNote('cn1', 'p1@a.com', { subjectKind: 'campaign', visibility: 'hidden', body: 'I stole the idol.' })
+
+    const asP2 = await listNotes(ctx(request('GET', { email: 'p2@a.com', url: notesUrl() }), { id: 'cn1' }))
+    const p2Notes = ((await asP2.json()) as any).notes
+    expect(p2Notes).toHaveLength(1)
+    expect(p2Notes[0].body).toBe('The tavern is safe.')
+
+    const asP1 = await listNotes(ctx(request('GET', { email: 'p1@a.com', url: notesUrl() }), { id: 'cn1' }))
+    expect(((await asP1.json()) as any).notes).toHaveLength(2)
+
+    const asDm = await listNotes(ctx(request('GET', { email: 'dm@a.com', url: notesUrl() }), { id: 'cn1' }))
+    const dmNotes = ((await asDm.json()) as any).notes
+    expect(dmNotes).toHaveLength(2)
+    const hidden = dmNotes.find((n: any) => n.visibility === 'hidden')
+    expect(hidden.authorEmail).toBe('p1@a.com')
+  })
+
+  it('non-members are forbidden from reading or writing notes', async () => {
+    await seedCampaign('cn2', 'dm@a.com', ['p1@a.com'])
+    const read = await listNotes(ctx(request('GET', { email: 'outsider@a.com', url: notesUrl() }), { id: 'cn2' }))
+    expect(read.status).toBe(403)
+    const write = await addNote('cn2', 'outsider@a.com', { subjectKind: 'campaign', visibility: 'public', body: 'hi' })
+    expect(write.status).toBe(403)
+  })
+
+  it('hidden notes on location and character subjects stay hidden from other players', async () => {
+    await seedCampaign('cn3', 'dm@a.com', ['p1@a.com', 'p2@a.com'])
+
+    // Location subject
+    const locRes = await postLocation(ctx(request('POST', { body: { name: 'Waterdeep' }, email: 'p1@a.com' }), { id: 'cn3' }))
+    const locId = ((await locRes.json()) as any).id
+    await addNote('cn3', 'p1@a.com', { subjectKind: 'location', subjectId: locId, visibility: 'hidden', body: 'Secret door in the sewer.' })
+    const locAsP2 = await listNotes(ctx(request('GET', { email: 'p2@a.com', url: notesUrl('location', locId) }), { id: 'cn3' }))
+    expect(((await locAsP2.json()) as any).notes).toHaveLength(0)
+    const locAsDm = await listNotes(ctx(request('GET', { email: 'dm@a.com', url: notesUrl('location', locId) }), { id: 'cn3' }))
+    expect(((await locAsDm.json()) as any).notes).toHaveLength(1)
+
+    // Character subject (character must belong to this campaign)
+    await putChar(ctx(request('PUT', { body: newBody('PC', 1, { campaignId: 'cn3' }), email: 'p1@a.com' }), { id: 'cnpc1' }))
+    await addNote('cn3', 'p1@a.com', { subjectKind: 'character', subjectId: 'cnpc1', visibility: 'hidden', body: 'He is secretly a lich.' })
+    const chAsP2 = await listNotes(ctx(request('GET', { email: 'p2@a.com', url: notesUrl('character', 'cnpc1') }), { id: 'cn3' }))
+    expect(((await chAsP2.json()) as any).notes).toHaveLength(0)
+    const chAsDm = await listNotes(ctx(request('GET', { email: 'dm@a.com', url: notesUrl('character', 'cnpc1') }), { id: 'cn3' }))
+    expect(((await chAsDm.json()) as any).notes).toHaveLength(1)
+  })
+
+  it('rejects notes on unknown/foreign subjects', async () => {
+    await seedCampaign('cn4', 'dm@a.com', ['p1@a.com'])
+    const res = await addNote('cn4', 'p1@a.com', { subjectKind: 'location', subjectId: 'nope', visibility: 'public', body: 'orphan' })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('campaign notes — author-or-DM edit rights', () => {
+  it('author and DM can edit/delete; another player cannot', async () => {
+    await seedCampaign('cn5', 'dm@a.com', ['p1@a.com', 'p2@a.com'])
+    const created = await addNote('cn5', 'p1@a.com', { subjectKind: 'campaign', visibility: 'public', body: 'v1' })
+    const noteId = ((await created.json()) as any).id
+
+    const p2Edit = await putNote(ctx(request('PUT', { body: { body: 'vandalized' }, email: 'p2@a.com' }), { id: 'cn5', noteId }))
+    expect(p2Edit.status).toBe(403)
+
+    const p1Edit = await putNote(ctx(request('PUT', { body: { body: 'v2' }, email: 'p1@a.com' }), { id: 'cn5', noteId }))
+    expect(p1Edit.status).toBe(200)
+
+    const dmEdit = await putNote(ctx(request('PUT', { body: { visibility: 'hidden' }, email: 'dm@a.com' }), { id: 'cn5', noteId }))
+    expect(dmEdit.status).toBe(200)
+
+    const row = await env.DB.prepare('SELECT body, visibility FROM campaign_notes WHERE id=?').bind(noteId).first<any>()
+    expect(row.body).toBe('v2')
+    expect(row.visibility).toBe('hidden')
+
+    const p2Del = await delNote(ctx(request('DELETE', { email: 'p2@a.com' }), { id: 'cn5', noteId }))
+    expect(p2Del.status).toBe(403)
+    const dmDel = await delNote(ctx(request('DELETE', { email: 'dm@a.com' }), { id: 'cn5', noteId }))
+    expect(dmDel.status).toBe(200)
+    const tomb = await env.DB.prepare('SELECT deleted FROM campaign_notes WHERE id=?').bind(noteId).first<any>()
+    expect(tomb.deleted).toBe(1)
+  })
+})
+
+describe('campaign notes / locations / NPCs — input caps', () => {
+  it('rejects an oversized note body and an empty one', async () => {
+    await seedCampaign('cn6', 'dm@a.com', ['p1@a.com'])
+    const big = await addNote('cn6', 'p1@a.com', { subjectKind: 'campaign', visibility: 'public', body: 'x'.repeat(33_000) })
+    expect(big.status).toBe(400)
+    const empty = await addNote('cn6', 'p1@a.com', { subjectKind: 'campaign', visibility: 'public', body: '   ' })
+    expect(empty.status).toBe(400)
+  })
+
+  it('rejects invalid location/NPC names and NPCs pinned to unknown locations', async () => {
+    await seedCampaign('cn7', 'dm@a.com', ['p1@a.com'])
+    const noName = await postLocation(ctx(request('POST', { body: { name: '  ' }, email: 'p1@a.com' }), { id: 'cn7' }))
+    expect(noName.status).toBe(400)
+    const longName = await postLocation(ctx(request('POST', { body: { name: 'x'.repeat(200) }, email: 'p1@a.com' }), { id: 'cn7' }))
+    expect(longName.status).toBe(400)
+    const badPin = await postNpc(ctx(request('POST', { body: { name: 'Bob', locationId: 'nowhere' }, email: 'p1@a.com' }), { id: 'cn7' }))
+    expect(badPin.status).toBe(400)
   })
 })
 

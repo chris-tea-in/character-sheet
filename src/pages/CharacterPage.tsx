@@ -26,6 +26,7 @@ import type { CampaignItem } from '@/lib/syncApi'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { FeaturesBlock } from '@/components/sheet/FeaturesBlock'
 import { CustomEffectsBlock } from '@/components/sheet/CustomEffectsBlock'
+import { CampaignNotesPanel } from '@/components/campaign/CampaignNotesPanel'
 import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
 import { useCharacterStore } from '@/store/characters'
 import { useSyncStore } from '@/store/sync'
@@ -1040,6 +1041,19 @@ export default function CharacterPage() {
                 Character tab — the standalone Notes tab was retired. */}
             <DescriptionBlock character={character} derived={derived} onSave={save} />
             <CustomEffectsBlock character={character} onSave={save} />
+            {/* Shared campaign notes about THIS character (Phase F) — cloud-backed,
+                only for campaign characters; hidden notes stay author+DM only
+                (server-enforced). Interactive/live content, so excluded from print. */}
+            {character.campaignId && (
+              <section className="rounded-lg border border-border bg-card p-4 print:hidden">
+                <CampaignNotesPanel
+                  campaignId={character.campaignId}
+                  subjectKind="character"
+                  subjectId={character.id}
+                  title="Campaign Notes"
+                />
+              </section>
+            )}
           </div>
 
           <div role="tabpanel" id="sheet-panel-spells" aria-labelledby="sheet-tab-spells" data-state={effectiveTab === 'spells' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">

@@ -4,6 +4,7 @@ import { ArrowLeft, Pencil, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InfoPopup } from '@/components/InfoPopup'
 import { CharacterSheetBlocks } from '@/components/sheet/CharacterSheetBlocks'
+import { CampaignNotesPanel } from '@/components/campaign/CampaignNotesPanel'
 import { useDerivedSheet, type SheetReferenceData } from '@/components/sheet/useDerivedSheet'
 import { DiceTray } from '@/components/sheet/DiceTray'
 import { DiceRollModal } from '@/components/sheet/DiceRollModal'
@@ -119,7 +120,23 @@ export default function CampaignCharacterPage() {
           {loadState === 'notfound' && <p className="text-muted-foreground py-12 text-center">This character isn’t in the campaign anymore.</p>}
           {loadState === 'error' && <p className="text-destructive py-12 text-center">Couldn’t load this character. You may not have access.</p>}
           {loadState === 'ready' && character && (
-            <CampaignSheetBody character={character} data={data} onSave={handleSave} readOnly={!editing} />
+            <>
+              <CampaignSheetBody character={character} data={data} onSave={handleSave} readOnly={!editing} />
+              {/* Shared campaign notes about THIS character (Phase F). This page is
+                  the DM's view of a member's sheet, so the panel gets DM rights —
+                  the server re-checks authority on every write regardless. */}
+              {campaignId && charId && (
+                <section className="rounded-lg border border-border bg-card p-4 mt-6">
+                  <CampaignNotesPanel
+                    campaignId={campaignId}
+                    subjectKind="character"
+                    subjectId={charId}
+                    isDm
+                    title="Campaign Notes"
+                  />
+                </section>
+              )}
+            </>
           )}
         </div>
       </main>

@@ -10,8 +10,17 @@ CREATE TABLE IF NOT EXISTS characters (
   data        TEXT NOT NULL,              -- JSON of NewCharacter (same shape as the .character export)
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL,           -- last-write-wins key
-  deleted     INTEGER NOT NULL DEFAULT 0  -- tombstone so deletes propagate to other devices
+  deleted     INTEGER NOT NULL DEFAULT 0, -- tombstone so deletes propagate to other devices
+  -- Derived from data.campaignId on owner writes; the single source of truth for
+  -- the DM's campaign query, never set by a non-owner. (Databases created before
+  -- this column got it via a one-time `ALTER TABLE characters ADD COLUMN
+  -- campaign_id TEXT` — the ALTER is deliberately NOT in this file: it has no
+  -- IF NOT EXISTS guard, and `wrangler d1 execute --file` aborts + rolls back the
+  -- WHOLE batch on the first error, so one erroring statement would strand every
+  -- later table.)
+  campaign_id TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_characters_campaign ON characters(campaign_id);
 
 CREATE INDEX IF NOT EXISTS idx_characters_owner ON characters(owner_email);
 
@@ -56,15 +65,6 @@ CREATE TABLE IF NOT EXISTS users (
 -- Case-insensitive uniqueness of the display name.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE);
 
--- Derived from data.campaignId on owner writes; the single source of truth for
--- the DM's campaign query, never set by a non-owner.
--- NOTE: `wrangler d1 execute --remote --file db/schema.sql` re-runs cleanly because
--- every statement above is IF NOT EXISTS, but ALTER TABLE has no such guard — on a
--- database that predates this column, run the ALTER once and ignore the
--- "duplicate column name" error on subsequent applies.
-ALTER TABLE characters ADD COLUMN campaign_id TEXT;
-CREATE INDEX IF NOT EXISTS idx_characters_campaign ON characters(campaign_id);
-
 -- ── DM-created shared homebrew items ────────────────────────────────────────
 -- A DM creates catalog-shaped weapon/armor/item definitions that become
 -- selectable by every member of THAT campaign (campaign-scoped, never global).
@@ -82,3 +82,51 @@ CREATE TABLE IF NOT EXISTS campaign_items (
   deleted     INTEGER NOT NULL DEFAULT 0  -- tombstone so removals propagate
 );
 CREATE INDEX IF NOT EXISTS idx_campaign_items_campaign ON campaign_items(campaign_id);
+
+-- ── Campaign notes / locations / NPCs (Phase F) ────────────────────────────────
+-- Shared campaign notebook. Any member may write; a note is either public (every
+-- member sees it) or hidden (only its author and the DM). Visibility is enforced
+-- IN SQL server-side — a hidden body never leaves the server for a disallowed
+-- viewer. author_email is the single attribution/authorization key everywhere;
+-- usernames resolve by LEFT JOIN users for display.
+CREATE TABLE IF NOT EXISTS campaign_notes (
+  id           TEXT PRIMARY KEY,
+  campaign_id  TEXT NOT NULL,
+  subject_kind TEXT NOT NULL,             -- 'campaign' | 'character' | 'location' | 'npc'
+  subject_id   TEXT,                      -- NULL for campaign-level notes
+  author_email TEXT NOT NULL,
+  visibility   TEXT NOT NULL DEFAULT 'public',  -- 'public' | 'hidden'
+  body         TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  deleted      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_notes_subject
+  ON campaign_notes(campaign_id, subject_kind, subject_id);
+
+CREATE TABLE IF NOT EXISTS campaign_locations (
+  id           TEXT PRIMARY KEY,
+  campaign_id  TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  description  TEXT NOT NULL DEFAULT '',
+  author_email TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  deleted      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_locations_campaign ON campaign_locations(campaign_id);
+
+-- Lightweight NPC entries (name + description, optionally pinned to a location) —
+-- deliberately NOT full character sheets (user decision, 2026-07-04).
+CREATE TABLE IF NOT EXISTS campaign_npcs (
+  id           TEXT PRIMARY KEY,
+  campaign_id  TEXT NOT NULL,
+  location_id  TEXT,                      -- nullable: campaign-wide NPC
+  name         TEXT NOT NULL,
+  description  TEXT NOT NULL DEFAULT '',
+  author_email TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  deleted      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_npcs_campaign ON campaign_npcs(campaign_id);
