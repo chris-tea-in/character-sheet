@@ -50,3 +50,10 @@ _spells_classes.json
 
 # misclellaneous docs that are not part of the build pipeline
 docs/*
+
+# Internal working docs — keep local, don't publish to the public GitHub repo
+CLAUDE.md
+bugs.md
+BACKLOG.md
+# AI task-observer working log (skill-improvement notes, internal by nature)
+skill-observations/
