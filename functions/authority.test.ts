@@ -11,6 +11,9 @@ import { onRequestGet as listNotes, onRequestPost as postNote } from './api/camp
 import { onRequestPut as putNote, onRequestDelete as delNote } from './api/campaigns/[id]/notes/[noteId]'
 import { onRequestPost as postLocation } from './api/campaigns/[id]/locations'
 import { onRequestPost as postNpc } from './api/campaigns/[id]/npcs'
+import { onRequestGet as listCompanions, onRequestPost as postCompanion } from './api/campaigns/[id]/companions'
+import { onRequestPut as putCompanion, onRequestDelete as delCompanion } from './api/campaigns/[id]/companions/[companionId]'
+import { defaultCompanion } from '../shared/companionValidation'
 
 // Backend authority tests. The handlers run against a REAL local D1 (Miniflare,
 // in-process, zero Cloudflare/free-tier usage), so the WHERE-scoping, json_set,
@@ -66,7 +69,8 @@ beforeEach(async () => {
   // Every table any suite writes to — a missing entry here leaks rows across
   // tests and silently rots count/visibility assertions.
   for (const t of ['characters', 'campaigns', 'campaign_members', 'users',
-    'campaign_items', 'campaign_notes', 'campaign_locations', 'campaign_npcs']) {
+    'campaign_items', 'campaign_notes', 'campaign_locations', 'campaign_npcs',
+    'campaign_companions']) {
     await env.DB.prepare(`DELETE FROM ${t}`).run()
   }
 })
@@ -374,5 +378,207 @@ describe('PUT /api/me — username uniqueness', () => {
   it('rejects an invalid username', async () => {
     const res = await putMe(ctx(request('PUT', { body: { username: '   ' }, email: 'a@a.com' })))
     expect(res.status).toBe(400)
+  })
+})
+
+describe('campaign companions — creation, visibility, co-edit, reassignment', () => {
+  const DM = 'dm@a.com'
+  const P1 = 'p1@a.com'
+  const P2 = 'p2@a.com'
+
+  // Seed the campaign + one campaign character per player (owner writes mirror
+  // data.campaignId into the indexed campaign_id column the visibility JOIN uses).
+  async function seedParty() {
+    await seedCampaign('camp', DM, [P1, P2])
+    await putChar(ctx(request('PUT', { body: newBody('Thorin', 1, { campaignId: 'camp' }), email: P1 }), { id: 'p1c' }))
+    await putChar(ctx(request('PUT', { body: newBody('Mira', 1, { campaignId: 'camp' }), email: P2 }), { id: 'p2c' }))
+  }
+
+  const wolf = (name = 'Wolf') => ({
+    ...defaultCompanion(name),
+    kindLine: 'Medium beast, unaligned',
+    ac: 13,
+    maxHp: 11,
+    currentHp: 11,
+    attacks: [{ name: 'Bite', toHit: 4, damageDice: '2d4', damageBonus: 2, damageType: 'piercing', notes: 'reach 5 ft.' }],
+  })
+
+  async function create(email: string, assignedCharacterId: string | null, data: unknown = wolf(), campaign = 'camp') {
+    return postCompanion(ctx(
+      request('POST', { body: { assignedCharacterId, data }, email }), { id: campaign },
+    ))
+  }
+
+  async function listIds(email: string, campaign = 'camp'): Promise<string[]> {
+    const res = await listCompanions(ctx(request('GET', { email }), { id: campaign }))
+    expect(res.status).toBe(200)
+    return ((await res.json()) as any).companions.map((c: any) => c.id)
+  }
+
+  it('player creates for their own character; visibility scopes to owner + DM', async () => {
+    await seedParty()
+    const res = await create(P1, 'p1c')
+    expect(res.status).toBe(200)
+    const id = ((await res.json()) as any).id
+
+    expect(await listIds(P1)).toContain(id)
+    expect(await listIds(P2)).not.toContain(id)
+    expect(await listIds(DM)).toContain(id)
+  })
+
+  it('player create: another player’s character 403, unknown character 400, pool 403', async () => {
+    await seedParty()
+    expect((await create(P1, 'p2c')).status).toBe(403)
+    expect((await create(P1, 'ghost')).status).toBe(400)
+    expect((await create(P1, null)).status).toBe(403)
+  })
+
+  it('non-member gets no access at all', async () => {
+    await seedParty()
+    const res = await listCompanions(ctx(request('GET', { email: 'stranger@a.com' }), { id: 'camp' }))
+    expect(res.status).toBe(403)
+    expect((await create('stranger@a.com', 'p1c')).status).toBe(403)
+  })
+
+  it('DM pool rows: invisible to players, visible to the DM; author keeps sight of own creations', async () => {
+    await seedParty()
+    const dmPool = await create(DM, null)
+    expect(dmPool.status).toBe(200)
+    const dmPoolId = ((await dmPool.json()) as any).id
+
+    // p1 authors one; the DM moves it to the pool — the author must still see it.
+    const authored = await create(P1, 'p1c', wolf('Owl'))
+    const authoredId = ((await authored.json()) as any).id
+    const move = await putCompanion(ctx(
+      request('PUT', { body: { assignedCharacterId: null }, email: DM }),
+      { id: 'camp', companionId: authoredId },
+    ))
+    expect(move.status).toBe(200)
+
+    expect(await listIds(DM)).toEqual(expect.arrayContaining([dmPoolId, authoredId]))
+    expect(await listIds(P1)).toContain(authoredId)      // author's pooled creation
+    expect(await listIds(P1)).not.toContain(dmPoolId)    // DM's pool row stays hidden
+    expect(await listIds(P2)).not.toContain(dmPoolId)
+    expect(await listIds(P2)).not.toContain(authoredId)
+  })
+
+  it('co-edit: assignee-owner and author can PUT data, other members cannot', async () => {
+    await seedParty()
+    const res = await create(DM, 'p1c')  // DM-authored, assigned to p1's character
+    const id = ((await res.json()) as any).id
+
+    const edited = { ...wolf(), currentHp: 5 }
+    const p1Edit = await putCompanion(ctx(
+      request('PUT', { body: { data: edited }, email: P1 }), { id: 'camp', companionId: id },
+    ))
+    expect(p1Edit.status).toBe(200)
+    const row = await env.DB.prepare('SELECT data FROM campaign_companions WHERE id=?').bind(id).first<any>()
+    expect(JSON.parse(row.data).currentHp).toBe(5)
+
+    const p2Edit = await putCompanion(ctx(
+      request('PUT', { body: { data: wolf() }, email: P2 }), { id: 'camp', companionId: id },
+    ))
+    expect(p2Edit.status).toBe(403)
+  })
+
+  it('kicked author loses PUT and DELETE (membership-first)', async () => {
+    await seedParty()
+    const res = await create(P1, 'p1c')
+    const id = ((await res.json()) as any).id
+
+    await env.DB.prepare('DELETE FROM campaign_members WHERE campaign_id=? AND email=?').bind('camp', P1).run()
+
+    const put = await putCompanion(ctx(
+      request('PUT', { body: { data: wolf() }, email: P1 }), { id: 'camp', companionId: id },
+    ))
+    expect(put.status).toBe(403)
+    const del = await delCompanion(ctx(request('DELETE', { email: P1 }), { id: 'camp', companionId: id }))
+    expect(del.status).toBe(403)
+  })
+
+  it('delete: assignee-owner (non-author) 403, author 200, DM 200', async () => {
+    await seedParty()
+    const a = ((await (await create(DM, 'p1c')).json()) as any).id
+    const b = ((await (await create(P1, 'p1c', wolf('Owl'))).json()) as any).id
+
+    expect((await delCompanion(ctx(request('DELETE', { email: P1 }), { id: 'camp', companionId: a }))).status).toBe(403)
+    expect((await delCompanion(ctx(request('DELETE', { email: P1 }), { id: 'camp', companionId: b }))).status).toBe(200)
+    expect((await delCompanion(ctx(request('DELETE', { email: DM }), { id: 'camp', companionId: a }))).status).toBe(200)
+    expect(await listIds(DM)).toHaveLength(0)
+  })
+
+  it('reassignment: DM anywhere incl. pool; player only own-to-own; yank-back blocked', async () => {
+    await seedParty()
+    // p1 owns a second campaign character for the own-to-own move.
+    await putChar(ctx(request('PUT', { body: newBody('Balin', 1, { campaignId: 'camp' }), email: P1 }), { id: 'p1c2' }))
+    const id = ((await (await create(P1, 'p1c')).json()) as any).id
+
+    const ownToOwn = await putCompanion(ctx(
+      request('PUT', { body: { assignedCharacterId: 'p1c2' }, email: P1 }), { id: 'camp', companionId: id },
+    ))
+    expect(ownToOwn.status).toBe(200)
+
+    expect((await putCompanion(ctx(
+      request('PUT', { body: { assignedCharacterId: 'p2c' }, email: P1 }), { id: 'camp', companionId: id },
+    ))).status).toBe(403)
+    expect((await putCompanion(ctx(
+      request('PUT', { body: { assignedCharacterId: null }, email: P1 }), { id: 'camp', companionId: id },
+    ))).status).toBe(403)
+
+    const dmMove = await putCompanion(ctx(
+      request('PUT', { body: { assignedCharacterId: 'p2c' }, email: DM }), { id: 'camp', companionId: id },
+    ))
+    expect(dmMove.status).toBe(200)
+
+    // Yank-back: the author no longer owns the current assignment, so 403.
+    expect((await putCompanion(ctx(
+      request('PUT', { body: { assignedCharacterId: 'p1c' }, email: P1 }), { id: 'camp', companionId: id },
+    ))).status).toBe(403)
+
+    expect((await putCompanion(ctx(
+      request('PUT', { body: { assignedCharacterId: null }, email: DM }), { id: 'camp', companionId: id },
+    ))).status).toBe(200)
+    expect((await putCompanion(ctx(
+      request('PUT', { body: { assignedCharacterId: 'bogus' }, email: DM }), { id: 'camp', companionId: id },
+    ))).status).toBe(400)
+  })
+
+  it('a companion id is dead outside its campaign (404, no cross-campaign reach)', async () => {
+    await seedParty()
+    await seedCampaign('other', DM, [])
+    const id = ((await (await create(P1, 'p1c')).json()) as any).id
+
+    const put = await putCompanion(ctx(
+      request('PUT', { body: { data: wolf() }, email: DM }), { id: 'other', companionId: id },
+    ))
+    expect(put.status).toBe(404)
+    const del = await delCompanion(ctx(request('DELETE', { email: DM }), { id: 'other', companionId: id }))
+    expect(del.status).toBe(404)
+  })
+
+  it('rejects malformed stat blocks and enforces the campaign cap', async () => {
+    await seedParty()
+    const badDice = wolf()
+    badDice.attacks[0].damageDice = '2d6+'
+    expect((await create(P1, 'p1c', badDice)).status).toBe(400)
+
+    const tooMany = { ...wolf(), attacks: Array.from({ length: 21 }, (_, i) => ({ ...wolf().attacks[0], name: `A${i}` })) }
+    expect((await create(P1, 'p1c', tooMany)).status).toBe(400)
+
+    const oversize = {
+      ...wolf(),
+      playerNotes: 'x'.repeat(1900),
+      senses: 'y'.repeat(1900),
+      traits: Array.from({ length: 20 }, (_, i) => ({ name: `T${i}`, description: 'z'.repeat(700) })),
+    }
+    expect((await create(P1, 'p1c', oversize)).status).toBe(400)
+
+    for (let i = 0; i < 100; i++) {
+      await env.DB.prepare(
+        `INSERT INTO campaign_companions (id,campaign_id,assigned_character_id,data,created_by,created_at,updated_at,deleted)
+         VALUES (?,?,?,?,?,1,1,0)`,
+      ).bind(`bulk${i}`, 'camp', 'p1c', JSON.stringify(wolf()), DM).run()
+    }
+    expect((await create(DM, 'p1c')).status).toBe(400)
   })
 })
