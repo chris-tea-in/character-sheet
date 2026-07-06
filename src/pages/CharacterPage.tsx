@@ -52,10 +52,10 @@ type IdentityList = 'class' | 'subclass' | 'race' | 'subrace' | 'background' | '
 // [role="tabpanel"][data-state="inactive"] rule in globals.css, which the
 // @media print rule there overrides so the whole sheet prints.
 const SHEET_TABS = [
-  { key: 'combat', label: 'Combat' },
-  { key: 'spells', label: 'Spells' },
   { key: 'character', label: 'Character' },
+  { key: 'spells', label: 'Spells' },
   { key: 'inventory', label: 'Inventory' },
+  { key: 'combat', label: 'Combat' },
 ] as const
 type SheetTab = (typeof SHEET_TABS)[number]['key']
 const isSheetTab = (v: string | null): v is SheetTab => SHEET_TABS.some(t => t.key === v)
@@ -607,11 +607,11 @@ export default function CharacterPage() {
   // Combat. Only data-state flips on switch; panels never unmount.
   const [activeTab, setActiveTab] = useState<SheetTab>(() => {
     const stored = sessionStorage.getItem(`sheet-tab:${id}`)
-    return isSheetTab(stored) ? stored : 'combat'
+    return isSheetTab(stored) ? stored : 'character'
   })
   useEffect(() => {
     const stored = sessionStorage.getItem(`sheet-tab:${id}`)
-    setActiveTab(isSheetTab(stored) ? stored : 'combat')
+    setActiveTab(isSheetTab(stored) ? stored : 'character')
   }, [id])
   function selectTab(t: SheetTab) {
     setActiveTab(t)
@@ -941,7 +941,7 @@ export default function CharacterPage() {
 
   // The Spells tab needs a class record; until then treat a stored 'spells' pick
   // as Combat (it snaps back once setupData resolves the class).
-  const effectiveTab: SheetTab = activeTab === 'spells' && !classRecord ? 'combat' : activeTab
+  const effectiveTab: SheetTab = activeTab === 'spells' && !classRecord ? 'character' : activeTab
 
   const priv = character.sheetPrivacy ?? {}
   const anyHidden = !!(priv.name || priv.class || priv.race)
@@ -1017,43 +1017,6 @@ export default function CharacterPage() {
       <main className="flex-1">
         <div className="max-w-2xl mx-auto px-4 py-4">
 
-          <div role="tabpanel" id="sheet-panel-combat" aria-labelledby="sheet-tab-combat" data-state={effectiveTab === 'combat' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
-            <CombatBlock
-              character={character}
-              derived={derived}
-              onSave={save}
-              classHitDice={classHitDice}
-              variant="combatTab"
-            />
-            <CombatTab
-              character={character}
-              derived={derived}
-              catalog={sheetCatalog}
-              classRecord={classRecord}
-              classLevel={primaryClassLevel}
-              classAbilities={setupData?.classAbilities ?? []}
-              featureDescriptions={setupData?.featureDescriptions ?? {}}
-              overrideSlotProfile={multiclassSlotProfile ?? undefined}
-              onSave={save}
-            />
-          </div>
-
-          <div role="tabpanel" id="sheet-panel-spells" aria-labelledby="sheet-tab-spells" data-state={effectiveTab === 'spells' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
-            {classRecord && (
-              <SpellBlock
-                character={character}
-                classRecord={classRecord}
-                classLevel={primaryClassLevel}
-                derived={derived}
-                classAbilities={setupData?.classAbilities ?? []}
-                featureDescriptions={setupData?.featureDescriptions ?? {}}
-                overrideSlotProfile={multiclassSlotProfile ?? undefined}
-                overrideCasterKind={multiclassCasterKind}
-                onSave={save}
-              />
-            )}
-          </div>
-
           <div role="tabpanel" id="sheet-panel-character" aria-labelledby="sheet-tab-character" data-state={effectiveTab === 'character' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
             <IdentitySection
               character={character}
@@ -1079,8 +1042,45 @@ export default function CharacterPage() {
             <DescriptionBlock character={character} derived={derived} onSave={save} />
           </div>
 
+          <div role="tabpanel" id="sheet-panel-spells" aria-labelledby="sheet-tab-spells" data-state={effectiveTab === 'spells' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
+            {classRecord && (
+              <SpellBlock
+                character={character}
+                classRecord={classRecord}
+                classLevel={primaryClassLevel}
+                derived={derived}
+                classAbilities={setupData?.classAbilities ?? []}
+                featureDescriptions={setupData?.featureDescriptions ?? {}}
+                overrideSlotProfile={multiclassSlotProfile ?? undefined}
+                overrideCasterKind={multiclassCasterKind}
+                onSave={save}
+              />
+            )}
+          </div>
+
           <div role="tabpanel" id="sheet-panel-inventory" aria-labelledby="sheet-tab-inventory" data-state={effectiveTab === 'inventory' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
             <EquipmentBlock character={character} derived={derived} onSave={save} catalog={sheetCatalog} classRecord={classRecord} />
+          </div>
+
+          <div role="tabpanel" id="sheet-panel-combat" aria-labelledby="sheet-tab-combat" data-state={effectiveTab === 'combat' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
+            <CombatBlock
+              character={character}
+              derived={derived}
+              onSave={save}
+              classHitDice={classHitDice}
+              variant="combatTab"
+            />
+            <CombatTab
+              character={character}
+              derived={derived}
+              catalog={sheetCatalog}
+              classRecord={classRecord}
+              classLevel={primaryClassLevel}
+              classAbilities={setupData?.classAbilities ?? []}
+              featureDescriptions={setupData?.featureDescriptions ?? {}}
+              overrideSlotProfile={multiclassSlotProfile ?? undefined}
+              onSave={save}
+            />
           </div>
 
         </div>
