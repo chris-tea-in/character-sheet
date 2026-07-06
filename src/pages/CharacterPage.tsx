@@ -26,6 +26,8 @@ import type { CampaignItem } from '@/lib/syncApi'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { FeaturesBlock } from '@/components/sheet/FeaturesBlock'
 import { CustomEffectsBlock } from '@/components/sheet/CustomEffectsBlock'
+import { PersonalNotesTab } from '@/components/campaign/PersonalNotesTab'
+import { useCampaignStore } from '@/store/campaigns'
 import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
 import { useCharacterStore } from '@/store/characters'
 import { useSyncStore } from '@/store/sync'
@@ -56,6 +58,9 @@ const SHEET_TABS = [
   { key: 'spells', label: 'Spells' },
   { key: 'inventory', label: 'Inventory' },
   { key: 'combat', label: 'Combat' },
+  // Player's personal notebook about the campaign's PCs (yourself + the other
+  // players' characters) — only shown while the character is in a campaign.
+  { key: 'personal', label: 'Personal' },
   // The campaign notebook lives on its own page (/campaign/:id/notes) — this
   // "tab" is a navigation link, never the active tab, and has no panel here.
   // Only shown while the character is in a campaign.
@@ -613,10 +618,21 @@ export default function CharacterPage() {
     const stored = sessionStorage.getItem(`sheet-tab:${id}`)
     return isSheetTab(stored) ? stored : 'character'
   })
+  // The Personal panel is cloud-backed (roster + notes fetches on mount) —
+  // unlike the local-data panels it mounts only after its tab is first opened,
+  // so a sheet visit that never touches it spends no D1 reads. It stays
+  // mounted after that (state retention like every other panel).
+  const [personalOpened, setPersonalOpened] = useState<boolean>(
+    () => sessionStorage.getItem(`sheet-tab:${id}`) === 'personal',
+  )
   useEffect(() => {
     const stored = sessionStorage.getItem(`sheet-tab:${id}`)
     setActiveTab(isSheetTab(stored) ? stored : 'character')
+    setPersonalOpened(stored === 'personal')
   }, [id])
+  useEffect(() => {
+    if (activeTab === 'personal') setPersonalOpened(true)
+  }, [activeTab])
   function selectTab(t: SheetTab) {
     setActiveTab(t)
     sessionStorage.setItem(`sheet-tab:${id}`, t)
@@ -650,6 +666,9 @@ export default function CharacterPage() {
   // The merge is whole-character LWW, so it won't clobber the player's own
   // in-progress edits (their local copy stays newer until they stop editing).
   const campaignId = character?.campaignId ?? null
+  // Viewer's role in this character's campaign — drives the Personal tab's DM
+  // affordances (delete/publish others' notes); the server re-checks regardless.
+  const campaignRole = useCampaignStore(s => s.campaigns.find(c => c.id === campaignId)?.role)
   useEffect(() => {
     if (!campaignId) return
     const tick = () => { if (document.visibilityState === 'visible') void pullLatest() }
@@ -943,12 +962,14 @@ export default function CharacterPage() {
     setLevelPickerPending(null)
   }
 
-  // The Spells tab needs a class record — treat a stored pick for an
-  // unavailable tab as Character (it snaps back once the prerequisite
-  // resolves). 'notes' is a navigation link with no panel, so a stale stored
-  // 'notes' (from before it became a link) also snaps to Character.
+  // The Spells tab needs a class record and the Personal tab needs a campaign —
+  // treat a stored pick for an unavailable tab as Character (it snaps back once
+  // the prerequisite resolves). 'notes' is a navigation link with no panel, so
+  // a stale stored 'notes' (from before it became a link) also snaps to Character.
   const effectiveTab: SheetTab =
-    (activeTab === 'spells' && !classRecord) || activeTab === 'notes'
+    (activeTab === 'spells' && !classRecord)
+      || (activeTab === 'personal' && !character.campaignId)
+      || activeTab === 'notes'
       ? 'character'
       : activeTab
 
@@ -1002,9 +1023,11 @@ export default function CharacterPage() {
         >
           {SHEET_TABS.map(t => {
             if (t.key === 'spells' && !classRecord) return null
-            if (t.key === 'notes' && !character.campaignId) return null
+            if ((t.key === 'notes' || t.key === 'personal') && !character.campaignId) return null
             // Notes is a link out to the campaign's notes page — it never
             // becomes the active tab and controls no panel (no aria-controls).
+            // returnTo brings the notes page's back button HERE, not to the
+            // campaign page.
             if (t.key === 'notes') {
               return (
                 <button
@@ -1012,7 +1035,7 @@ export default function CharacterPage() {
                   role="tab"
                   id="sheet-tab-notes"
                   aria-selected={false}
-                  onClick={() => navigate(`/campaign/${character.campaignId}/notes`)}
+                  onClick={() => navigate(`/campaign/${character.campaignId}/notes`, { state: { returnTo: `/character/${character.id}` } })}
                   className="px-3 py-1 text-xs rounded-md font-semibold uppercase tracking-wide transition-colors whitespace-nowrap flex-none text-muted-foreground hover:text-foreground"
                 >
                   {t.label}
@@ -1107,6 +1130,23 @@ export default function CharacterPage() {
               overrideSlotProfile={multiclassSlotProfile ?? undefined}
               onSave={save}
             />
+          </div>
+
+          {/* Personal notebook — notes about the campaign's PCs (yourself +
+              the other players' characters). Live cloud (and hidden-by-default)
+              content must NOT print: print:hidden lives on the INNER div, not
+              the tabpanel — the @media print rule force-shows inactive
+              tabpanels with !important and would defeat it there. */}
+          <div role="tabpanel" id="sheet-panel-personal" aria-labelledby="sheet-tab-personal" data-state={effectiveTab === 'personal' ? 'active' : 'inactive'}>
+            <div className="print:hidden">
+              {character.campaignId && personalOpened && (
+                <PersonalNotesTab
+                  character={character}
+                  campaignId={character.campaignId}
+                  isDm={campaignRole === 'dm'}
+                />
+              )}
+            </div>
           </div>
 
         </div>

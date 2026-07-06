@@ -19,17 +19,20 @@ function authorLabel(n: CampaignNote): string {
   return n.authorUsername ?? n.authorEmail
 }
 
-export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = false, title = 'Notes' }: {
+export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = false, title = 'Notes', defaultHidden = false }: {
   campaignId: string
   subjectKind: NoteSubjectKind
   subjectId?: string
   isDm?: boolean
   title?: string
+  /** Start the Hidden toggle ON for new notes (the Personal tab's
+   * private-notebook default); every add resets the toggle back to this. */
+  defaultHidden?: boolean
 }) {
   const me = useSyncStore(s => s.me)
   const [notes, setNotes] = useState<CampaignNote[] | null>(null)
   const [draft, setDraft] = useState('')
-  const [hidden, setHidden] = useState(false)
+  const [hidden, setHidden] = useState(defaultHidden)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,7 +59,7 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
     if (res.ok) {
       // Keep-the-text contract: only a CONFIRMED save clears the draft.
       setDraft('')
-      setHidden(false)
+      setHidden(defaultHidden)
       load()
     } else {
       setError(res.reason === 'auth-expired'

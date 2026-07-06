@@ -5,7 +5,7 @@
 // location (free-tier D1 budget). Reached from the campaign page's
 // "View Campaign Notes" button and the sheet's Notes tab.
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CampaignNotesPanel } from '@/components/campaign/CampaignNotesPanel'
@@ -18,6 +18,11 @@ import { cn } from '@/lib/utils'
 export default function CampaignNotesPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  // Where the back button goes: the character sheet's Notes tab arrives with a
+  // returnTo in history state (it survives reloads); the campaign page's
+  // button arrives without one → default back to the campaign page.
+  const location = useLocation()
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? null
 
   const campaigns = useCampaignStore(s => s.campaigns)
   const campaignsLoaded = useCampaignStore(s => s.loaded)
@@ -94,9 +99,9 @@ export default function CampaignNotesPage() {
       <header className="sticky top-0 z-30 border-b border-border bg-background">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
           <button
-            onClick={() => navigate(`/campaign/${campaign.id}`)}
+            onClick={() => navigate(returnTo ?? `/campaign/${campaign.id}`)}
             className="text-muted-foreground hover:text-foreground transition-colors flex-none"
-            aria-label="Back to campaign"
+            aria-label="Back"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
