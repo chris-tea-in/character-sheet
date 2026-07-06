@@ -15,7 +15,7 @@ export default defineConfig({
     react(),
     VitePWA({
       // 'prompt' so a new deploy doesn't reload mid-session: the waiting SW stays
-      // parked until the user clicks Refresh in UpdateBanner (useRegisterSW →
+      // parked until the user clicks Update now in UpdatePrompt (useRegisterSW →
       // updateServiceWorker(true)). injectRegister:false because that hook does the
       // registration — avoids a double-register from an auto-injected script.
       registerType: 'prompt',

@@ -8,7 +8,7 @@ import { getUnseenWhatsNew, markWhatsNewSeen } from '@/lib/whatsNew'
 /**
  * Shows the user-facing changelog entries the player hasn't acknowledged yet — i.e.
  * what changed since they last opened the app (typically right after they take a new
- * deploy via UpdateBanner). Dismissing marks everything up to the latest as seen, so
+ * deploy via UpdatePrompt). Dismissing marks everything up to the latest as seen, so
  * it won't reappear until the next release adds an entry.
  */
 export function WhatsNewModal() {

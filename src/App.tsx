@@ -11,7 +11,7 @@ import type { DbInitResult } from './storage'
 import { useCharacterStore } from './store/characters'
 import { useSyncStore } from './store/sync'
 import { UsernameDialog } from './components/UsernameDialog'
-import { UpdateBanner } from './components/UpdateBanner'
+import { UpdatePrompt } from './components/UpdatePrompt'
 import { WhatsNewModal } from './components/WhatsNewModal'
 import { ConflictResolutionModal } from './components/ConflictResolutionModal'
 
@@ -35,7 +35,7 @@ export default function App({ dbResult }: AppProps) {
 
   return (
     <>
-      <UpdateBanner />
+      <UpdatePrompt />
       {syncStatus === 'auth-expired' && (
         <div style={{ background: '#c4a35a', color: '#1a1a2e', padding: '0.5rem 1rem', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Your session expired — your edits are saved locally. Reconnect to resume syncing.</span>
