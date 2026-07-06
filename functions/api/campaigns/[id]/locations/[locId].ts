@@ -1,5 +1,5 @@
 import {
-  getEmail, isCampaignDm,
+  getEmail, isCampaignDm, isCampaignMember,
   json, unauthorized, forbidden, badRequest, notFound, type Env,
 } from '../../../../_lib/auth'
 
@@ -18,7 +18,10 @@ async function loadLocation(env: Env, campaignId: string, locId: string) {
     .first<{ id: string; author_email: string }>()
 }
 
+// Authorship alone is NOT enough — the author must still be a member, or a
+// kicked player could keep vandalizing/deleting their old rows forever.
 async function canEdit(env: Env, campaignId: string, authorEmail: string, email: string): Promise<boolean> {
+  if (!(await isCampaignMember(env, campaignId, email))) return false
   if (authorEmail.toLowerCase() === email.toLowerCase()) return true
   return isCampaignDm(env, campaignId, email)
 }

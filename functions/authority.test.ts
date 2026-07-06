@@ -312,6 +312,33 @@ describe('campaign notes — author-or-DM edit rights', () => {
   })
 })
 
+describe('campaign notes — a kicked author loses their edit rights', () => {
+  it('author removed from the campaign can no longer edit, delete, or read', async () => {
+    await seedCampaign('cn8', 'dm@a.com', ['p1@a.com'])
+    const created = await addNote('cn8', 'p1@a.com', { subjectKind: 'campaign', visibility: 'public', body: 'I was here.' })
+    const noteId = ((await created.json()) as any).id
+
+    // DM kicks p1 — authorship alone must not survive membership.
+    await env.DB.prepare('DELETE FROM campaign_members WHERE campaign_id = ? AND email = ?')
+      .bind('cn8', 'p1@a.com').run()
+
+    const edit = await putNote(ctx(request('PUT', { body: { body: 'vandalized after kick' }, email: 'p1@a.com' }), { id: 'cn8', noteId }))
+    expect(edit.status).toBe(403)
+    const del = await delNote(ctx(request('DELETE', { email: 'p1@a.com' }), { id: 'cn8', noteId }))
+    expect(del.status).toBe(403)
+    const read = await listNotes(ctx(request('GET', { email: 'p1@a.com', url: notesUrl() }), { id: 'cn8' }))
+    expect(read.status).toBe(403)
+
+    const row = await env.DB.prepare('SELECT body, deleted FROM campaign_notes WHERE id=?').bind(noteId).first<any>()
+    expect(row.body).toBe('I was here.')  // untouched
+    expect(row.deleted).toBe(0)
+
+    // The DM (still a member) retains full authority over the orphaned note.
+    const dmDel = await delNote(ctx(request('DELETE', { email: 'dm@a.com' }), { id: 'cn8', noteId }))
+    expect(dmDel.status).toBe(200)
+  })
+})
+
 describe('campaign notes / locations / NPCs — input caps', () => {
   it('rejects an oversized note body and an empty one', async () => {
     await seedCampaign('cn6', 'dm@a.com', ['p1@a.com'])
