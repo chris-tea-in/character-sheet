@@ -24,6 +24,11 @@ interface Props {
   onSave: (changes: Partial<NewCharacter>) => void
   derived: DerivedStats
   classHitDice?: ClassHitDice[]
+  // 'combatTab' reorders for play (CharacterPage Combat tab): HP → death saves →
+  // hit dice → defenses → conditions, with the AC/Speed/Init/PB tiles LAST.
+  // Reordered visually via flex `order` so the DOM (and default surfaces like the
+  // DM campaign view) keep the original layout.
+  variant?: 'default' | 'combatTab'
 }
 
 function StatCard({
@@ -349,7 +354,8 @@ function ConditionsSection({
   )
 }
 
-export function CombatBlock({ character, onSave, derived, classHitDice }: Props) {
+export function CombatBlock({ character, onSave, derived, classHitDice, variant = 'default' }: Props) {
+  const combatTab = variant === 'combatTab'
   const [openBreakdown, setOpenBreakdown] = useState<null | 'speed' | 'initiative' | 'ac' | 'proficiencyBonus' | 'maxHp'>(null)
   const hitDie = derived.hitDiceType
   const { dispatch } = useRollDispatch(derived)
@@ -376,13 +382,13 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
   }
 
   return (
-    <section className="space-y-3">
+    <section className="flex flex-col gap-3">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Combat
       </h2>
 
-      {/* Stats row */}
-      <div className="flex gap-2 flex-wrap">
+      {/* Stats row — last in the combat-tab layout (play-time info first) */}
+      <div className={cn('flex gap-2 flex-wrap', combatTab && 'order-6')}>
         <StatCard label="AC">
           {effectiveAC !== null ? (
             <div className="flex items-center gap-1">
@@ -476,7 +482,7 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
 
       {/* Defenses — resistances / immunities with provenance; tap a chip to disable it (Step 6b) */}
       {(derived.resistanceSources.length > 0 || derived.immunitySources.length > 0) && (
-        <div className="rounded-lg border border-border bg-card px-3 py-2 space-y-1.5">
+        <div className={cn('rounded-lg border border-border bg-card px-3 py-2 space-y-1.5', combatTab && 'order-4')}>
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Defenses
           </p>
@@ -508,23 +514,27 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
       )}
 
       {/* HP */}
-      <HpSection
-        character={character}
-        adjustedMaxHp={adjustedMaxHp}
-        onSave={onSave}
-        onOpenBreakdown={() => setOpenBreakdown('maxHp')}
-      />
+      <div className={cn(combatTab && 'order-1')}>
+        <HpSection
+          character={character}
+          adjustedMaxHp={adjustedMaxHp}
+          onSave={onSave}
+          onOpenBreakdown={() => setOpenBreakdown('maxHp')}
+        />
+      </div>
 
       {/* Death saves — directly below HP */}
-      <DeathSaves
-        successes={character.deathSaves.successes}
-        failures={character.deathSaves.failures}
-        currentHp={character.currentHp}
-        onSave={onSave}
-      />
+      <div className={cn(combatTab && 'order-2')}>
+        <DeathSaves
+          successes={character.deathSaves.successes}
+          failures={character.deathSaves.failures}
+          currentHp={character.currentHp}
+          onSave={onSave}
+        />
+      </div>
 
       {/* Hit dice + inspiration */}
-      <div className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2">
+      <div className={cn('flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2', combatTab && 'order-3')}>
         <div className="flex-1 space-y-1">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Hit Dice
@@ -590,7 +600,9 @@ export function CombatBlock({ character, onSave, derived, classHitDice }: Props)
         </div>
       </div>
       {/* Conditions tracker */}
-      <ConditionsSection character={character} onSave={onSave} />
+      <div className={cn(combatTab && 'order-5')}>
+        <ConditionsSection character={character} onSave={onSave} />
+      </div>
 
       <StatBreakdown
         open={openBreakdown === 'speed'}

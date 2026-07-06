@@ -56,7 +56,6 @@ const SHEET_TABS = [
   { key: 'spells', label: 'Spells' },
   { key: 'character', label: 'Character' },
   { key: 'inventory', label: 'Inventory' },
-  { key: 'notes', label: 'Notes' },
 ] as const
 type SheetTab = (typeof SHEET_TABS)[number]['key']
 const isSheetTab = (v: string | null): v is SheetTab => SHEET_TABS.some(t => t.key === v)
@@ -959,12 +958,17 @@ export default function CharacterPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-xl font-bold leading-tight truncate">{priv.name ? '•••' : character.name}</p>
+            {/* Decoys render as plain text — a disguise must look like the real thing. */}
+            <p className="text-xl font-bold leading-tight truncate">
+              {priv.name ? (priv.nameAs?.trim() || '•••') : character.name}
+            </p>
             <p className="text-sm text-muted-foreground mt-0.5 truncate">
               {priv.class
-                ? `Level ${character.level}`
+                ? (priv.classAs?.trim() ? `${priv.classAs.trim()} ${character.level}` : `Level ${character.level}`)
                 : <>{displayClass ?? '—'}{(character.classes?.length ?? 0) <= 1 && ` ${character.level}`}</>}
-              {!priv.race && displayRace ? ` · ${displayRace}` : ''}
+              {priv.race
+                ? (priv.raceAs?.trim() ? ` · ${priv.raceAs.trim()}` : '')
+                : (displayRace ? ` · ${displayRace}` : '')}
             </p>
           </div>
           <button
@@ -1019,6 +1023,7 @@ export default function CharacterPage() {
               derived={derived}
               onSave={save}
               classHitDice={classHitDice}
+              variant="combatTab"
             />
             <CombatTab
               character={character}
@@ -1069,14 +1074,13 @@ export default function CharacterPage() {
             <FeaturesBlock character={character} setupData={setupData} onSave={save} />
             <FeatsBlock character={character} derived={derived} onSave={save} />
             <CustomEffectsBlock character={character} onSave={save} />
+            {/* Description (languages, personality, backstory, notes) lives at the
+                bottom of the Character tab — the standalone Notes tab was retired. */}
+            <DescriptionBlock character={character} derived={derived} onSave={save} />
           </div>
 
           <div role="tabpanel" id="sheet-panel-inventory" aria-labelledby="sheet-tab-inventory" data-state={effectiveTab === 'inventory' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
             <EquipmentBlock character={character} derived={derived} onSave={save} catalog={sheetCatalog} classRecord={classRecord} />
-          </div>
-
-          <div role="tabpanel" id="sheet-panel-notes" aria-labelledby="sheet-tab-notes" data-state={effectiveTab === 'notes' ? 'active' : 'inactive'} className="space-y-6">
-            <DescriptionBlock character={character} derived={derived} onSave={save} />
           </div>
 
         </div>
@@ -1339,19 +1343,32 @@ export default function CharacterPage() {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Hide identity details on this sheet — for table or screen-share privacy,
-            like the class disguise in campaigns. Stats and rolls are unaffected.
+            like the class disguise in campaigns. Add an optional decoy to appear as a
+            different name, class, or race instead of “Hidden”. Stats and rolls are
+            unaffected — the character keeps its real class under the hood.
           </p>
-          <div className="space-y-2.5">
-            {([['name', 'Hide name'], ['class', 'Hide class & subclass'], ['race', 'Hide race & subrace']] as const).map(([key, label]) => (
-              <label key={key} className="flex items-center gap-2 cursor-pointer select-none text-sm">
-                <input
-                  type="checkbox"
-                  checked={!!priv[key]}
-                  onChange={e => save({ sheetPrivacy: { ...priv, [key]: e.target.checked || undefined } })}
-                  className="h-4 w-4 accent-[var(--color-accent-gold)]"
-                />
-                {label}
-              </label>
+          <div className="space-y-3">
+            {([['name', 'nameAs', 'Hide name'], ['class', 'classAs', 'Hide class & subclass'], ['race', 'raceAs', 'Hide race & subrace']] as const).map(([key, asKey, label]) => (
+              <div key={key} className="space-y-1">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!priv[key]}
+                    onChange={e => save({ sheetPrivacy: { ...priv, [key]: e.target.checked || undefined } })}
+                    className="h-4 w-4 accent-[var(--color-accent-gold)]"
+                  />
+                  {label}
+                </label>
+                {priv[key] && (
+                  <input
+                    type="text"
+                    defaultValue={priv[asKey] ?? ''}
+                    placeholder="Appear as… (blank = Hidden)"
+                    onBlur={e => save({ sheetPrivacy: { ...priv, [asKey]: e.target.value.trim() || undefined } })}
+                    className="ml-6 w-[calc(100%-1.5rem)] bg-[var(--color-surface-2)] border border-border rounded px-2 py-1 text-sm"
+                  />
+                )}
+              </div>
             ))}
           </div>
           <DialogFooter>
@@ -1530,8 +1547,8 @@ function IdentitySection({
       <div className="rounded-lg border border-border bg-card divide-y divide-border">
 
         {priv.class ? (
-          <IdentityRow label={(character.classes?.length ?? 0) > 1 ? 'Classes' : 'Class'}>
-            <HiddenIdentity />
+          <IdentityRow label={(character.classes?.length ?? 0) > 1 && !priv.classAs?.trim() ? 'Classes' : 'Class'}>
+            <HiddenIdentity decoy={priv.classAs} />
           </IdentityRow>
         ) : (character.classes?.length ?? 0) > 1 ? (
           <>
@@ -1575,7 +1592,7 @@ function IdentitySection({
 
         <IdentityRow label="Race">
           {priv.race ? (
-            <HiddenIdentity />
+            <HiddenIdentity decoy={priv.raceAs} />
           ) : (
             <div className="flex items-center gap-2">
               <IdentityButton
@@ -1687,8 +1704,12 @@ function IdentitySection({
 }
 
 // Masked identity value — deliberately NOT tappable so a stray tap can't reveal
-// the real value; unhide via the eye button in the sheet header.
-function HiddenIdentity() {
+// the real value; unhide via the eye button in the sheet header. A decoy renders
+// as plain text with no hidden-marker (a disguise must look like the real thing).
+function HiddenIdentity({ decoy }: { decoy?: string }) {
+  if (decoy?.trim()) {
+    return <span className="text-sm">{decoy.trim()}</span>
+  }
   return (
     <span
       className="text-sm text-muted-foreground italic flex items-center gap-1.5"

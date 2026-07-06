@@ -227,6 +227,13 @@ describe('resolveResourceMax', () => {
     expect(resolveResourceMax(bardicInspiration.resource!, 2, flatAbilities({ cha: 10 }))).toBe(1)
   })
 
+  it('abilityMod + plus shifts the count (Divine Sense = 1 + CHA mod, still floored at 1)', () => {
+    const divineSense = { label: 'Uses', kind: 'uses' as const, abilityMod: 'cha' as const, plus: 1, rest: 'long' as const }
+    expect(resolveResourceMax(divineSense, 1, flatAbilities({ cha: 16 }))).toBe(4)
+    expect(resolveResourceMax(divineSense, 1, flatAbilities({ cha: 10 }))).toBe(1)
+    expect(resolveResourceMax(divineSense, 1, flatAbilities({ cha: 6 }))).toBe(1)
+  })
+
   it('owning level 0 → 0 even for abilityMod resources', () => {
     expect(resolveResourceMax(bardicInspiration.resource!, 0, flatAbilities({ cha: 20 }))).toBe(0)
   })

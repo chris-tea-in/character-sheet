@@ -230,9 +230,15 @@ export interface Character {
   // Sheet display privacy (same motivation as the class disguise above — secrets
   // kept from over-the-shoulder or screen-share eyes at the table): hide the
   // name / class / race lines on the owner's sheet header + Identity card.
-  // Display-only — never enters deriveCharacterStats, rolls, or the campaign
-  // roster (the server-side disguise handles that surface). Absent key = shown.
-  sheetPrivacy: { name?: boolean; class?: boolean; race?: boolean }
+  // The optional `*As` decoys show a fake value instead of the ••• / "Hidden"
+  // stub while the matching hide flag is on — a disguise must look real, so
+  // decoys render as plain text with no hidden-marker. Display-only — never
+  // enters deriveCharacterStats, rolls, or the campaign roster (the server-side
+  // disguise handles that surface). Absent key = shown.
+  sheetPrivacy: {
+    name?: boolean; class?: boolean; race?: boolean
+    nameAs?: string; classAs?: string; raceAs?: string
+  }
 
   createdAt: number  // unix ms
   updatedAt: number

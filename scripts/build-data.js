@@ -615,6 +615,8 @@ if (classAbilities) {
           errors.push(`${label}: resource.by must be a non-empty array of {level, n} numbers`)
         if (r.abilityMod !== undefined && !EFFECT_ABILITIES.has(r.abilityMod))
           errors.push(`${label}: invalid resource.abilityMod "${r.abilityMod}"`)
+        if (r.plus !== undefined && (!isNum(r.plus) || r.abilityMod === undefined))
+          errors.push(`${label}: resource.plus must be a number and requires abilityMod`)
         if (r.rest !== undefined && !RESTS.has(r.rest))
           errors.push(`${label}: invalid resource.rest "${r.rest}"`)
       }

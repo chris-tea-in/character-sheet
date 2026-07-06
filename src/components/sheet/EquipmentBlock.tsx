@@ -1382,9 +1382,9 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
       </h2>
 
       {/* Loadout — everything currently worn/wielded/attuned, pulled out of the type
-          sections below. Full controls (expand for base/charges/edit/remove) live here. */}
-      {activeItems.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-3">
+          sections below. Full controls (expand for base/charges/edit/remove) live here.
+          Always rendered so the block is discoverable even before anything is equipped. */}
+      <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Loadout
@@ -1399,6 +1399,11 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
           {attunedCount > 3 && (
             <p className="text-xs mb-2" style={{ color: 'var(--color-accent-gold)' }}>
               Attuned to more than 3 items — a character can normally attune to at most 3.
+            </p>
+          )}
+          {activeItems.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Nothing equipped or attuned yet — activate weapons, armor, or magic items in the sections below.
             </p>
           )}
           <div>
@@ -1425,8 +1430,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
               )
             })}
           </div>
-        </div>
-      )}
+      </div>
 
       {/* Weapons */}
       <div className="rounded-lg border border-border bg-card p-3">

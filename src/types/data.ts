@@ -494,13 +494,15 @@ export type ClassAbilityAction = 'action' | 'bonus_action' | 'reaction' | 'other
 
 /** Resource sizing — exactly one sizing field is set: `perLevel` (Lay on Hands
  * 5 × level, Ki 1 × level), `by` (level-stepped uses — Rage, Action Surge), or
- * `abilityMod` (Bardic Inspiration = CHA mod, min 1). */
+ * `abilityMod` (Bardic Inspiration = CHA mod, min 1). `plus` shifts an
+ * abilityMod count (Divine Sense = 1 + CHA mod); the floor of 1 always holds. */
 export interface ClassAbilityResource {
   label: string
   kind: 'pool' | 'uses'          // pool = numeric points (stepper UI); uses = pips
   perLevel?: number
   by?: FeatureResourceStep[]
   abilityMod?: AbilityName
+  plus?: number                  // only with abilityMod
   rest?: 'short' | 'long'        // informational — the app has no rest system
 }
 
