@@ -52,3 +52,9 @@ CLOUD_SYNC.md
 
 # Stray spell→class data artifact (not part of the build pipeline)
 _spells_classes.json
+# Internal working docs — keep local, don't publish to the public GitHub repo
+CLAUDE.md
+bugs.md
+BACKLOG.md
+# AI task-observer working log (skill-improvement notes, internal by nature)
+skill-observations/
