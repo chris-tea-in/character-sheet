@@ -4,14 +4,21 @@
 // in exactly one place. Counts always scale with the OWNING class's level from
 // character.classes[], never the total character level (INV-2).
 
-import type { Character } from '../types/character'
-import type { ClassFeatureData, FeatureChoiceGroup, FeatureOption } from '../types/data'
+import { abilityModifier } from './dice'
+import type { Abilities, Character } from '../types/character'
+import type { ClassAbility, ClassAbilityResource, ClassFeatureData, FeatureChoiceGroup, FeatureOption } from '../types/data'
+
+/** Anything granted by a class (and optionally a subclass). Feature-choice groups
+ * and class abilities share this shape so owningClassLevel serves both. */
+export interface ClassSourced {
+  source: { classSlug: string; subclassSlug?: string | null }
+}
 
 /**
  * Level of the class that owns `group` for this character — 0 if the character
  * lacks that class, or the group requires a subclass the character hasn't taken.
  */
-export function owningClassLevel(character: Character, group: FeatureChoiceGroup): number {
+export function owningClassLevel(character: Character, group: ClassSourced): number {
   const wantClass = group.source.classSlug
   const wantSub = group.source.subclassSlug ?? null
   const classes = character.classes ?? []
@@ -117,6 +124,42 @@ export function allSelectedOptionSlugs(choices: Record<string, string[]>): Set<s
   const set = new Set<string>()
   for (const slugs of Object.values(choices ?? {})) for (const s of slugs) set.add(s)
   return set
+}
+
+// ── Class abilities (resource-backed, action-typed — Lay on Hands, Rage, Ki …) ──
+
+/**
+ * Resource size for a class ability at the owning class's level. abilityMod
+ * resources read EFFECTIVE abilities (racial ASIs + feats included — INV-1) and
+ * floor at 1 (Bardic Inspiration's "minimum of once"). 0 when the owning class is
+ * absent or the shape is unrecognised.
+ */
+export function resolveResourceMax(
+  resource: ClassAbilityResource,
+  owningLevel: number,
+  effectiveAbilities: Abilities,
+): number {
+  if (owningLevel <= 0) return 0
+  if (resource.abilityMod) return Math.max(1, abilityModifier(effectiveAbilities[resource.abilityMod]))
+  if (resource.perLevel !== undefined) return resource.perLevel * owningLevel
+  if (resource.by) {
+    let best = -1
+    let n = 0
+    for (const step of resource.by) {
+      if (owningLevel >= step.level && step.level > best) {
+        best = step.level
+        n = step.n
+      }
+    }
+    return n
+  }
+  return 0
+}
+
+/** Class abilities the character has earned — owning class (and subclass, if the
+ * ability requires one) present at or above the ability's level (INV-2). */
+export function earnedAbilities(character: Character, abilities: ClassAbility[]): ClassAbility[] {
+  return abilities.filter(a => owningClassLevel(character, a) >= a.level)
 }
 
 export function levelUpFeatureChoices(

@@ -202,6 +202,30 @@ export function buildAcFormula(
   return f
 }
 
+// Inverse of buildAcFormula — recover the friendly AC-builder inputs from a stored
+// formula so a custom armor can be re-edited. Returns null when the formula doesn't
+// match the builder grammar (caller falls back to the armor type's defaults).
+export function parseAcFormulaParts(
+  armorType: ArmorItem['armor_type'],
+  formula: string,
+): { base: number; addsDex: boolean; dexCap: number | null; flatBonus: number } | null {
+  const trimmed = formula.trim()
+  if (armorType === 'Shield') {
+    const n = trimmed.match(/^\+(\d+)/)
+    return n ? { base: parseInt(n[1], 10), addsDex: false, dexCap: null, flatBonus: 0 } : null
+  }
+  const m = trimmed.match(
+    /^(\d+)(\s*\+\s*dex(?:terity)?(?:\s*modifier)?)?(\s*\(\s*max\s*(\d+)\s*\))?(\s*\+\s*(\d+))?$/i,
+  )
+  if (!m) return null
+  return {
+    base: parseInt(m[1], 10),
+    addsDex: m[2] !== undefined,
+    dexCap: m[4] !== undefined ? parseInt(m[4], 10) : null,
+    flatBonus: m[6] !== undefined ? parseInt(m[6], 10) : 0,
+  }
+}
+
 export interface CustomItemInput {
   name: string
   rarity?: WondrousItem['rarity']

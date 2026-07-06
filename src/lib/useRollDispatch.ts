@@ -15,7 +15,15 @@ export function useRollDispatch(derived: DerivedStats) {
   function bonusesFor(kind: RollKind): RollBonus[] {
     if (kind.type === 'skill') return derived.breakdowns.skills[kind.skill].map(s => ({ label: s.label, amount: s.amount }))
     if (kind.type === 'save') return derived.breakdowns.saves[kind.ability].map(s => ({ label: s.label, amount: s.amount }))
-    if (kind.type === 'ability') return [{ label: `${kind.ability.toUpperCase()} modifier`, amount: abilityModifier(derived.effectiveAbilities[kind.ability]) }]
+    if (kind.type === 'ability') {
+      // Must mirror the dice-store modifier exactly (itemized rows sum to the total):
+      // ability mod + any half-proficiency grant (Jack of All Trades / Remarkable Athlete).
+      const half = derived.abilityCheckBonuses[kind.ability]
+      return [
+        { label: `${kind.ability.toUpperCase()} modifier`, amount: abilityModifier(derived.effectiveAbilities[kind.ability]) },
+        ...(half ? [{ label: `${half.label} (half PB)`, amount: half.amount }] : []),
+      ]
+    }
     if (kind.type === 'attack') return kind.bonuses ?? []
     if (kind.type === 'heal') return kind.modifier !== 0 ? [{ label: 'CON modifier', amount: kind.modifier }] : []
     return []

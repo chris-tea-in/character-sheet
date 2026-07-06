@@ -1,4 +1,4 @@
-import type { Race, ClassData, SubclassData, Background, FeatData, SpellData, EquipmentData, ClassFeatureData, ClassFeatureEffects } from '@/types/data'
+import type { Race, ClassData, SubclassData, Background, FeatData, SpellData, EquipmentData, ClassFeatureData, ClassFeatureEffects, ClassAbility } from '@/types/data'
 
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path)
@@ -22,6 +22,9 @@ export interface SetupData {
   featureCategories: Record<string, string>
   // Always-on class-feature effects, applied at render time (see computeClassFeatureEffects).
   classFeatureEffects: ClassFeatureEffects
+  // Resource-backed, action-typed class abilities (Lay on Hands, Rage, Ki …),
+  // rendered in the Spells area; gated/sized by the owning class's level (INV-2).
+  classAbilities: ClassAbility[]
 }
 
 /** Look up a class-level feature's description: class-qualified first, then `_shared`. */
@@ -64,8 +67,10 @@ export function loadSetupData(): Promise<SetupData> {
       fetchJson<Record<string, string>>('/data/feature-categories.json').catch(() => ({} as Record<string, string>)),
       // class-feature-effects.json is optional; fall back to {} (no always-on feature effects).
       fetchJson<ClassFeatureEffects>('/data/class-feature-effects.json').catch(() => ({} as ClassFeatureEffects)),
-    ]).then(([races, classes, subclasses, backgrounds, classFeatures, featureDescriptions, featureCategories, classFeatureEffects]) =>
-      ({ races, classes, subclasses, backgrounds, classFeatures, featureDescriptions, featureCategories, classFeatureEffects })),
+      // class-abilities.json is optional; fall back to [] (no resource-backed abilities).
+      fetchJson<ClassAbility[]>('/data/class-abilities.json').catch(() => [] as ClassAbility[]),
+    ]).then(([races, classes, subclasses, backgrounds, classFeatures, featureDescriptions, featureCategories, classFeatureEffects, classAbilities]) =>
+      ({ races, classes, subclasses, backgrounds, classFeatures, featureDescriptions, featureCategories, classFeatureEffects, classAbilities })),
     p => { setupCache = p },
   )
 }

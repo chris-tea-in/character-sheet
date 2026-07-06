@@ -313,6 +313,12 @@ function validateFeatureEffects(effects, label) {
         if (e.target === 'skill' && !EFFECT_SKILLS.has(e.skill)) errors.push(`${at} (${e.type}): invalid skill "${e.skill}"`)
         if (e.condition !== undefined && (typeof e.condition !== 'string' || e.condition.trim() === '')) errors.push(`${at} (${e.type}): "condition" must be a non-empty string when present`)
         break
+      case 'half_proficiency_checks':
+        if (e.roundUp !== undefined && typeof e.roundUp !== 'boolean') errors.push(`${at} (half_proficiency_checks): "roundUp" must be a boolean`)
+        if (e.abilities !== undefined && (!Array.isArray(e.abilities) || e.abilities.length === 0 || !e.abilities.every(a => EFFECT_ABILITIES.has(a))))
+          errors.push(`${at} (half_proficiency_checks): "abilities" must be a non-empty array of ability keys`)
+        if (e.level !== undefined && !isNum(e.level)) errors.push(`${at} (half_proficiency_checks): "level" must be a number`)
+        break
       default:
         errors.push(`${at}: unknown feature effect type "${e?.type}"`)
     }
@@ -553,7 +559,74 @@ const classFeatureEffects = readJson('data/class-feature-effects.json')
 if (classFeatureEffects) {
   for (const [cls, feats] of Object.entries(classFeatureEffects)) {
     if (typeof feats !== 'object' || feats === null) { errors.push(`class-feature-effects: "${cls}" must be an object`); continue }
-    for (const [fname, effs] of Object.entries(feats)) validateFeatureEffects(effs, `class-feature-effects ${cls} "${fname}"`)
+    // Subclass-keyed entries ("fighter:champion") aren't in the class level table, so
+    // every effect must carry its own numeric `level` gate.
+    const subclassKeyed = cls.includes(':')
+    for (const [fname, effs] of Object.entries(feats)) {
+      validateFeatureEffects(effs, `class-feature-effects ${cls} "${fname}"`)
+      if (subclassKeyed && Array.isArray(effs)) {
+        effs.forEach((e, i) => {
+          if (!isNum(e?.level)) errors.push(`class-feature-effects ${cls} "${fname}" effects[${i}]: subclass-keyed entries require a numeric "level" gate`)
+        })
+      }
+    }
+  }
+}
+
+// ── Class abilities (resource-backed, action-typed — Lay on Hands, Rage, Ki …) ──
+// Top-level array, compiled verbatim. Keys are namespaced "ability:…" so they can
+// never collide with feature-choice group keys in the shared featureResourcesUsed
+// record. `cost` entries must reference another ability that carries a resource.
+const classAbilities = readJson('data/class-abilities.json')
+if (classAbilities) {
+  if (!Array.isArray(classAbilities)) {
+    errors.push('class-abilities: expected a top-level array')
+  } else {
+    const ACTIONS = new Set(['action', 'bonus_action', 'reaction', 'other'])
+    const RESTS = new Set(['short', 'long'])
+    const seen = new Set()
+    const resourceKeys = new Set(classAbilities.filter(a => a?.resource).map(a => a.key))
+    classAbilities.forEach((a, i) => {
+      const label = `class-abilities[${i}] (${a?.key ?? '?'})`
+      requireFields(a, ['key', 'source', 'level', 'name', 'action'], label)
+      if (typeof a.key === 'string' && !a.key.startsWith('ability:'))
+        errors.push(`${label}: key must be namespaced "ability:…"`)
+      if (a.key) {
+        if (seen.has(a.key)) errors.push(`${label}: duplicate key`)
+        seen.add(a.key)
+      }
+      if (a.source && typeof a.source.classSlug !== 'string')
+        errors.push(`${label}: source.classSlug must be a string`)
+      if (a.level !== undefined && !isNum(a.level)) errors.push(`${label}: "level" must be a number`)
+      if (a.action !== undefined && !ACTIONS.has(a.action))
+        errors.push(`${label}: invalid action "${a.action}"`)
+      if (a.resource) {
+        const r = a.resource
+        if (typeof r.label !== 'string' || r.label.trim() === '')
+          errors.push(`${label}: resource.label must be a non-empty string`)
+        if (r.kind !== 'pool' && r.kind !== 'uses')
+          errors.push(`${label}: resource.kind must be "pool" or "uses"`)
+        const sizings = ['perLevel', 'by', 'abilityMod'].filter(k => r[k] !== undefined)
+        if (sizings.length !== 1)
+          errors.push(`${label}: resource needs exactly one of perLevel/by/abilityMod (got ${sizings.join('+') || 'none'})`)
+        if (r.perLevel !== undefined && !isNum(r.perLevel))
+          errors.push(`${label}: resource.perLevel must be a number`)
+        if (r.by !== undefined && (!Array.isArray(r.by) || r.by.length === 0 || r.by.some(s => !isNum(s?.level) || !isNum(s?.n))))
+          errors.push(`${label}: resource.by must be a non-empty array of {level, n} numbers`)
+        if (r.abilityMod !== undefined && !EFFECT_ABILITIES.has(r.abilityMod))
+          errors.push(`${label}: invalid resource.abilityMod "${r.abilityMod}"`)
+        if (r.rest !== undefined && !RESTS.has(r.rest))
+          errors.push(`${label}: invalid resource.rest "${r.rest}"`)
+      }
+      if (a.cost) {
+        if (!isNum(a.cost.amount) || a.cost.amount < 1)
+          errors.push(`${label}: cost.amount must be a number ≥ 1`)
+        if (!resourceKeys.has(a.cost.key))
+          errors.push(`${label}: cost.key "${a.cost.key}" does not reference an ability with a resource`)
+      }
+      if (a.effect && a.effect.kind !== 'heal-pool')
+        errors.push(`${label}: unknown effect kind "${a.effect?.kind}"`)
+    })
   }
 }
 
@@ -577,6 +650,7 @@ if (rules) writeFileSync('public/data/rules.json', JSON.stringify(rules, null, 2
 if (featureDescriptions) writeFileSync('public/data/feature-descriptions.json', JSON.stringify(featureDescriptions, null, 2))
 if (featureCategories) writeFileSync('public/data/feature-categories.json', JSON.stringify(featureCategories, null, 2))
 if (classFeatureEffects) writeFileSync('public/data/class-feature-effects.json', JSON.stringify(classFeatureEffects, null, 2))
+if (classAbilities) writeFileSync('public/data/class-abilities.json', JSON.stringify(classAbilities, null, 2))
 
 const entryCount = [races, spells, classes, subclasses, feats, backgrounds]
   .reduce((n, d) => n + Object.keys(d).length, 0)

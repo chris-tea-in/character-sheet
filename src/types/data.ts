@@ -433,6 +433,13 @@ export type FeatureEffect =
   // never auto-netted, opt-in at roll time (e.g. Danger Sense "vs. effects you can see").
   | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
   | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
+  // Half proficiency bonus on ability checks that don't already include PB (#32/#53/#55):
+  // Jack of All Trades (floor, all abilities) / Remarkable Athlete (roundUp, STR/DEX/CON).
+  // Applies to non-proficient skills, raw ability checks, and initiative; never stacks with
+  // proficiency/expertise, and overlapping grants take the larger (max), never sum.
+  // `level` is the owning-class level gate — REQUIRED on subclass-keyed entries (the class
+  // level table doesn't list subclass features); ignored on class-keyed entries.
+  | { type: 'half_proficiency_checks'; roundUp?: boolean; abilities?: AbilityName[]; level?: number }
 
 export interface FeatureOption {
   slug: string
@@ -442,9 +449,12 @@ export interface FeatureOption {
   effects?: FeatureEffect[]
 }
 
-// Always-on class-feature effects, keyed classSlug → { "Feature Name": FeatureEffect[] }.
-// Applied at render time for every earned class-level feature, up to the owning class's
-// level (INV-2). Compiled from data/class-feature-effects.json.
+// Always-on class-feature effects, keyed classSlug OR "classSlug:subclassSlug" →
+// { "Feature Name": FeatureEffect[] }. Class-keyed entries apply for every earned
+// class-level feature up to the owning class's level (INV-2); subclass-keyed entries
+// ("fighter:champion") are gated by each effect's own `level` field instead, because
+// subclass features aren't in the class level table. Compiled from
+// data/class-feature-effects.json.
 export type ClassFeatureEffects = Record<string, Record<string, FeatureEffect[]>>
 
 /** Cumulative count known once the owning class reaches `level`. */
@@ -473,3 +483,41 @@ export interface FeatureChoiceGroup {
 
 /** Compiled class-features.json — keyed by group key. */
 export type ClassFeatureData = Record<string, FeatureChoiceGroup>
+
+// ── Class abilities (resource-backed, action-typed — Lay on Hands, Rage, Ki …) ──
+// Compiled verbatim from data/class-abilities.json. Distinct from FeatureChoiceGroup
+// (nothing to choose) and from ClassFeatureEffects (no passive stat effect): these
+// are play-time features with a spendable resource and an action-economy type,
+// rendered in the Spells area (ClassAbilitiesSection).
+
+export type ClassAbilityAction = 'action' | 'bonus_action' | 'reaction' | 'other'
+
+/** Resource sizing — exactly one sizing field is set: `perLevel` (Lay on Hands
+ * 5 × level, Ki 1 × level), `by` (level-stepped uses — Rage, Action Surge), or
+ * `abilityMod` (Bardic Inspiration = CHA mod, min 1). */
+export interface ClassAbilityResource {
+  label: string
+  kind: 'pool' | 'uses'          // pool = numeric points (stepper UI); uses = pips
+  perLevel?: number
+  by?: FeatureResourceStep[]
+  abilityMod?: AbilityName
+  rest?: 'short' | 'long'        // informational — the app has no rest system
+}
+
+export interface ClassAbility {
+  /** Namespaced "ability:<class>:<slug>" — the prefix keeps these from colliding
+   * with feature-choice group keys in the shared featureResourcesUsed record.
+   * Enforced by build-data. */
+  key: string
+  /** Granted by this class (optionally only with this subclass); gating AND
+   * resource sizing use the OWNING class's level (INV-2). */
+  source: { classSlug: string; subclassSlug?: string | null }
+  level: number
+  name: string
+  action: ClassAbilityAction
+  resource?: ClassAbilityResource
+  /** Spends N from ANOTHER ability's resource (Flurry of Blows → Ki). */
+  cost?: { key: string; amount: number }
+  /** Spend-UI hint; 'heal-pool' = pool points are hit points healed. */
+  effect?: { kind: 'heal-pool' }
+}

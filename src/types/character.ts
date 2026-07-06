@@ -190,8 +190,10 @@ export interface Character {
   // Stores choices only; any passive effect derives at render time (INV-1).
   classFeatureChoices: Record<string, string[]>
   // Usage tracker for choice-attached resources (e.g. Battle Master Superiority
-  // Dice), keyed by group key → count spent. Not a stat effect — never enters
-  // deriveCharacterStats; parallels equipment chargesUsed / spellSlotsUsed.
+  // Dice) AND class abilities (Lay on Hands, Rage, Ki …). Keyed by feature-choice
+  // group key or class-ability key (namespaced "ability:…" — see lib/classFeatures)
+  // → count spent; pool-kind abilities store points spent. Not a stat effect —
+  // never enters deriveCharacterStats; parallels chargesUsed / spellSlotsUsed.
   featureResourcesUsed: Record<string, number>
 
   // Homebrew custom content — catalog-shaped definitions authored on this

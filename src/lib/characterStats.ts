@@ -120,6 +120,12 @@ export interface DerivedStats {
   spellSaveDC: number
   hasStealthDisadvantage: boolean
   hitDiceType: number
+  // Half proficiency on ability checks that don't already use PB (Jack of All Trades /
+  // Remarkable Athlete) — the BEST grant per ability (overlaps take max, never sum).
+  // Skills/initiative already fold this into their ledger rows; RAW ability-check rolls
+  // read it at roll time (dice store modifier + roll-modal itemization). Accepted
+  // limitation: not ledger-disableable for raw checks (no TargetKey) — skill rows are.
+  abilityCheckBonuses: Partial<Record<AbilityName, { amount: number; label: string }>>
   // Roll-time: Rogue 11+ Reliable Talent — a proficient ability check treats a natural
   // d20 ≤ 9 as 10. Consumed in the dice engine (skill rolls + their rerolls).
   reliableTalent: boolean
@@ -862,6 +868,8 @@ interface FeatureEffectAccum {
   armorProf: string[]
   toolProf: string[]
   advDis: { mode: 'adv' | 'dis'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string }[]
+  // Half PB on checks that don't already use PB (Jack of All Trades / Remarkable Athlete).
+  halfProfChecks: { label: string; roundUp: boolean; abilities: AbilityName[] | 'all' }[]
   greatWeaponFighting: boolean   // selected the Great Weapon Fighting style (reroll 1s/2s)
 }
 
@@ -870,6 +878,7 @@ function newFeatureAccum(): FeatureEffectAccum {
     acAlways: 0, acArmored: 0, acUnarmored: 0, acFloor: [], weaponEffects: [],
     saveProf: [], saveBonus: [], derivedSave: [], resistances: [], immunities: [],
     speed: [], speedSet: [], speedMult: [], maxHp: [], skillProf: [], weaponProf: [], armorProf: [], toolProf: [], advDis: [],
+    halfProfChecks: [],
     greatWeaponFighting: false,
   }
 }
@@ -900,6 +909,7 @@ function applyFeatureEffect(e: FeatureEffect, label: string, acc: FeatureEffectA
     case 'tool_proficiency': for (const t of e.tools) acc.toolProf.push(t); break
     case 'advantage': acc.advDis.push({ mode: 'adv', target: e.target, ability: e.ability, skill: e.skill, label, condition: e.condition }); break
     case 'disadvantage': acc.advDis.push({ mode: 'dis', target: e.target, ability: e.ability, skill: e.skill, label, condition: e.condition }); break
+    case 'half_proficiency_checks': acc.halfProfChecks.push({ label, roundUp: e.roundUp ?? false, abilities: e.abilities ?? 'all' }); break
   }
 }
 
@@ -935,11 +945,24 @@ function collectFeatureEffects(
     entries.forEach((ce, i) => {
       const byFeature = classFeatureEffects[ce.classSlug]
       const rec = classRecords[i] ?? null
-      if (!byFeature || !rec) return
-      for (let lvl = 1; lvl <= ce.level; lvl++) {
-        for (const name of (rec.levels[String(lvl)]?.features ?? [])) {
-          const effs = byFeature[name]
-          if (effs) for (const e of effs) applyFeatureEffect(e, name, acc, ce.level)
+      if (byFeature && rec) {
+        for (let lvl = 1; lvl <= ce.level; lvl++) {
+          for (const name of (rec.levels[String(lvl)]?.features ?? [])) {
+            const effs = byFeature[name]
+            if (effs) for (const e of effs) applyFeatureEffect(e, name, acc, ce.level)
+          }
+        }
+      }
+      // Subclass-keyed entries ("fighter:champion"): subclass features aren't in the
+      // class level table, so each effect carries its own owning-class `level` gate
+      // (INV-2 — the OWNING class's level, never total level). Needs no class record.
+      const bySubclass = ce.subclassSlug ? classFeatureEffects[`${ce.classSlug}:${ce.subclassSlug}`] : undefined
+      if (bySubclass) {
+        for (const [name, effs] of Object.entries(bySubclass)) {
+          for (const e of effs) {
+            const gate = 'level' in e && typeof e.level === 'number' ? e.level : 1
+            if (ce.level >= gate) applyFeatureEffect(e, name, acc, ce.level)
+          }
         }
       }
     })
@@ -1072,6 +1095,19 @@ export function deriveCharacterStats(
   const pb = pbLedger.effective
   // Selected feature options + always-on class features, in one accumulator.
   const featureFx = collectFeatureEffects(character, ctx.classes ?? [], classFeatures, ctx.classFeatureEffects)
+
+  // Half-proficiency check grants (#32/#53/#55): Jack of All Trades = floor(PB/2) on all
+  // ability checks, Remarkable Athlete = ceil(PB/2) on STR/DEX/CON checks. Resolved to the
+  // BEST grant per ability — overlapping grants never stack (max, not sum). Consumed by
+  // non-proficient skills, initiative (a DEX check), and raw ability-check rolls.
+  const halfProfByAbility: Partial<Record<AbilityName, { amount: number; label: string }>> = {}
+  for (const g of featureFx.halfProfChecks) {
+    const amount = g.roundUp ? Math.ceil(pb / 2) : Math.floor(pb / 2)
+    for (const ab of (g.abilities === 'all' ? ALL_ABILITIES : g.abilities)) {
+      const cur = halfProfByAbility[ab]
+      if (!cur || amount > cur.amount) halfProfByAbility[ab] = { amount, label: g.label }
+    }
+  }
 
   // Stable, deterministic source IDs for the ledger (`${kind}:${sourceSlug}:${targetKey}`).
   const slugifyName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -1322,7 +1358,10 @@ export function deriveCharacterStats(
     effectiveSpeed = conditionEffects.speed.mode === 'zero' ? 0 : Math.floor(runningSpeed / 2)
     conditionSpeedDelta = effectiveSpeed - runningSpeed
   }
-  const effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus + itemEffects.initiative
+  // Initiative is a DEX check — a half-proficiency grant applies unless something already
+  // adds PB to initiative (nothing does today; the max-wins grant map prevents stacking).
+  const halfProfInit = halfProfByAbility.dex
+  const effectiveInitiativeBonus = (character.initiativeBonus ?? 0) + featInitiativeBonus + itemEffects.initiative + (halfProfInit?.amount ?? 0)
   const effectiveInitiative = dexMod + effectiveInitiativeBonus
 
   // ── Modifier Ledger provenance (P1: speed + initiative) ───────────────────
@@ -1345,6 +1384,7 @@ export function deriveCharacterStats(
       : []),
     ...featInitSources.map(s => ({ id: `feat:${s.slug}:initiative`, label: `${s.name} (feat)`, amount: s.amount, kind: 'feat' as const, removable: true })),
     ...itemEffects.initiativeSources.map(s => ({ id: `item:${slugifyName(s.name)}:initiative`, label: `${s.name} (item)`, amount: s.amount, kind: 'item' as const, removable: true })),
+    ...(halfProfInit ? [{ id: 'feature:half-prof:initiative', label: `${halfProfInit.label} (half PB)`, amount: halfProfInit.amount, kind: 'feature' as const, removable: true }] : []),
   ]
   // INV: a breakdown must reconstruct the effective value exactly — guards the refactor.
   const sumModifiers = (a: ModifierSource[]) => a.reduce((t, c) => t + c.amount, 0)
@@ -1386,8 +1426,11 @@ export function deriveCharacterStats(
     const abilMod = abilityModifier(effectiveAbilities[ability])
     const prof = effectiveSkillProficiencies[skill]
     const profMod = prof ? pb * (prof === 'expertise' ? 2 : 1) : 0
+    // Half proficiency (JoAT/Remarkable Athlete) applies ONLY when the check doesn't
+    // already include PB — proficient/expertise skills are untouched (no stacking).
+    const halfProf = !prof ? halfProfByAbility[ability] : undefined
     const flatBonus = flatSkillBonuses[skill] ?? 0
-    skillModifiers[skill] = abilMod + profMod + flatBonus
+    skillModifiers[skill] = abilMod + profMod + (halfProf?.amount ?? 0) + flatBonus
 
     const rows: ModifierSource[] = [
       { id: `abilityMod:${ability}:skill-${skill}`, label: `${ABILITY_ABBR[ability]} modifier`, amount: abilMod, kind: 'abilityMod', removable: false },
@@ -1399,6 +1442,9 @@ export function deriveCharacterStats(
         label: prof === 'expertise' ? 'Expertise (2×PB)' : fromRace ? 'Proficiency (racial)' : 'Proficiency (PB)',
         amount: profMod, kind: fromRace ? 'race' : 'proficiency', removable: false,
       })
+    }
+    if (halfProf) {
+      rows.push({ id: `feature:half-prof:skill-${skill}`, label: `${halfProf.label} (half PB)`, amount: halfProf.amount, kind: 'feature', removable: true })
     }
     for (const s of flatSkillBonusSources.filter(s => s.skill === skill)) {
       rows.push({ id: s.id, label: s.label, amount: s.amount, kind: s.kind, removable: true })
@@ -1888,6 +1934,7 @@ export function deriveCharacterStats(
     spellSaveDC: spellDcL.effective,
     hasStealthDisadvantage,
     hitDiceType,
+    abilityCheckBonuses: halfProfByAbility,
     reliableTalent,
     hasLuckyFeat,
     rollStates,

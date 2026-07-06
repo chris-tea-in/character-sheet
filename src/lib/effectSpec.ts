@@ -125,6 +125,41 @@ export function specToLedgerCustom(spec: EffectSpec, id: string): LedgerGrant[] 
 }
 
 /**
+ * Inverse of specToItemEffect — lift a stored ItemEffect back into the builder's
+ * EffectSpec so a homebrew def can be re-edited. Returns null for effect types the
+ * builder can't author (catalog-only annotations like spell_focus); custom defs only
+ * ever carry builder-emitted effects, so nothing is lost on their round-trip.
+ */
+export function itemEffectToSpec(e: ItemEffect): EffectSpec | null {
+  switch (e.type) {
+    case 'ability_bonus': return { kind: 'number', target: { t: 'ability', ability: e.ability }, amount: e.amount }
+    case 'ac': return { kind: 'number', target: { t: 'ac' }, amount: e.amount }
+    case 'speed': return { kind: 'number', target: { t: 'speed' }, amount: e.amount }
+    case 'initiative': return { kind: 'number', target: { t: 'initiative' }, amount: e.amount }
+    case 'max_hp': return e.amount === undefined ? null : { kind: 'number', target: { t: 'maxHp' }, amount: e.amount }
+    case 'save': return { kind: 'number', target: { t: 'save', ability: e.ability }, amount: e.amount }
+    case 'skill': return { kind: 'number', target: { t: 'skill', skill: e.skill }, amount: e.amount }
+    case 'attack': return { kind: 'number', target: { t: 'weaponAttack' }, amount: e.amount }
+    case 'spell_attack': return { kind: 'number', target: { t: 'spellAttack' }, amount: e.amount }
+    case 'spell_save_dc': return { kind: 'number', target: { t: 'spellSaveDC' }, amount: e.amount }
+    case 'spell_damage': return { kind: 'number', target: { t: 'spellDamage' }, amount: e.amount }
+    case 'damage': return { kind: 'number', target: { t: 'damage' }, amount: e.amount }
+    case 'resistance': return { kind: 'grant', target: 'resistance', value: e.damageType }
+    case 'immunity': return { kind: 'grant', target: 'immunity', value: e.damageType }
+    case 'language': return { kind: 'grant', target: 'language', value: e.name }
+    case 'advantage':
+    case 'disadvantage': {
+      const mode = e.type === 'advantage' ? 'adv' as const : 'dis' as const
+      const cond = e.condition ? { condition: e.condition } : {}
+      if (e.target === 'save') return { kind: 'advdis', target: { t: 'save', ability: e.ability ?? 'all' }, mode, ...cond }
+      if (e.skill === undefined) return null // skill-target advantage with no skill — not builder-authorable
+      return { kind: 'advdis', target: { t: 'skill', skill: e.skill }, mode, ...cond }
+    }
+    default: return null
+  }
+}
+
+/**
  * Translate an EffectSpec into the item's structured ItemEffect, or null when the
  * effect has no item representation (sense / proficiency grants are ledger-only).
  */
