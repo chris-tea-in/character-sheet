@@ -1,5 +1,6 @@
 import type { NewCharacter } from '../types/character'
 import type { WeaponItem, ArmorItem, WondrousItem } from '../types/data'
+import type { CompanionData } from '../../shared/companionValidation'
 
 // Thin same-origin fetch wrapper around the cloud-storage API. Identity is
 // solved by Cloudflare Access (the Access cookie rides along on same-origin
@@ -448,6 +449,64 @@ export function updateCampaignNpc(
 /** Author-or-DM: soft-delete an NPC. */
 export function deleteCampaignNpc(id: string, npcId: string): Promise<SyncResult<unknown>> {
   return request(`/api/campaigns/${encodeURIComponent(id)}/npcs/${encodeURIComponent(npcId)}`, {
+    method: 'DELETE',
+  })
+}
+
+// ── Campaign companions (full custom stat blocks) ───────────────────────────────
+// Fetch on open + manual refresh, no polling (same read-on-demand contract as
+// notes). Server-side visibility: DM sees all; a player sees rows assigned to
+// their own characters plus everything they authored (pooled creations included).
+
+export interface CampaignCompanion {
+  id: string
+  assignedCharacterId: string | null
+  data: CompanionData
+  createdBy: string
+  createdByUsername: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** Any member: the companions THIS viewer may see (filtering happens in SQL). */
+export async function campaignCompanions(id: string): Promise<SyncResult<CampaignCompanion[]>> {
+  const res = await request<{ companions: CampaignCompanion[] }>(
+    `/api/campaigns/${encodeURIComponent(id)}/companions`,
+  )
+  return res.ok ? { ok: true, data: res.data.companions } : res
+}
+
+/** Member: create a companion. Players must assign to a character they own;
+ * only the DM may pass null (unassigned pool). */
+export function createCampaignCompanion(
+  id: string,
+  assignedCharacterId: string | null,
+  data: CompanionData,
+): Promise<SyncResult<CampaignCompanion>> {
+  return request<CampaignCompanion>(`/api/campaigns/${encodeURIComponent(id)}/companions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ assignedCharacterId, data }),
+  })
+}
+
+/** DM / author / assignee-owner: co-edit the stat block and/or reassign
+ * (players only between their own characters; pool moves are DM-only). */
+export function updateCampaignCompanion(
+  id: string,
+  companionId: string,
+  patch: { data?: CompanionData; assignedCharacterId?: string | null },
+): Promise<SyncResult<{ ok: true; updatedAt: number }>> {
+  return request(`/api/campaigns/${encodeURIComponent(id)}/companions/${encodeURIComponent(companionId)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+/** Author-or-DM: soft-delete a companion. */
+export function deleteCampaignCompanion(id: string, companionId: string): Promise<SyncResult<unknown>> {
+  return request(`/api/campaigns/${encodeURIComponent(id)}/companions/${encodeURIComponent(companionId)}`, {
     method: 'DELETE',
   })
 }
