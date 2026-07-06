@@ -140,7 +140,7 @@ export function resolveResourceMax(
   effectiveAbilities: Abilities,
 ): number {
   if (owningLevel <= 0) return 0
-  if (resource.abilityMod) return Math.max(1, abilityModifier(effectiveAbilities[resource.abilityMod]))
+  if (resource.abilityMod) return Math.max(1, abilityModifier(effectiveAbilities[resource.abilityMod]) + (resource.plus ?? 0))
   if (resource.perLevel !== undefined) return resource.perLevel * owningLevel
   if (resource.by) {
     let best = -1

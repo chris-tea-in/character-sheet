@@ -494,13 +494,15 @@ export type ClassAbilityAction = 'action' | 'bonus_action' | 'reaction' | 'other
 
 /** Resource sizing — exactly one sizing field is set: `perLevel` (Lay on Hands
  * 5 × level, Ki 1 × level), `by` (level-stepped uses — Rage, Action Surge), or
- * `abilityMod` (Bardic Inspiration = CHA mod, min 1). */
+ * `abilityMod` (Bardic Inspiration = CHA mod, min 1). `plus` shifts an
+ * abilityMod count (Divine Sense = 1 + CHA mod); the floor of 1 always holds. */
 export interface ClassAbilityResource {
   label: string
   kind: 'pool' | 'uses'          // pool = numeric points (stepper UI); uses = pips
   perLevel?: number
   by?: FeatureResourceStep[]
   abilityMod?: AbilityName
+  plus?: number                  // only with abilityMod
   rest?: 'short' | 'long'        // informational — the app has no rest system
 }
 
@@ -518,6 +520,8 @@ export interface ClassAbility {
   resource?: ClassAbilityResource
   /** Spends N from ANOTHER ability's resource (Flurry of Blows → Ki). */
   cost?: { key: string; amount: number }
-  /** Spend-UI hint; 'heal-pool' = pool points are hit points healed. */
-  effect?: { kind: 'heal-pool' }
+  /** Effect hint: 'heal-pool' = pool points are hit points healed (Lay on Hands
+   * spend UI); 'heal' = a plain healing use (Second Wind). Also drives the
+   * combat tab's damage/healing/utility grouping. */
+  effect?: { kind: 'heal-pool' | 'heal' }
 }
