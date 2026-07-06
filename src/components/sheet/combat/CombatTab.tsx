@@ -18,7 +18,9 @@ import { normalizeCastingTime } from '@/lib/actionEconomy'
 import type { ActionEconomy } from '@/lib/actionEconomy'
 import { getSpellcastingInfo, PACT_SLOT_KEY } from '@/lib/spellcasting'
 import type { SpellcastingProfile } from '@/lib/spellcasting'
-import { ORDINALS } from '@/lib/spells'
+import { ORDINALS, componentStr } from '@/lib/spells'
+import { lookupFeatureDescription } from '@/lib/data'
+import type { FeatureDescriptions } from '@/lib/data'
 import { parseSpellDamage } from '@/lib/spellDamage'
 import { parseSpellHeal } from '@/lib/spellHeal'
 import { mergeCustomSpells } from '@/lib/customContent'
@@ -108,11 +110,12 @@ interface Props {
   classRecord: ClassData | null
   classLevel: number
   classAbilities: ClassAbility[]
+  featureDescriptions: FeatureDescriptions
   overrideSlotProfile?: SpellcastingProfile
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
-export function CombatTab({ character, derived, catalog, classRecord, classLevel, classAbilities, overrideSlotProfile, onSave }: Props) {
+export function CombatTab({ character, derived, catalog, classRecord, classLevel, classAbilities, featureDescriptions, overrideSlotProfile, onSave }: Props) {
   const { dispatch, dispatchDamage } = useRollDispatch(derived)
   const { assemble } = useWeaponActions(character, derived)
   const queue = useCombatLogStore(s => s.queue)
@@ -125,6 +128,11 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
   // The queue is session-global; never let one character's queued costs commit
   // against another character's resources.
   useEffect(() => { clearQueue() }, [character.id, clearQueue])
+
+  // Tap a spell/ability/action NAME to read its description (one open at a time,
+  // keyed by the same stable row ids the queue uses).
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const toggleExpanded = (rowId: string) => setExpandedId(cur => (cur === rowId ? null : rowId))
 
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   useEffect(() => { loadSpellsData().then(setAllSpells).catch(() => {}) }, [])
@@ -246,13 +254,21 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
         const castable = level === 0 || !!chosen
         const slotIn = queuedIn(`spell:${slug}`)
         const slotKey: QueueSlotKey = economy === 'bonus_action' ? 'bonusAction' : 'action'
+        const rowId = `spell:${slug}`
         return (
-          <div key={cs.slug} className="flex items-center gap-2 py-1.5 flex-wrap">
+          <div key={cs.slug} className="py-1.5 space-y-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge economy={economy} title={economy === 'bonus_action' ? 'Bonus action' : economy === 'reaction' ? 'Reaction' : 'Action'} />
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-none" style={{ background: 'var(--color-surface-2)', color: 'var(--color-accent-gold)' }}>
               {level === 0 ? 'Cantrip' : `Lv ${level}`}
             </span>
-            <span className={cn('flex-1 text-sm font-medium truncate min-w-24', !castable && 'opacity-50')}>{label}</span>
+            <button
+              onClick={() => toggleExpanded(rowId)}
+              className={cn('flex-1 text-sm font-medium truncate min-w-24 text-left hover:opacity-75 transition-opacity', !castable && 'opacity-50')}
+              title="Tap to read the spell description"
+            >
+              {label}
+            </button>
             {level > 0 && (
               eligible.length > 0 ? (
                 <select
@@ -309,6 +325,24 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
               />
             )}
           </div>
+          {expandedId === rowId && (
+            sp ? (
+              <div className="pl-10 space-y-1.5 text-xs text-muted-foreground">
+                <div className="flex gap-4 flex-wrap">
+                  <span><span className="font-semibold text-foreground">Range:</span> {sp.range}</span>
+                  <span><span className="font-semibold text-foreground">Duration:</span> {sp.duration}</span>
+                  {sp.concentration && <span className="text-amber-400">Concentration</span>}
+                  {sp.ritual && <span className="text-purple-400">Ritual</span>}
+                  <span><span className="font-semibold text-foreground">Components:</span> {componentStr(sp.components)}</span>
+                </div>
+                <p className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{sp.description}</p>
+                {sp.at_higher_levels && <p className="italic whitespace-pre-wrap">{sp.at_higher_levels}</p>}
+              </div>
+            ) : (
+              <p className="pl-10 text-xs text-muted-foreground italic">No catalog entry for this spell.</p>
+            )
+          )}
+          </div>
         )
       })
   }
@@ -333,9 +367,16 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
         const slotIn = queuedIn(a.key)
         const slotKey: QueueSlotKey = economy === 'bonus_action' ? 'bonusAction' : 'action'
         return (
-          <div key={a.key} className="flex items-center gap-2 py-1.5">
+          <div key={a.key} className="py-1.5 space-y-1.5">
+          <div className="flex items-center gap-2">
             <Badge economy={economy} title={economy === 'bonus_action' ? 'Bonus action' : 'Action'} />
-            <span className="flex-1 text-sm font-medium truncate">{a.name}</span>
+            <button
+              onClick={() => toggleExpanded(a.key)}
+              className="flex-1 text-sm font-medium truncate text-left hover:opacity-75 transition-opacity"
+              title="Tap to read the feature description"
+            >
+              {a.name}
+            </button>
             {remaining !== null && (
               <span className="text-xs text-muted-foreground flex-none">{remaining}/{max}</span>
             )}
@@ -348,6 +389,13 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
               />
             )}
           </div>
+          {expandedId === a.key && (
+            <p className="pl-10 text-xs text-muted-foreground whitespace-pre-wrap">
+              {lookupFeatureDescription(featureDescriptions, a.source.classSlug, a.name)
+                ?? 'No description authored yet — see the class entry in the rulebook.'}
+            </p>
+          )}
+          </div>
         )
       })
   }
@@ -356,17 +404,29 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
     return GENERIC_ACTIONS
       .filter(g => g.economy === economy)
       .map(g => {
-        const slotIn = queuedIn(`generic:${g.name}`)
+        const rowId = `generic:${g.name}`
+        const slotIn = queuedIn(rowId)
         return (
-          <div key={g.name} className="flex items-center gap-2 py-1.5" title={g.desc}>
+          <div key={g.name} className="py-1.5 space-y-1.5">
+          <div className="flex items-center gap-2">
             <Badge economy={g.economy} title={g.desc} />
-            <span className="flex-1 text-sm truncate text-muted-foreground">{g.name}</span>
+            <button
+              onClick={() => toggleExpanded(rowId)}
+              className="flex-1 text-sm truncate text-muted-foreground text-left hover:text-foreground transition-colors"
+              title="Tap to read what this action does"
+            >
+              {g.name}
+            </button>
             {g.economy === 'action' && (
               <QueueButton
                 queued={slotIn === 'action'}
-                onClick={() => toggleQueue('action', { id: `generic:${g.name}`, kind: 'generic', label: g.name })}
+                onClick={() => toggleQueue('action', { id: rowId, kind: 'generic', label: g.name })}
               />
             )}
+          </div>
+          {expandedId === rowId && (
+            <p className="pl-10 text-xs text-muted-foreground">{g.desc}</p>
+          )}
           </div>
         )
       })
@@ -427,10 +487,24 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
         const max = a.resource ? abilityMax(a) : null
         const remaining = a.resource ? abilityRemaining(a) : null
         return (
-          <div key={a.key} className="flex items-center gap-2 py-1.5">
+          <div key={a.key} className="py-1.5 space-y-1.5">
+          <div className="flex items-center gap-2">
             <Badge economy="other" title="No action / special" />
-            <span className="flex-1 text-sm font-medium truncate">{a.name}</span>
+            <button
+              onClick={() => toggleExpanded(a.key)}
+              className="flex-1 text-sm font-medium truncate text-left hover:opacity-75 transition-opacity"
+              title="Tap to read the feature description"
+            >
+              {a.name}
+            </button>
             {remaining !== null && <span className="text-xs text-muted-foreground flex-none">{remaining}/{max}</span>}
+          </div>
+          {expandedId === a.key && (
+            <p className="pl-10 text-xs text-muted-foreground whitespace-pre-wrap">
+              {lookupFeatureDescription(featureDescriptions, a.source.classSlug, a.name)
+                ?? 'No description authored yet — see the class entry in the rulebook.'}
+            </p>
+          )}
           </div>
         )
       }))}
