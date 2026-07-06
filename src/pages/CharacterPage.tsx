@@ -1027,6 +1027,7 @@ export default function CharacterPage() {
               classRecord={classRecord}
               classLevel={primaryClassLevel}
               classAbilities={setupData?.classAbilities ?? []}
+              featureDescriptions={setupData?.featureDescriptions ?? {}}
               overrideSlotProfile={multiclassSlotProfile ?? undefined}
               onSave={save}
             />
