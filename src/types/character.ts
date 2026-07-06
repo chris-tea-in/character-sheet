@@ -227,6 +227,13 @@ export interface Character {
   disguiseClass: boolean
   disguiseAs: string
 
+  // Sheet display privacy (same motivation as the class disguise above — secrets
+  // kept from over-the-shoulder or screen-share eyes at the table): hide the
+  // name / class / race lines on the owner's sheet header + Identity card.
+  // Display-only — never enters deriveCharacterStats, rolls, or the campaign
+  // roster (the server-side disguise handles that surface). Absent key = shown.
+  sheetPrivacy: { name?: boolean; class?: boolean; race?: boolean }
+
   createdAt: number  // unix ms
   updatedAt: number
 }
@@ -272,6 +279,7 @@ export function defaultCharacter(name: string): NewCharacter {
     campaignId: null,
     disguiseClass: false,
     disguiseAs: '',
+    sheetPrivacy: {},
   }
 }
 

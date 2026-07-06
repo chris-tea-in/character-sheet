@@ -321,9 +321,11 @@ export default function CreateCharacterPage() {
           // Preserve campaign membership — the wizard can't represent it, so a
           // bare merge would silently drop the character from its campaign (INV-4)
           campaignId: existing.campaignId,
-          // Preserve the class disguise — also not represented in the wizard.
+          // Preserve the class disguise + sheet privacy — also not represented
+          // in the wizard.
           disguiseClass: existing.disguiseClass,
           disguiseAs: existing.disguiseAs,
+          sheetPrivacy: existing.sheetPrivacy,
           // Modifier Ledger overrides are authored on the sheet, not the wizard —
           // preserve them or a bare merge would wipe the player's edits (INV-4).
           ledgerOverrides: existing.ledgerOverrides,

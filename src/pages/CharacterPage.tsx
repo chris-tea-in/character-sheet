@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose,
@@ -619,6 +619,9 @@ export default function CharacterPage() {
     sessionStorage.setItem(`sheet-tab:${id}`, t)
   }
 
+  // Sheet privacy dialog (hide name/class/race — see Character.sheetPrivacy).
+  const [privacyOpen, setPrivacyOpen] = useState(false)
+
   useEffect(() => {
     loadSetupData()
       .then(data => {
@@ -941,6 +944,9 @@ export default function CharacterPage() {
   // as Combat (it snaps back once setupData resolves the class).
   const effectiveTab: SheetTab = activeTab === 'spells' && !classRecord ? 'combat' : activeTab
 
+  const priv = character.sheetPrivacy ?? {}
+  const anyHidden = !!(priv.name || priv.class || priv.race)
+
   return (
     <div className="min-h-dvh flex flex-col pb-[52px] print:pb-0">
       {/* Sticky header — character name + tab bar stay visible while the sheet scrolls. */}
@@ -953,13 +959,22 @@ export default function CharacterPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-xl font-bold leading-tight truncate">{character.name}</p>
+            <p className="text-xl font-bold leading-tight truncate">{priv.name ? '•••' : character.name}</p>
             <p className="text-sm text-muted-foreground mt-0.5 truncate">
-              {displayClass ?? '—'}
-              {(character.classes?.length ?? 0) <= 1 && ` ${character.level}`}
-              {displayRace ? ` · ${displayRace}` : ''}
+              {priv.class
+                ? `Level ${character.level}`
+                : <>{displayClass ?? '—'}{(character.classes?.length ?? 0) <= 1 && ` ${character.level}`}</>}
+              {!priv.race && displayRace ? ` · ${displayRace}` : ''}
             </p>
           </div>
+          <button
+            onClick={() => setPrivacyOpen(true)}
+            className="flex-none mt-1 text-muted-foreground hover:text-foreground transition-colors print:hidden"
+            title="Sheet privacy — hide name, class, or race"
+            aria-label="Sheet privacy"
+          >
+            {anyHidden ? <EyeOff className="h-4 w-4" style={{ color: 'var(--color-accent-gold)' }} /> : <Eye className="h-4 w-4" />}
+          </button>
           <button
             onClick={() => navigate(`/character/${id}/edit`)}
             className="flex-none text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border border-border print:hidden"
@@ -1314,6 +1329,37 @@ export default function CharacterPage() {
         </Dialog>
       )}
 
+      {/* Sheet privacy — hide identity lines from over-the-shoulder eyes (same
+          motivation as the campaign class disguise, but for this sheet). Saves
+          immediately per toggle; display-only, never touches stats or rolls. */}
+      <Dialog open={privacyOpen} onOpenChange={o => !o && setPrivacyOpen(false)}>
+        <DialogContent className="max-w-sm" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>Sheet Privacy</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Hide identity details on this sheet — for table or screen-share privacy,
+            like the class disguise in campaigns. Stats and rolls are unaffected.
+          </p>
+          <div className="space-y-2.5">
+            {([['name', 'Hide name'], ['class', 'Hide class & subclass'], ['race', 'Hide race & subrace']] as const).map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                <input
+                  type="checkbox"
+                  checked={!!priv[key]}
+                  onChange={e => save({ sheetPrivacy: { ...priv, [key]: e.target.checked || undefined } })}
+                  className="h-4 w-4 accent-[var(--color-accent-gold)]"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button size="sm" onClick={() => setPrivacyOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <DiceTray derived={derived} />
       <DiceRollModal character={character} derived={derived} />
     </div>
@@ -1423,6 +1469,11 @@ function IdentitySection({
     item: DetailItem
   } | null>(null)
 
+  // Sheet privacy masks (see Character.sheetPrivacy): hidden rows show a stub
+  // and stop being tappable, so a stray tap can't reveal the value. Unhide via
+  // the eye button in the sheet header.
+  const priv = character.sheetPrivacy ?? {}
+
   const displaySubclass = character.subclass
     ? (setupData?.subclasses[`${character.class}:${character.subclass}`]?.name ?? slugToTitle(character.subclass))
     : null
@@ -1478,7 +1529,11 @@ function IdentitySection({
       </h2>
       <div className="rounded-lg border border-border bg-card divide-y divide-border">
 
-        {(character.classes?.length ?? 0) > 1 ? (
+        {priv.class ? (
+          <IdentityRow label={(character.classes?.length ?? 0) > 1 ? 'Classes' : 'Class'}>
+            <HiddenIdentity />
+          </IdentityRow>
+        ) : (character.classes?.length ?? 0) > 1 ? (
           <>
             {character.classes.map((ce, idx) => {
               const subName = ce.subclassSlug
@@ -1519,25 +1574,29 @@ function IdentitySection({
         )}
 
         <IdentityRow label="Race">
-          <div className="flex items-center gap-2">
-            <IdentityButton
-              value={displayRace}
-              placeholder="Choose race…"
-              onClick={() => handleIdentityClick('race')}
-            />
-            {character.race && (
-              <button
-                onClick={onCustomizeRace}
-                className="flex-none text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded border border-border transition-colors"
-                title="Edit this race's ASI, proficiencies, and bonuses (homebrew)"
-              >
-                Edit
-              </button>
-            )}
-          </div>
+          {priv.race ? (
+            <HiddenIdentity />
+          ) : (
+            <div className="flex items-center gap-2">
+              <IdentityButton
+                value={displayRace}
+                placeholder="Choose race…"
+                onClick={() => handleIdentityClick('race')}
+              />
+              {character.race && (
+                <button
+                  onClick={onCustomizeRace}
+                  className="flex-none text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded border border-border transition-colors"
+                  title="Edit this race's ASI, proficiencies, and bonuses (homebrew)"
+                >
+                  Edit
+                </button>
+              )}
+            </div>
+          )}
         </IdentityRow>
 
-        {subraceEntries.length > 0 && (
+        {!priv.race && subraceEntries.length > 0 && (
           <IdentityRow label="Subrace">
             <IdentityButton
               value={displaySubrace}
@@ -1624,6 +1683,19 @@ function IdentitySection({
         </Dialog>
       )}
     </section>
+  )
+}
+
+// Masked identity value — deliberately NOT tappable so a stray tap can't reveal
+// the real value; unhide via the eye button in the sheet header.
+function HiddenIdentity() {
+  return (
+    <span
+      className="text-sm text-muted-foreground italic flex items-center gap-1.5"
+      title="Hidden — use the eye button in the header to reveal"
+    >
+      <EyeOff className="h-3 w-3" /> Hidden
+    </span>
   )
 }
 

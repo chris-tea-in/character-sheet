@@ -193,6 +193,7 @@ function fullCharacter(): NewCharacter {
     campaignId: 'camp-123',
     disguiseClass: true,
     disguiseAs: 'bard',
+    sheetPrivacy: { name: true, class: true },
   }
 }
 
