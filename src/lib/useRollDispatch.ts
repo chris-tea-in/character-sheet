@@ -1,5 +1,6 @@
 import { useDiceStore } from '../store/dice'
 import { abilityModifier } from './dice'
+import { buildSituationalOptions } from './rollSituational'
 import type { DerivedStats } from './characterStats'
 import type { RollKind, DamageSpec, RollBonus } from '../types/dice'
 
@@ -46,7 +47,17 @@ export function useRollDispatch(derived: DerivedStats) {
     } else {
       // Reliable Talent eligibility travels with the modal so rerolls keep flooring at 10.
       const reliableTalent = kind.type === 'skill' && derived.reliableTalent && !!derived.effectiveSkillProficiencies[kind.skill]
-      openModal({ entry, phase: 'result', isCrit: false, reliableTalent, hasLuckyFeat: derived.hasLuckyFeat, bonuses })
+      // Situational chips: the target's condition-bearing (non-disabled) sources,
+      // grouped by condition. baseMode snapshots the standing net the row rolled with.
+      const situational =
+        kind.type === 'skill' ? buildSituationalOptions(derived.rollStateSources.skills[kind.skill])
+        : kind.type === 'save' ? buildSituationalOptions(derived.rollStateSources.saves[kind.ability])
+        : []
+      const baseMode = 'advantage' in kind && kind.advantage !== undefined ? (kind.advantage ? 'adv' as const : 'dis' as const) : undefined
+      openModal({
+        entry, phase: 'result', isCrit: false, reliableTalent, hasLuckyFeat: derived.hasLuckyFeat, bonuses,
+        situational: situational.length ? situational : undefined, baseMode,
+      })
     }
   }
 

@@ -46,8 +46,10 @@ export type ItemEffect =
   | { type: 'spell_damage'; amount: number }                        // flat bonus to spell damage rolls
   // Roll advantage/disadvantage on a save (one ability or 'all') or a skill, granted
   // while the item is active. Mirrors the FeatureEffect variant (Step 5e).
-  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
-  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
+  // `condition` (Tier-2 situational): RAW clause limiting when it applies ("checks that
+  // rely on sight") — present ⇒ never auto-netted, opt-in at roll time.
+  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
   | { type: 'language'; name: string }                              // grants a known language while active (Demon Armor → Abyssal)
   // Overrides the unarmed strike (Demon Armor: 1d8 slashing, +1 atk/dmg). Any
   // field omitted keeps the unarmed default (1 + STR bludgeoning, no bonus).
@@ -244,6 +246,12 @@ export type RaceEffect =
   | { type: 'immunity';   damageType: string }
   // Natural armor sets the unarmored AC base (Lizardfolk 13 + DEX, Tortle 17 flat).
   | { type: 'natural_armor'; base: number; addDex?: boolean; maxDex?: number }
+  // Roll advantage/disadvantage granted by a racial trait (Fey Ancestry, Brave, …).
+  // `label` is the trait name — REQUIRED: it keys the stable ledger id
+  // `advdis:race:<label-slug>` (entries sharing a label share one disable).
+  // `condition` (Tier-2 situational) makes it an opt-in chip at roll time.
+  | { type: 'advantage';    target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; label: string; condition?: string }
 
 export interface Subrace {
   name: string
@@ -360,10 +368,15 @@ export type FeatEffect =
   // Data-driven equivalents of the old hardcoded FEAT_EFFECTS registry + new grants.
   | { type: 'max_hp'; amount?: number; perLevel?: number }   // Tough → perLevel 2; Dwarven Toughness-style
   | { type: 'resistance'; damageType: string }               // e.g. feats granting a damage resistance
+  | { type: 'immunity'; damageType: string }                 // free string — incl. exemption chips (Alert → "surprise")
   | { type: 'language'; name: string }
   | { type: 'weapon_proficiency'; weapons: string[] }
   | { type: 'armor_proficiency'; armor: string[] }           // light | medium | heavy | shield
   | { type: 'tool_proficiency'; tools: string[] }
+  // Roll advantage/disadvantage (label = the feat's name at apply time). `condition`
+  // (Tier-2 situational) makes it an opt-in chip at roll time (War Caster, Actor).
+  | { type: 'advantage';    target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
 
 export interface FeatData {
   name: string
@@ -400,10 +413,13 @@ export type FeatureEffect =
   // from another ability (Aura of Protection → +CHA to all saves, min 1).
   | { type: 'save_proficiency'; ability: AbilityName | 'all' }
   | { type: 'save_bonus'; ability: AbilityName | 'all'; amount: number }
-  | { type: 'derived_save'; ability: AbilityName | 'all'; from: AbilityName; min?: number }
+  // `whileNot` (Tier-1b state gate): the effect is suppressed while the app-tracked
+  // state holds — 'heavy-armor' = wearing heavy body armor (Fast Movement),
+  // 'incapacitated' = an incapacitating condition is active (Aura of Protection).
+  | { type: 'derived_save'; ability: AbilityName | 'all'; from: AbilityName; min?: number; whileNot?: 'incapacitated' | 'heavy-armor' }
   | { type: 'resistance'; damageType: string }
   | { type: 'immunity'; damageType: string }
-  | { type: 'speed'; amount: number }
+  | { type: 'speed'; amount: number; whileNot?: 'heavy-armor' | 'incapacitated' }
   // Non-additive speed (5a) — floor (set-if-higher) and multiplier, same semantics as ItemEffect.
   | { type: 'speed_set'; value: number }
   | { type: 'speed_multiplier'; factor: number }
@@ -413,8 +429,10 @@ export type FeatureEffect =
   | { type: 'armor_proficiency'; armor: string[] }
   | { type: 'tool_proficiency'; tools: string[] }
   // Roll advantage/disadvantage on a save (one ability or 'all') or a skill.
-  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
-  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName }
+  // `condition` (Tier-2 situational): RAW clause limiting when it applies — present ⇒
+  // never auto-netted, opt-in at roll time (e.g. Danger Sense "vs. effects you can see").
+  | { type: 'advantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
+  | { type: 'disadvantage'; target: 'save' | 'skill'; ability?: AbilityName | 'all'; skill?: SkillName; condition?: string }
 
 export interface FeatureOption {
   slug: string

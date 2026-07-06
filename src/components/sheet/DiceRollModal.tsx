@@ -8,6 +8,7 @@ import { useDiceStore } from '@/store/dice'
 import { Die3D } from './Die3D'
 import { BonusPicker } from './BonusPicker'
 import { getBonusPresets, type BonusPreset } from '@/lib/rollBonusPresets'
+import { netModes } from '@/lib/rollSituational'
 import type { DieType, RollEntry, RollBonus, AddedBonus } from '@/types/dice'
 import type { Character } from '@/types/character'
 import type { DerivedStats } from '@/lib/characterStats'
@@ -173,6 +174,59 @@ function CritLabel({ natural, kind }: { natural: number; kind: string }) {
   return null
 }
 
+// Situational (condition-gated) adv/dis chips for this roll — opt in when the DM's
+// scenario matches the condition ("this save is vs. a charm"). Grouped by condition
+// (adv doesn't stack per RAW); tapping re-resolves at the new net mode. Compactness
+// rules per the approved design: ≤3 chips inline, more collapses to an expander;
+// a chip that can't change the current net renders dimmed (tap = history label only).
+function SituationalRow() {
+  const modal = useDiceStore(s => s.modal)
+  const toggle = useDiceStore(s => s.toggleSituational)
+  const [expanded, setExpanded] = useState(false)
+  const opts = modal?.situational ?? []
+  if (opts.length === 0) return null
+  const netNow = netModes([modal!.baseMode, ...opts.filter(o => o.active).map(o => o.mode)])
+  if (opts.length > 3 && !expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className="px-2 py-1 rounded-full border border-border hover:bg-secondary/40 transition-colors text-[11px]"
+      >
+        Situational ({opts.length})…
+      </button>
+    )
+  }
+  return (
+    <div className="flex flex-col items-center gap-1.5 w-full">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Situational — tap what applies</span>
+      <div className="flex items-center gap-1.5 flex-wrap justify-center">
+        {opts.map(o => {
+          const redundant = !o.active && netNow === o.mode
+          return (
+            <button
+              key={o.key}
+              onClick={() => toggle(o.key)}
+              title={`${o.sources.join(' + ')} — ${o.condition}`}
+              className={`px-2 py-1 rounded-full border text-[11px] transition-colors ${
+                o.active ? 'border-transparent font-semibold' : 'border-border hover:bg-secondary/40'
+              } ${redundant ? 'opacity-50' : ''}`}
+              style={o.active ? { background: 'var(--color-accent-gold)', color: '#1c1c1c' } : undefined}
+            >
+              {o.short}{' '}
+              <span
+                className="text-[9px] uppercase tracking-wide opacity-80"
+                style={o.active ? undefined : { color: o.mode === 'adv' ? 'var(--color-accent-gold)' : 'var(--color-accent-red)' }}
+              >
+                {o.mode === 'adv' ? 'Adv' : 'Dis'}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // Re-roll controls: keep best/worst of N d20s (advantage/disadvantage, generalized to
 // Elven-Accuracy-style N) OR roll the check N independent times. Closes audit #19/#20.
 function RerollRow() {
@@ -244,6 +298,7 @@ function ResultBody({ presets }: { presets: BonusPreset[] }) {
         <BonusList natural={natural} bonuses={pool ? undefined : bonuses} added={addedBonuses} total={finalTotal} onRemove={id => removeModalBonus(id, 'roll')} />
       )}
       <BonusPicker presets={presets} target="roll" onAdd={b => addModalBonus(b, 'roll')} />
+      <SituationalRow />
       {(entry.kind.type === 'skill' || entry.kind.type === 'save' || entry.kind.type === 'ability') && <RerollRow />}
       <Button onClick={closeModal}>Done</Button>
     </div>

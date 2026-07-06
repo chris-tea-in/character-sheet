@@ -42,7 +42,8 @@ export function CustomEffectsBlock({
     for (const m of mods) if (!seen.has(m.id)) { seen.add(m.id); grants.push({ id: m.id, label: m.label }) }
   }
   for (const a of lo.customAdvDis ?? []) {
-    if (!seen.has(a.id)) { seen.add(a.id); grants.push({ id: a.id, label: a.label }) }
+    // Situational grants show their clause (they're opt-in chips at roll time, not standing).
+    if (!seen.has(a.id)) { seen.add(a.id); grants.push({ id: a.id, label: a.condition ? `${a.label} — only ${a.condition}` : a.label }) }
   }
   for (const g of lo.customGrants ?? []) {
     if (!seen.has(g.id)) { seen.add(g.id); grants.push({ id: g.id, label: g.label }) }

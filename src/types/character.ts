@@ -77,6 +77,10 @@ export interface CustomAdvDis {
   ability?: AbilityName | 'all'
   skill?: SkillName
   mode: 'adv' | 'dis'
+  // Tier-2 situational (optional): clause limiting when it applies ("vs. being
+  // charmed"). Present ⇒ never auto-netted; offered as an opt-in chip at roll
+  // time. Rows written before this field existed lack it and stay standing.
+  condition?: string
 }
 
 // A player/DM-authored set-membership grant (Modifier Ledger, Step 6b), applied
