@@ -12,8 +12,9 @@ import { ContainerInventoryDialog } from './ContainerInventoryDialog'
 import { generateId } from '@/lib/uuid'
 import { mergeCustomEquipment } from '@/lib/customContent'
 import { isContainerName, ITEM_TYPE_ORDER, getWondrousItemType, contentsOf } from '@/lib/containers'
-import { computeWeaponBonus, summarizeItemEffects, isVariableBaseArmor, applyLedger } from '@/lib/characterStats'
-import { abilityModifier, formatBonus } from '@/lib/dice'
+import { summarizeItemEffects, isVariableBaseArmor } from '@/lib/characterStats'
+import { useWeaponActions, buildCatalogMaps, requiresAttunement, isItemActive, isVariableBaseWeapon, resolveEffectiveWeapon } from '@/lib/weaponActions'
+import { abilityModifier } from '@/lib/dice'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { RollButton } from '@/components/sheet/RollButton'
 import { StatBreakdown } from './StatBreakdown'
@@ -47,25 +48,8 @@ const CURRENCY_KEYS: Array<{ key: keyof Currency; label: string }> = [
 ]
 
 
-// Parse a free-form custom damage string ("2d6+4 fire") into roll components.
-// Falls back to null when no dice notation is present.
-function parseCustomDamage(s: string): { damageDice: string; damageBonus: number; damageType: string } | null {
-  const m = s.match(/(\d+d\d+)\s*([+-]\s*\d+)?\s*([a-zA-Z]+)?/)
-  if (!m) return null
-  return {
-    damageDice: m[1],
-    damageBonus: m[2] ? parseInt(m[2].replace(/\s+/g, ''), 10) : 0,
-    damageType: m[3] ?? '',
-  }
-}
-
-// A magic weapon built on "any sword / any weapon / …" has no fixed base — the
-// player chooses the mundane weapon it's forged from (EquipmentItem.baseWeapon).
-function isVariableBaseWeapon(w: WeaponItem): boolean {
-  if (!w.magical) return false
-  if (w.weapon_type === 'Varies') return true
-  return /\bany\b/i.test(w.base_weapon_type ?? '')
-}
+// parseCustomDamage / isVariableBaseWeapon / the weapon attack assembly moved to
+// src/lib/weaponActions.ts (shared with the Combat tab — single computation point).
 
 // Mundane weapons the player may pick as the base, narrowed from the item's
 // `base_weapon_type` hint (category words like simple/martial/melee/ranged and a
@@ -284,44 +268,12 @@ function WeaponRow({
   moveControl?: ReactNode
   editControl?: ReactNode
 }) {
-  const { dispatch, dispatchDamage } = useRollDispatch(derived)
-  const calc = computeWeaponBonus(weapon, character, derived.weaponProficiencies, derived.effectiveAbilities, derived.itemDamageBonus, derived.featureWeaponEffects, derived.itemAttackBonus, item.id)
-  // Per-weapon Modifier Ledger (P4): disable/augment contributors. Applied at render
-  // (INV-1) via the same pure helper as every other stat; the override cascades into
-  // both the displayed value and the dice roll. The custom to-hit/damage string override
-  // (Edit stats) still takes final precedence when set.
-  const atkLedger = applyLedger(`weaponAttack:${item.id}`, calc.attackBreakdown, character.ledgerOverrides)
-  const dmgLedger = applyLedger(`weaponDamage:${item.id}`, calc.damageBreakdown, character.ledgerOverrides)
-  const ledgerToHit = atkLedger.effective
-  const ledgerDamageBonus = dmgLedger.effective
-  const computedToHit = formatBonus(ledgerToHit)
-  const computedDamage = `${calc.damageDice || '—'}${ledgerDamageBonus ? formatBonus(ledgerDamageBonus) : ''} ${calc.damageType}`.trim()
-  // Rider damage of another type (Flame Tongue → +2d6 fire) applies only while the
-  // weapon is active (equipped/attuned per its requirement); crit doubles it.
-  const riderDamage = active
-    ? (weapon.effects ?? []).flatMap(e => e.type === 'damage_dice' ? [{ dice: e.dice, damageType: e.damageType }] : [])
-    : []
-  const riderSuffix = riderDamage.map(r => `+${r.dice} ${r.damageType}`).join(' ')
-  const displayToHit = item.customToHit ?? computedToHit
-  const displayDamage = (item.customDamage ?? computedDamage) + (riderSuffix ? ` ${riderSuffix}` : '')
-  const rollModifier = item.customToHit !== undefined
-    ? (parseInt(item.customToHit.replace(/^\+/, ''), 10) || 0)
-    : ledgerToHit
-  // Honor a custom damage override when it parses; otherwise use ledger-adjusted values (BUG-20)
-  const customDmg = item.customDamage ? parseCustomDamage(item.customDamage) : null
-  const rollDamageDice = customDmg?.damageDice ?? calc.damageDice
-  const rollDamageBonus = customDmg?.damageBonus ?? ledgerDamageBonus
-  const rollDamageType = customDmg?.damageType || calc.damageType
-  // Great Weapon Fighting: reroll 1s/2s on a two-handed (or versatile) melee weapon's
-  // damage dice. "Versatile used two-handed" isn't app-knowable, so versatile qualifies
-  // (same simplification as the other fighting styles).
-  const wProps = weapon.properties.map(p => p.toLowerCase())
-  const gwfAuto = derived.greatWeaponFighting
-    && weapon.weapon_type.toLowerCase().includes('melee')
-    && (wProps.includes('two-handed') || wProps.includes('versatile'))
-  // Homebrew per-weapon override (item.gwf) forces GWF on any weapon.
-  const gwfActive = gwfAuto || !!item.gwf
-  const gwfReroll = gwfActive ? 2 : undefined
+  // All attack math + roll payloads come from the shared single-point assembly
+  // (lib/weaponActions) — the Combat tab consumes the same one, so the two
+  // surfaces can never drift.
+  const { assemble } = useWeaponActions(character, derived)
+  const w = assemble(item, weapon, active)
+  const { computedToHit, computedDamage, displayToHit, displayDamage, atkLedger, dmgLedger, gwfAuto, gwfActive } = w
   const [expanded, setExpanded] = useState(false)
   const [editingStats, setEditingStats] = useState(false)
   const [toHitDraft, setToHitDraft] = useState(displayToHit)
@@ -385,12 +337,12 @@ function WeaponRow({
           <RollButton
             label="Hit"
             rollMode={derived.attackRollState}
-            onClick={() => dispatch({ type: 'attack', label: item.name, modifier: rollModifier, damageDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage, rerollBelow: gwfReroll, bonuses: item.customToHit !== undefined ? [{ label: 'Custom to-hit', amount: rollModifier }] : atkLedger.rows.filter(r => !r.disabled).map(r => ({ label: r.label, amount: r.amount })) })}
+            onClick={w.rollHit}
           />
           <RollButton
             label="Dmg"
             tone="gold"
-            onClick={() => dispatchDamage({ label: item.name, baseDice: rollDamageDice, damageBonus: rollDamageBonus, damageType: rollDamageType, extraDamage: riderDamage, rerollBelow: gwfReroll })}
+            onClick={w.rollDamage}
           />
         </div>
       </div>
@@ -1040,18 +992,8 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
   const [basePickerItem, setBasePickerItem] = useState<EquipmentItem | null>(null)
   const [basePrompt, setBasePrompt] = useState<EquipmentItem | null>(null)
 
-  const weaponByName = useMemo(
-    () => new Map((catalog?.weapons ?? []).map(w => [w.name.toLowerCase(), w])),
-    [catalog?.weapons],
-  )
-  const armorByName = useMemo(
-    () => new Map((catalog?.armor ?? []).map(a => [a.name.toLowerCase(), a])),
-    [catalog?.armor],
-  )
-  const wondrousItemByName = useMemo(
-    () => new Map((catalog?.wondrous_items ?? []).map(w => [w.name.toLowerCase(), w])),
-    [catalog?.wondrous_items],
-  )
+  const catalogMaps = useMemo(() => buildCatalogMaps(catalog), [catalog])
+  const { weaponByName, armorByName, wondrousItemByName } = catalogMaps
   const gearByName = useMemo(
     () => new Map((catalog?.adventuring_gear ?? []).map(g => [g.name.toLowerCase(), g])),
     [catalog?.adventuring_gear],
@@ -1091,22 +1033,12 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
     return [{ label: 'Gear', entries: gearEntries }, ...typeTabs]
   }, [gearEntries, wondrousEntries])
 
-  // Does this item's catalog entry require attunement? (attune-required items gate
-  // their effects on `attuned`; everything else on `equipped`.)
+  // Attunement/active gating — shared with the Combat tab via lib/weaponActions.
   function requiresAttunementFor(name: string): boolean {
-    const n = name.toLowerCase()
-    const w = wondrousItemByName.get(n)
-    if (w) return w.attunement
-    const a = armorByName.get(n)
-    if (a) return a.attunement ?? false
-    const wp = weaponByName.get(n)
-    if (wp) return wp.attunement ?? false
-    return false
+    return requiresAttunement(catalogMaps, name)
   }
-  // An item is "active" (its effects apply, and it shows in Active Items) when the
-  // gate matching its type is set.
   function isActive(item: EquipmentItem): boolean {
-    return requiresAttunementFor(item.name) ? !!item.attuned : !!item.equipped
+    return isItemActive(catalogMaps, item)
   }
 
   // For "any sword / any armor" magic items: which base must be chosen, and whether
@@ -1328,34 +1260,7 @@ export function EquipmentBlock({ character, derived, onSave, catalog: baseCatalo
     if (weapon) {
       // "Any sword / any weapon" magic weapons: the chosen mundane base drives
       // damage/type/properties; the magic entry's bonus + effects (rider) stay.
-      const variableBase = isVariableBaseWeapon(weapon)
-      let effWeapon = weapon
-      if (variableBase && item.baseWeapon) {
-        const base = weaponByName.get(item.baseWeapon.toLowerCase())
-        if (base) {
-          effWeapon = {
-            ...weapon,
-            damage_dice: base.damage_dice,
-            damage_type: base.damage_type,
-            properties: base.properties,
-            weapon_type: base.weapon_type,
-          }
-        }
-      } else if (!variableBase && weapon.damage_dice == null && weapon.base_weapon_type) {
-        // Specific-base magic weapons (e.g. Mace of Smiting → "mace") that ship with a
-        // null damage_dice inherit the named base weapon's dice/type so they display and
-        // roll correctly instead of showing "—". No player choice — the base is fixed.
-        const base = weaponByName.get(weapon.base_weapon_type.toLowerCase())
-        if (base?.damage_dice) {
-          effWeapon = {
-            ...weapon,
-            damage_dice: base.damage_dice,
-            damage_type: weapon.damage_type ?? base.damage_type,
-            properties: weapon.properties.length ? weapon.properties : base.properties,
-            weapon_type: weapon.weapon_type && weapon.weapon_type !== 'Varies' ? weapon.weapon_type : base.weapon_type,
-          }
-        }
-      }
+      const { weapon: effWeapon, variableBase } = resolveEffectiveWeapon(weapon, item, weaponByName)
       return (
         <WeaponRow
           key={item.id}

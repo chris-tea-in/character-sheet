@@ -11,6 +11,8 @@ import { abilityModifier } from '@/lib/dice'
 import { ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
 import { loadSpellsData } from '@/lib/data'
 import { ORDINALS, LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
+import { normalizeCastingTime, ACTION_ECONOMY_ORDER } from '@/lib/actionEconomy'
+import { cn } from '@/lib/utils'
 import { RollButton } from '@/components/sheet/RollButton'
 import { parseSpellDamage } from '@/lib/spellDamage'
 import type { ParsedSpellDamage } from '@/lib/spellDamage'
@@ -87,6 +89,7 @@ function SpellRow({
   const [expanded, setExpanded] = useState(false)
   const level = spell?.level ?? 0
   const levelLabel = level === 0 ? 'Cantrip' : `Lv ${level}`
+  const economy = normalizeCastingTime(spell?.casting_time)
   const dmgInputClass = 'w-16 bg-[var(--color-surface-2)] border border-border rounded px-1.5 py-0.5 text-xs text-foreground'
   // Classify what this spell does, to show the right roll button (#3b):
   //  • damage  → Dmg   • heals (no damage) → Heal   • neither → Utility (no roll)
@@ -104,6 +107,16 @@ function SpellRow({
         >
           {levelLabel}
         </span>
+
+        {(economy === 'bonus_action' || economy === 'reaction') && (
+          <span
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-none"
+            title={economy === 'bonus_action' ? 'Bonus action' : 'Reaction'}
+            style={{ background: 'var(--color-surface-2)', color: 'var(--color-accent-gold)' }}
+          >
+            {economy === 'bonus_action' ? 'BA' : 'R'}
+          </span>
+        )}
 
         <button
           onClick={() => setExpanded(e => !e)}
@@ -377,8 +390,34 @@ export function SpellBlock({ character, classRecord, classLevel, derived, classA
       if (!map.has(level)) map.set(level, [])
       map.get(level)!.push(cs)
     }
+    // Within a level: Action → Bonus Action → Reaction → Other, then name.
+    for (const list of map.values()) {
+      list.sort((a, b) => {
+        const sa = spellMap[normalizeSlug(a.slug)]
+        const sb = spellMap[normalizeSlug(b.slug)]
+        const order = ACTION_ECONOMY_ORDER[normalizeCastingTime(sa?.casting_time)]
+          - ACTION_ECONOMY_ORDER[normalizeCastingTime(sb?.casting_time)]
+        if (order !== 0) return order
+        return (sa?.name ?? normalizeSlug(a.slug)).localeCompare(sb?.name ?? normalizeSlug(b.slug))
+      })
+    }
     return map
   }, [character.spells, spellMap])
+
+  // Damage / Healing / Utility filter over the list. Same classification the row
+  // buttons use: a damage override or damage parse wins; else a heal parse; else
+  // utility. 'all' shows everything.
+  const [spellFilter, setSpellFilter] = useState<'all' | 'damage' | 'healing' | 'utility'>('all')
+  function classifySpell(cs: CharacterSpell): 'damage' | 'healing' | 'utility' {
+    const sp = spellMap[normalizeSlug(cs.slug)]
+    const hasDamage = !!(cs.damageDice || (sp && parseSpellDamage(sp)?.dice))
+    if (hasDamage) return 'damage'
+    if (sp && parseSpellHeal(sp)) return 'healing'
+    return 'utility'
+  }
+  const spellsShown = spellFilter === 'all'
+    ? character.spells.length
+    : character.spells.filter(cs => classifySpell(cs) === spellFilter).length
 
   // "Spells Known" card indicator (mirrors the creation wizard): a total
   // (cantrips + known/prepared) plus a per-level breakdown. Totals are a
@@ -586,13 +625,34 @@ export function SpellBlock({ character, classRecord, classLevel, derived, classA
           </p>
         )}
 
+        {character.spells.length > 0 && (
+          <div className="flex items-center gap-1 mb-1">
+            {(['all', 'damage', 'healing', 'utility'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setSpellFilter(f)}
+                aria-pressed={spellFilter === f}
+                className={cn(
+                  'px-2.5 py-0.5 text-[11px] rounded-md font-semibold uppercase tracking-wide transition-colors',
+                  spellFilter === f ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {f === 'all' ? 'All' : f[0].toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+        )}
+
         {character.spells.length === 0 ? (
           <p className="text-sm text-muted-foreground">No spells added yet.</p>
+        ) : spellsShown === 0 ? (
+          <p className="text-sm text-muted-foreground">No {spellFilter} spells in your list.</p>
         ) : (
           <div>
             {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(level => {
-              const spells = spellsByLevel.get(level)
-              if (!spells?.length) return null
+              const spells = (spellsByLevel.get(level) ?? [])
+                .filter(cs => spellFilter === 'all' || classifySpell(cs) === spellFilter)
+              if (!spells.length) return null
               return (
                 <div key={level}>
                   <p

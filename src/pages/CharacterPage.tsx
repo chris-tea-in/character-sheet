@@ -9,6 +9,7 @@ import { SelectionList } from '@/components/SelectionList'
 import { DetailBody } from '@/components/DetailBody'
 import { AbilityBlock } from '@/components/sheet/AbilityBlock'
 import { CombatBlock } from '@/components/sheet/CombatBlock'
+import { CombatTab } from '@/components/sheet/combat/CombatTab'
 import { ProficienciesBlock } from '@/components/sheet/ProficienciesBlock'
 import { SpellBlock } from '@/components/sheet/SpellBlock'
 import { DescriptionBlock } from '@/components/sheet/DescriptionBlock'
@@ -1003,6 +1004,16 @@ export default function CharacterPage() {
               derived={derived}
               onSave={save}
               classHitDice={classHitDice}
+            />
+            <CombatTab
+              character={character}
+              derived={derived}
+              catalog={sheetCatalog}
+              classRecord={classRecord}
+              classLevel={primaryClassLevel}
+              classAbilities={setupData?.classAbilities ?? []}
+              overrideSlotProfile={multiclassSlotProfile ?? undefined}
+              onSave={save}
             />
           </div>
 
