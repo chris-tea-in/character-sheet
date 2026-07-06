@@ -16,7 +16,7 @@ bonus/penalty. A house-rules / transparency layer on top of the RAW derivation.
 **Why now:** it is the foundation the bug-fixes plug into. The breakdown IS the "view what's affecting
 it" that several Part 2 findings need, and the custom-modifier channel is a manual escape hatch for
 effects the app can't model — downgrading a class of findings from "silently wrong" to "shown +
-adjustable." (Full mechanics audit: [DND_RULES_REFERENCE.md](DND_RULES_REFERENCE.md) Part 2.)
+adjustable." (Full mechanics audit: [DND_RULES_REFERENCE.md](docs/reference/DND_RULES_REFERENCE.md) Part 2.)
 
 ### Architecture (extends — does not fork — the single application point, INV-1)
 
