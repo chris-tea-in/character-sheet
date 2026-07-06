@@ -130,3 +130,23 @@ CREATE TABLE IF NOT EXISTS campaign_npcs (
   deleted      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_campaign_npcs_campaign ON campaign_npcs(campaign_id);
+
+-- ── Companions (familiars, mounts, sidekicks) ───────────────────────────────
+-- Full custom stat blocks, campaign-scoped and cloud-only (like notes/items).
+-- Deliberately a SEPARATE table from campaign_npcs (those stay lightweight
+-- name+description entries — user decision 2026-07-04). assigned_character_id
+-- targets a characters.id row that must belong to this campaign (validated in
+-- the route on every write); NULL = the DM's unassigned pool. created_by is the
+-- author (DM or player). Visibility and edit rights are recomputed per request:
+-- membership first, then DM / author / owner-of-assigned-character.
+CREATE TABLE IF NOT EXISTS campaign_companions (
+  id                    TEXT PRIMARY KEY,
+  campaign_id           TEXT NOT NULL,
+  assigned_character_id TEXT,              -- NULL = unassigned DM pool
+  data                  TEXT NOT NULL,     -- JSON CompanionData (shared/companionValidation.ts)
+  created_by            TEXT NOT NULL,     -- author email
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+  deleted               INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_companions_campaign ON campaign_companions(campaign_id);
