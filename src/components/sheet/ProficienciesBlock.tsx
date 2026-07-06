@@ -328,8 +328,9 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
         )}
       </div>
 
-      {tab === 'saves' && (
-        <>
+      {/* Both panels stay MOUNTED (globals.css hides the inactive one via data-state)
+          so the print override can show skills AND saves on the printed sheet. */}
+      <div role="tabpanel" data-state={tab === 'saves' ? 'active' : 'inactive'}>
           <div className="rounded-lg border border-border bg-card divide-y divide-border">
             {ABILITY_ORDER.map(ability => {
               const isStored = character.savingThrowProficiencies.includes(ability)
@@ -392,11 +393,9 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
           <p className="text-[11px] text-muted-foreground mt-1.5">
             Class saves shown in gold · tap dot to toggle · feat/feature grants tap-to-disable · Roll to make a saving throw
           </p>
-        </>
-      )}
+      </div>
 
-      {tab === 'skills' && (
-        <>
+      <div role="tabpanel" data-state={tab === 'skills' ? 'active' : 'inactive'}>
           <div className="rounded-lg border border-border bg-card divide-y divide-border">
             {SKILL_ORDER.map(skill => {
               // Render from DERIVED effective state so feat-granted skills show
@@ -493,8 +492,7 @@ export function ProficienciesBlock({ character, classRecord, classRecords, backg
           <p className="text-[11px] text-muted-foreground mt-1.5">
             P = prof · E = expertise · class options in gold · feat/race grants tap-to-disable · off-list & over-cap allowed (homebrew) · (Adv)/(Dis) = advantage/disadvantage (e.g. armor stealth), netted per RAW
           </p>
-        </>
-      )}
+      </div>
 
       <StatBreakdown
         open={openSaveBreakdown !== null}
