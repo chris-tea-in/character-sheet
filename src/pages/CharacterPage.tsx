@@ -27,6 +27,7 @@ import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { FeaturesBlock } from '@/components/sheet/FeaturesBlock'
 import { CustomEffectsBlock } from '@/components/sheet/CustomEffectsBlock'
 import { PersonalNotesTab } from '@/components/campaign/PersonalNotesTab'
+import { CompanionsTab } from '@/components/campaign/CompanionsTab'
 import { useCampaignStore } from '@/store/campaigns'
 import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
 import { useCharacterStore } from '@/store/characters'
@@ -58,6 +59,9 @@ const SHEET_TABS = [
   { key: 'spells', label: 'Spells' },
   { key: 'inventory', label: 'Inventory' },
   { key: 'combat', label: 'Combat' },
+  // DM- or player-created companions (familiars, mounts, sidekicks) assigned to
+  // this character — only shown while the character is in a campaign.
+  { key: 'companions', label: 'Companions' },
   // Player's personal notebook about the campaign's PCs (yourself + the other
   // players' characters) — only shown while the character is in a campaign.
   { key: 'personal', label: 'Personal' },
@@ -625,13 +629,19 @@ export default function CharacterPage() {
   const [personalOpened, setPersonalOpened] = useState<boolean>(
     () => sessionStorage.getItem(`sheet-tab:${id}`) === 'personal',
   )
+  // Companions is cloud-backed too — same first-open lazy mount as Personal.
+  const [companionsOpened, setCompanionsOpened] = useState<boolean>(
+    () => sessionStorage.getItem(`sheet-tab:${id}`) === 'companions',
+  )
   useEffect(() => {
     const stored = sessionStorage.getItem(`sheet-tab:${id}`)
     setActiveTab(isSheetTab(stored) ? stored : 'character')
     setPersonalOpened(stored === 'personal')
+    setCompanionsOpened(stored === 'companions')
   }, [id])
   useEffect(() => {
     if (activeTab === 'personal') setPersonalOpened(true)
+    if (activeTab === 'companions') setCompanionsOpened(true)
   }, [activeTab])
   function selectTab(t: SheetTab) {
     setActiveTab(t)
@@ -968,7 +978,7 @@ export default function CharacterPage() {
   // a stale stored 'notes' (from before it became a link) also snaps to Character.
   const effectiveTab: SheetTab =
     (activeTab === 'spells' && !classRecord)
-      || (activeTab === 'personal' && !character.campaignId)
+      || ((activeTab === 'personal' || activeTab === 'companions') && !character.campaignId)
       || activeTab === 'notes'
       ? 'character'
       : activeTab
@@ -1023,7 +1033,7 @@ export default function CharacterPage() {
         >
           {SHEET_TABS.map(t => {
             if (t.key === 'spells' && !classRecord) return null
-            if ((t.key === 'notes' || t.key === 'personal') && !character.campaignId) return null
+            if ((t.key === 'notes' || t.key === 'personal' || t.key === 'companions') && !character.campaignId) return null
             // Notes is a link out to the campaign's notes page — it never
             // becomes the active tab and controls no panel (no aria-controls).
             // returnTo brings the notes page's back button HERE, not to the
@@ -1130,6 +1140,21 @@ export default function CharacterPage() {
               overrideSlotProfile={multiclassSlotProfile ?? undefined}
               onSave={save}
             />
+          </div>
+
+          {/* Companions assigned to this character — full custom stat blocks with
+              live rolls. Cloud content: same lazy mount + INNER print:hidden as
+              the Personal panel below. */}
+          <div role="tabpanel" id="sheet-panel-companions" aria-labelledby="sheet-tab-companions" data-state={effectiveTab === 'companions' ? 'active' : 'inactive'}>
+            <div className="print:hidden">
+              {character.campaignId && companionsOpened && (
+                <CompanionsTab
+                  character={character}
+                  campaignId={character.campaignId}
+                  isDm={campaignRole === 'dm'}
+                />
+              )}
+            </div>
           </div>
 
           {/* Personal notebook — notes about the campaign's PCs (yourself +

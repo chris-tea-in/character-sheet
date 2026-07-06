@@ -334,7 +334,9 @@ export const useDiceStore = create<DiceState>()((set) => ({
     const isHeal = spec.mode === 'heal'
     const entry: RollEntry = {
       id: generateId(),
-      kind: { type: 'damage', label: spec.label },
+      // origin threads through so a companion's Dmg-only roll routes to the
+      // companion history panel (absent for character rolls — no behavior change).
+      kind: { type: 'damage', label: spec.label, origin: spec.origin },
       result: { natural: grand, modifier: 0, total: grand },
       label: isHeal
         ? `${spec.label} healing = ${grand} HP`
