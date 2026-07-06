@@ -7,11 +7,11 @@
 // Failure contract: a failed save shows an inline error and KEEPS the typed
 // text — a long note is never silently eaten (the fire-and-forget trap).
 import { useEffect, useState } from 'react'
-import { EyeOff, Plus, RefreshCw, X } from 'lucide-react'
+import { Eye, EyeOff, Plus, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSyncStore } from '@/store/sync'
 import {
-  campaignNotes, createCampaignNote, deleteCampaignNote,
+  campaignNotes, createCampaignNote, updateCampaignNote, deleteCampaignNote,
 } from '@/lib/syncApi'
 import type { CampaignNote, NoteSubjectKind } from '@/lib/syncApi'
 
@@ -71,6 +71,14 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
     else setError('Couldn’t delete — check your connection or session.')
   }
 
+  // Author-or-DM: publish a hidden note to the live notes, or retract a public
+  // one back to hidden. (Retracting can't un-see it for anyone who already read it.)
+  async function setVisibility(noteId: string, visibility: 'public' | 'hidden') {
+    const res = await updateCampaignNote(campaignId, noteId, { visibility })
+    if (res.ok) load()
+    else setError('Couldn’t change visibility — check your connection or session.')
+  }
+
   const myEmail = me?.email?.toLowerCase()
 
   return (
@@ -112,14 +120,35 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
                   <span>{mine ? 'you' : authorLabel(n)}</span>
                   <span>· {new Date(n.createdAt).toLocaleDateString()}</span>
                   {(mine || isDm) && (
-                    <button
-                      onClick={() => remove(n.id)}
-                      className="ml-auto text-muted-foreground hover:text-destructive transition-colors"
-                      title="Delete note"
-                      aria-label="Delete note"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    <span className="ml-auto inline-flex items-center gap-2">
+                      {n.visibility === 'hidden' ? (
+                        <button
+                          onClick={() => setVisibility(n.id, 'public')}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          title="Make public — everyone in the campaign will see this note"
+                          aria-label="Make note public"
+                        >
+                          <Eye className="h-3 w-3" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setVisibility(n.id, 'hidden')}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          title="Make hidden — only the author and the DM will see it (anyone who already read it still did)"
+                          aria-label="Make note hidden"
+                        >
+                          <EyeOff className="h-3 w-3" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => remove(n.id)}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        title="Delete note"
+                        aria-label="Delete note"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
                   )}
                 </div>
               </div>
