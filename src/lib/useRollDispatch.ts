@@ -1,10 +1,10 @@
 import { useDiceStore } from '../store/dice'
 import { abilityModifier } from './dice'
 import { buildSituationalOptions } from './rollSituational'
-import type { DerivedStats } from './characterStats'
+import type { RollStats } from './characterStats'
 import type { RollKind, DamageSpec, RollBonus } from '../types/dice'
 
-export function useRollDispatch(derived: DerivedStats) {
+export function useRollDispatch(derived: RollStats) {
   const roll = useDiceStore(s => s.roll)
   const openModal = useDiceStore(s => s.openModal)
   const openDamage = useDiceStore(s => s.openDamage)

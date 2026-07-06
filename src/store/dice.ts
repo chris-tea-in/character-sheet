@@ -3,7 +3,7 @@ import { generateId } from '../lib/uuid'
 import { rollDie, abilityModifier, SKILL_DISPLAY_MAP, SKILL_ABILITY_MAP } from '../lib/dice'
 import { computeDamageGroups, rollDamageGroups } from '../lib/damage'
 import { netModes, type SituationalOption } from '../lib/rollSituational'
-import type { DerivedStats } from '../lib/characterStats'
+import type { RollStats } from '../lib/characterStats'
 import type { RollKind, RollEntry, ExtraDamage, ExtraDamageResult, DamageSpec, RollBonus, AddedBonus } from '../types/dice'
 
 const MAX_ROLLS = 50
@@ -74,7 +74,7 @@ export interface ModalState {
 
 interface DiceState {
   rolls: RollEntry[]
-  roll: (kind: RollKind, derived: DerivedStats) => RollEntry
+  roll: (kind: RollKind, derived: RollStats) => RollEntry
   clear: () => void
   modal: ModalState | null
   // Re-roll the current d20 result (attack/skill/save/ability), keeping the best
