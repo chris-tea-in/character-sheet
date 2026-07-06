@@ -76,10 +76,22 @@ export function BonusPicker({ presets, target, onAdd }: {
   }
 
   if (!open) {
+    // Damage rolls surface the detected presets up front (first 3 as one-tap
+    // chips); the button expands to the full panel — the rest of the presets
+    // when there are more than 3, and always the custom bonus entry.
+    const inline = target === 'damage' ? applicable.slice(0, 3) : []
+    const hiddenCount = applicable.length - inline.length
     return (
-      <button onClick={() => setOpen(true)} className="text-xs px-2 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-        <Plus className="h-3 w-3" /> {target === 'damage' ? 'Extra damage' : 'Add bonus'}
-      </button>
+      <div className="flex flex-wrap items-center justify-center gap-1">
+        {inline.map(p => <PresetChip key={p.id} p={p} onAdd={onAdd} />)}
+        <button onClick={() => setOpen(true)} className="text-xs px-2 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <Plus className="h-3 w-3" />
+          {target !== 'damage' ? 'Add bonus'
+            : hiddenCount > 0 ? `More (${hiddenCount})`
+            : inline.length > 0 ? 'Custom'
+            : 'Extra damage'}
+        </button>
+      </div>
     )
   }
 
