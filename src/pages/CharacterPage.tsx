@@ -26,7 +26,6 @@ import type { CampaignItem } from '@/lib/syncApi'
 import { FeatsBlock } from '@/components/sheet/FeatsBlock'
 import { FeaturesBlock } from '@/components/sheet/FeaturesBlock'
 import { CustomEffectsBlock } from '@/components/sheet/CustomEffectsBlock'
-import { CampaignNotesPanel } from '@/components/campaign/CampaignNotesPanel'
 import { useDerivedSheet } from '@/components/sheet/useDerivedSheet'
 import { useCharacterStore } from '@/store/characters'
 import { useSyncStore } from '@/store/sync'
@@ -57,6 +56,10 @@ const SHEET_TABS = [
   { key: 'spells', label: 'Spells' },
   { key: 'inventory', label: 'Inventory' },
   { key: 'combat', label: 'Combat' },
+  // The campaign notebook lives on its own page (/campaign/:id/notes) — this
+  // "tab" is a navigation link, never the active tab, and has no panel here.
+  // Only shown while the character is in a campaign.
+  { key: 'notes', label: 'Notes' },
 ] as const
 type SheetTab = (typeof SHEET_TABS)[number]['key']
 const isSheetTab = (v: string | null): v is SheetTab => SHEET_TABS.some(t => t.key === v)
@@ -940,9 +943,14 @@ export default function CharacterPage() {
     setLevelPickerPending(null)
   }
 
-  // The Spells tab needs a class record; until then treat a stored 'spells' pick
-  // as Combat (it snaps back once setupData resolves the class).
-  const effectiveTab: SheetTab = activeTab === 'spells' && !classRecord ? 'character' : activeTab
+  // The Spells tab needs a class record — treat a stored pick for an
+  // unavailable tab as Character (it snaps back once the prerequisite
+  // resolves). 'notes' is a navigation link with no panel, so a stale stored
+  // 'notes' (from before it became a link) also snaps to Character.
+  const effectiveTab: SheetTab =
+    (activeTab === 'spells' && !classRecord) || activeTab === 'notes'
+      ? 'character'
+      : activeTab
 
   const priv = character.sheetPrivacy ?? {}
   const anyHidden = !!(priv.name || priv.class || priv.race)
@@ -994,6 +1002,23 @@ export default function CharacterPage() {
         >
           {SHEET_TABS.map(t => {
             if (t.key === 'spells' && !classRecord) return null
+            if (t.key === 'notes' && !character.campaignId) return null
+            // Notes is a link out to the campaign's notes page — it never
+            // becomes the active tab and controls no panel (no aria-controls).
+            if (t.key === 'notes') {
+              return (
+                <button
+                  key={t.key}
+                  role="tab"
+                  id="sheet-tab-notes"
+                  aria-selected={false}
+                  onClick={() => navigate(`/campaign/${character.campaignId}/notes`)}
+                  className="px-3 py-1 text-xs rounded-md font-semibold uppercase tracking-wide transition-colors whitespace-nowrap flex-none text-muted-foreground hover:text-foreground"
+                >
+                  {t.label}
+                </button>
+              )
+            }
             const active = effectiveTab === t.key
             return (
               <button
@@ -1038,22 +1063,9 @@ export default function CharacterPage() {
             <FeaturesBlock character={character} setupData={setupData} onSave={save} />
             <FeatsBlock character={character} derived={derived} onSave={save} />
             {/* Description (languages, personality, backstory, notes) lives on the
-                Character tab — the standalone Notes tab was retired. */}
+                Character tab; the campaign notebook has its own Notes tab below. */}
             <DescriptionBlock character={character} derived={derived} onSave={save} />
             <CustomEffectsBlock character={character} onSave={save} />
-            {/* Shared campaign notes about THIS character (Phase F) — cloud-backed,
-                only for campaign characters; hidden notes stay author+DM only
-                (server-enforced). Interactive/live content, so excluded from print. */}
-            {character.campaignId && (
-              <section className="rounded-lg border border-border bg-card p-4 print:hidden">
-                <CampaignNotesPanel
-                  campaignId={character.campaignId}
-                  subjectKind="character"
-                  subjectId={character.id}
-                  title="Campaign Notes"
-                />
-              </section>
-            )}
           </div>
 
           <div role="tabpanel" id="sheet-panel-spells" aria-labelledby="sheet-tab-spells" data-state={effectiveTab === 'spells' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
