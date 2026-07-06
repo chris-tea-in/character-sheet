@@ -8,7 +8,7 @@ export interface Env {
   TEAM_DOMAIN: string
   POLICY_AUD: string
   // LOCAL-ONLY auth bypass for `wrangler pages dev` (no Access in front of
-  // localhost). Never set in committed vars or the dashboard. See CLOUD_SYNC.md.
+  // localhost). Never set in committed vars or the dashboard. See docs/CLOUD_SYNC.md.
   DEV_EMAIL?: string
 }
 

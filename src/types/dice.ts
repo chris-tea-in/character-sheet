@@ -34,15 +34,25 @@ export interface AddedBonus {
   value: number      // total contributed (signed; negative for a penalty like Bane)
 }
 
+// Which entity made a roll. Absent = the character (the default everywhere).
+// Companion rolls carry this so their entries route to the Companions tab's own
+// history panel instead of the main dice tray; it rides inside `kind`, so the
+// store's reroll paths (which spread the kind) preserve it for free.
+export interface RollOrigin {
+  scope: 'companion'
+  companionId: string
+  companionName: string
+}
+
 export type RollKind =
-  | { type: 'raw';    die: DieType; count?: number }   // count > 1 → roll NdX at once (sum)
-  | { type: 'pool';   groups: { die: DieType; count: number }[] }  // mixed dice rolled together (4d8 + 2d10 + 3d12)
-  | { type: 'skill';  skill: SkillName;   advantage?: boolean }
-  | { type: 'save';   ability: AbilityName; advantage?: boolean }
-  | { type: 'ability'; ability: AbilityName; advantage?: boolean }
-  | { type: 'attack'; label: string; modifier: number; advantage?: boolean; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[]; rerollBelow?: number; bonuses?: RollBonus[] }
-  | { type: 'damage'; label: string }
-  | { type: 'heal';   label: string; die: DieType; modifier: number }
+  | { type: 'raw';    die: DieType; count?: number; origin?: RollOrigin }   // count > 1 → roll NdX at once (sum)
+  | { type: 'pool';   groups: { die: DieType; count: number }[]; origin?: RollOrigin }  // mixed dice rolled together (4d8 + 2d10 + 3d12)
+  | { type: 'skill';  skill: SkillName;   advantage?: boolean; origin?: RollOrigin }
+  | { type: 'save';   ability: AbilityName; advantage?: boolean; origin?: RollOrigin }
+  | { type: 'ability'; ability: AbilityName; advantage?: boolean; origin?: RollOrigin }
+  | { type: 'attack'; label: string; modifier: number; advantage?: boolean; damageDice?: string; damageBonus?: number; damageType?: string; extraDamage?: ExtraDamage[]; rerollBelow?: number; bonuses?: RollBonus[]; origin?: RollOrigin }
+  | { type: 'damage'; label: string; origin?: RollOrigin }
+  | { type: 'heal';   label: string; die: DieType; modifier: number; origin?: RollOrigin }
 
 // How a damage roll scales. `cantrip` adds a base die at character levels 5/11/17;
 // `leveled` adds `perLevel` dice per slot level cast above the spell's base level.
@@ -65,6 +75,9 @@ export interface DamageSpec {
   // Great Weapon Fighting: reroll the weapon's own damage dice showing ≤ this (2) once.
   // Applies to the base dice only, not riders.
   rerollBelow?: number
+  // Non-character roller (companion) — threaded into the history entry the
+  // damage roll creates, so it routes to that entity's history panel.
+  origin?: RollOrigin
 }
 
 export interface RollResult {

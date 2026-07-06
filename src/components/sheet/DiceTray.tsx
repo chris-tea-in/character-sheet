@@ -73,7 +73,10 @@ interface Props {
 }
 
 export function DiceTray({ derived }: Props) {
-  const rolls = useDiceStore(s => s.rolls)
+  const allRolls = useDiceStore(s => s.rolls)
+  // Companion rolls live in the Companions tab's own history panel, not the tray
+  // (filtered here in render — a filtering selector would return unstable snapshots).
+  const rolls = allRolls.filter(r => r.kind.origin?.scope !== 'companion')
   const clear = useDiceStore(s => s.clear)
   const { dispatch } = useRollDispatch(derived)
   const [open, setOpen] = useState(false)

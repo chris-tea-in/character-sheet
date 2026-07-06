@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { InfoPopup } from '@/components/InfoPopup'
 import { CharacterSheetBlocks } from '@/components/sheet/CharacterSheetBlocks'
 import { CampaignNotesPanel } from '@/components/campaign/CampaignNotesPanel'
+import { CompanionsTab } from '@/components/campaign/CompanionsTab'
 import { useDerivedSheet, type SheetReferenceData } from '@/components/sheet/useDerivedSheet'
 import { DiceTray } from '@/components/sheet/DiceTray'
 import { DiceRollModal } from '@/components/sheet/DiceRollModal'
@@ -134,6 +135,15 @@ export default function CampaignCharacterPage() {
                     isDm
                     title="Campaign Notes"
                   />
+                </section>
+              )}
+              {/* This character's companions — fully rollable here too (the page
+                  mounts DiceTray + DiceRollModal). The move-between-characters
+                  control hides itself (the sheet isn't a local character of the
+                  DM's); reassignment lives on the campaign page's Companions tab. */}
+              {campaignId && (
+                <section className="mt-6">
+                  <CompanionsTab character={character} campaignId={campaignId} isDm />
                 </section>
               )}
             </>

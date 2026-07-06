@@ -102,6 +102,34 @@ export function applyLedger(targetKey: TargetKey, rows: ModifierSource[], ledger
   return { rows: applied, effective, rawTotal }
 }
 
+/**
+ * The subset of DerivedStats the dice seam actually reads (`useDiceStore.roll` +
+ * `useRollDispatch`) — the contract for anything that rolls: PC sheets pass their full
+ * DerivedStats unchanged (structurally assignable: breakdowns' extra subkeys and
+ * ModifierSource's extra fields are fine under width subtyping), while non-character
+ * rollers (companions) build one honestly via companionRollStats(). Type-only seam —
+ * no runtime behavior involved. If the dice engine grows a new stats read, add the
+ * field HERE so every roller is forced to supply it at compile time.
+ */
+export interface RollStats {
+  effectiveAbilities: Abilities
+  skillModifiers: Record<SkillName, number>
+  saveModifiers: Record<AbilityName, number>
+  abilityCheckBonuses: Partial<Record<AbilityName, { amount: number; label: string }>>
+  reliableTalent: boolean
+  hasLuckyFeat: boolean
+  effectiveSkillProficiencies: Partial<Record<SkillName, SkillProficiency>>
+  breakdowns: {
+    skills: Record<SkillName, { label: string; amount: number }[]>
+    saves: Record<AbilityName, { label: string; amount: number }[]>
+  }
+  rollStateSources: {
+    skills: Partial<Record<SkillName, RollAdvSource[]>>
+    saves: Partial<Record<AbilityName, RollAdvSource[]>>
+  }
+  attackRollState: RollMode | undefined
+}
+
 export interface DerivedStats {
   effectiveAC: number | null
   adjustedMaxHp: number
