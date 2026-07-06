@@ -9,7 +9,7 @@
 // breakdown rows), abilities use the same resolveResourceMax/earnedAbilities as
 // ClassAbilitiesSection. Rolls stay MANUAL via the existing DiceRollModal —
 // committing a turn only spends resources, it never rolls.
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { RollButton } from '@/components/sheet/RollButton'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { useDiceStore } from '@/store/dice'
@@ -37,6 +37,23 @@ import type { ClassAbility, ClassData, EquipmentData, SpellData } from '@/types/
 import type { DerivedStats } from '@/lib/characterStats'
 
 const normalizeSlug = (slug: string) => slug.replace(/^spell:/, '')
+
+// Effect-mode grouping buckets. Weapons are always damage; generic SRD actions
+// are always general; spells classify like the Spells-tab filter (damage wins,
+// then heal parse, else utility); abilities are healing when their effect says
+// so, utility otherwise.
+type EffectBucket = 'damage' | 'healing' | 'utility'
+
+function spellEffectOf(cs: CharacterSpell, sp: SpellData | undefined): EffectBucket {
+  const catalogDmg = sp ? parseSpellDamage(sp) : null
+  if (cs.damageDice || catalogDmg?.dice) return 'damage'
+  if (sp && parseSpellHeal(sp)) return 'healing'
+  return 'utility'
+}
+
+function abilityEffectOf(a: ClassAbility): EffectBucket {
+  return a.effect?.kind === 'heal-pool' || a.effect?.kind === 'heal' ? 'healing' : 'utility'
+}
 
 // Static SRD generic actions — a data constant, no rules engine.
 const GENERIC_ACTIONS: { name: string; economy: ActionEconomy; desc: string }[] = [
@@ -165,6 +182,20 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
   // Soft-lock: queueing a SECOND leveled spell is RAW-discouraged — the button
   // warns and takes a confirm tap, but never blocks (homebrew allowed).
   const [confirmQueueId, setConfirmQueueId] = useState<string | null>(null)
+
+  // Grouping mode (toggle at the top-right of the first block): 'kind' = the
+  // Action/Bonus/Reaction cards sub-grouped by abilities/spells/weapons/general;
+  // 'effect' = Damage/Healing/General/Utility cards sub-grouped by action economy,
+  // with Reaction always its own bottom card (sub-grouped by effect in this mode).
+  const [groupMode, setGroupModeState] = useState<'kind' | 'effect'>(() =>
+    sessionStorage.getItem(`combat-group:${character.id}`) === 'effect' ? 'effect' : 'kind')
+  useEffect(() => {
+    setGroupModeState(sessionStorage.getItem(`combat-group:${character.id}`) === 'effect' ? 'effect' : 'kind')
+  }, [character.id])
+  function selectGroupMode(m: 'kind' | 'effect') {
+    setGroupModeState(m)
+    sessionStorage.setItem(`combat-group:${character.id}`, m)
+  }
 
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   useEffect(() => { loadSpellsData().then(setAllSpells).catch(() => {}) }, [])
@@ -331,9 +362,10 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
     })
   }
 
-  function spellRows(economy: ActionEconomy) {
+  function spellRows(economy: ActionEconomy, effect?: EffectBucket) {
     return spells
-      .filter(({ sp }) => normalizeCastingTime(sp?.casting_time) === economy)
+      .filter(({ cs, sp }) => normalizeCastingTime(sp?.casting_time) === economy
+        && (!effect || spellEffectOf(cs, sp) === effect))
       .map(({ cs, sp }) => {
         const slug = normalizeSlug(cs.slug)
         const label = sp?.name ?? slug
@@ -441,9 +473,9 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
       })
   }
 
-  function abilityRows(economy: ActionEconomy) {
+  function abilityRows(economy: ActionEconomy, effect?: EffectBucket) {
     return abilities
-      .filter(a => a.action === economy)
+      .filter(a => a.action === economy && (!effect || abilityEffectOf(a) === effect))
       .map(a => {
         const remaining = a.resource ? abilityRemaining(a) : null
         const max = a.resource ? abilityMax(a) : null
@@ -539,14 +571,17 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
     )
   }
 
-  // Action/Bonus/Reaction sections group their rows by kind (abilities, spells,
-  // weapons, general) under small gold sub-headers; empty groups collapse.
-  function groupedSection(title: string, groups: { label: string; rows: React.ReactNode[] }[]) {
+  // Grouped card: gold sub-headers, empty groups collapse; `headerExtra` renders
+  // top-right (hosts the Type/Effect grouping toggle on the first card).
+  function groupedSection(title: string, groups: { label: string; rows: React.ReactNode[] }[], headerExtra?: React.ReactNode) {
     const nonEmpty = groups.filter(g => g.rows.length > 0)
     if (nonEmpty.length === 0) return null
     return (
       <div className="rounded-lg border border-border bg-card p-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+          {headerExtra}
+        </div>
         {nonEmpty.map(g => (
           <div key={g.label}>
             <p className="text-[10px] font-semibold uppercase tracking-wide py-1 mt-1" style={{ color: 'var(--color-accent-gold)' }}>
@@ -620,21 +655,101 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
         </div>
       </div>
 
-      {groupedSection('Action', [
-        { label: 'Class Abilities', rows: abilityRows('action') },
-        { label: 'Spells', rows: spellRows('action') },
-        { label: 'Weapon Attacks', rows: weaponRows() },
-        { label: 'General', rows: genericRows('action') },
-      ])}
-      {groupedSection('Bonus Action', [
-        { label: 'Class Abilities', rows: abilityRows('bonus_action') },
-        { label: 'Spells', rows: spellRows('bonus_action') },
-      ])}
-      {groupedSection('Reaction', [
-        { label: 'Class Abilities', rows: abilityRows('reaction') },
-        { label: 'Spells', rows: spellRows('reaction') },
-        { label: 'General', rows: genericRows('reaction') },
-      ])}
+      {(() => {
+        // Type ⇄ Effect grouping toggle, rendered top-right of the first card.
+        const toggle = (
+          <div className="flex items-center gap-0.5 flex-none" role="group" aria-label="Group actions by">
+            {([['kind', 'Type'], ['effect', 'Effect']] as const).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => selectGroupMode(m)}
+                aria-pressed={groupMode === m}
+                title={m === 'kind'
+                  ? 'Group by type: abilities / spells / weapons / general within each action section'
+                  : 'Group by effect: damage / healing / general / utility, split by action economy'}
+                className={cn(
+                  'px-1.5 py-0.5 text-[10px] rounded font-semibold uppercase tracking-wide transition-colors',
+                  groupMode === m ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )
+
+        if (groupMode === 'kind') {
+          return (
+            <>
+              {groupedSection('Action', [
+                { label: 'Class Abilities', rows: abilityRows('action') },
+                { label: 'Spells', rows: spellRows('action') },
+                { label: 'Weapon Attacks', rows: weaponRows() },
+                { label: 'General', rows: genericRows('action') },
+              ], toggle)}
+              {groupedSection('Bonus Action', [
+                { label: 'Class Abilities', rows: abilityRows('bonus_action') },
+                { label: 'Spells', rows: spellRows('bonus_action') },
+              ])}
+              {groupedSection('Reaction', [
+                { label: 'Class Abilities', rows: abilityRows('reaction') },
+                { label: 'Spells', rows: spellRows('reaction') },
+                { label: 'General', rows: genericRows('reaction') },
+              ])}
+            </>
+          )
+        }
+
+        // Effect mode: Damage / Healing / General / Utility cards split by action
+        // economy; Reaction stays its own bottom card, sub-grouped by effect.
+        const effectCards: { title: string; groups: { label: string; rows: React.ReactNode[] }[] }[] = [
+          {
+            title: 'Damage',
+            groups: [
+              { label: 'Action', rows: [...weaponRows(), ...spellRows('action', 'damage'), ...abilityRows('action', 'damage')] },
+              { label: 'Bonus Action', rows: [...spellRows('bonus_action', 'damage'), ...abilityRows('bonus_action', 'damage')] },
+            ],
+          },
+          {
+            title: 'Healing',
+            groups: [
+              { label: 'Action', rows: [...spellRows('action', 'healing'), ...abilityRows('action', 'healing')] },
+              { label: 'Bonus Action', rows: [...spellRows('bonus_action', 'healing'), ...abilityRows('bonus_action', 'healing')] },
+            ],
+          },
+          {
+            title: 'General',
+            groups: [{ label: 'Action', rows: genericRows('action') }],
+          },
+          {
+            title: 'Utility',
+            groups: [
+              { label: 'Action', rows: [...spellRows('action', 'utility'), ...abilityRows('action', 'utility')] },
+              { label: 'Bonus Action', rows: [...spellRows('bonus_action', 'utility'), ...abilityRows('bonus_action', 'utility')] },
+            ],
+          },
+        ]
+        const rendered: React.ReactNode[] = []
+        let toggleUsed = false
+        for (const c of effectCards) {
+          const el = groupedSection(c.title, c.groups, toggleUsed ? undefined : toggle)
+          if (el) {
+            rendered.push(<Fragment key={c.title}>{el}</Fragment>)
+            toggleUsed = true
+          }
+        }
+        return (
+          <>
+            {rendered}
+            {groupedSection('Reaction', [
+              { label: 'Damage', rows: [...spellRows('reaction', 'damage'), ...abilityRows('reaction', 'damage')] },
+              { label: 'Healing', rows: [...spellRows('reaction', 'healing'), ...abilityRows('reaction', 'healing')] },
+              { label: 'General', rows: genericRows('reaction') },
+              { label: 'Utility', rows: [...spellRows('reaction', 'utility'), ...abilityRows('reaction', 'utility')] },
+            ], toggleUsed ? undefined : toggle)}
+          </>
+        )
+      })()}
       {otherAbilities.length > 0 && section('No Action / Special', otherAbilities.map(a => {
         const max = a.resource ? abilityMax(a) : null
         const remaining = a.resource ? abilityRemaining(a) : null

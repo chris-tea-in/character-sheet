@@ -520,6 +520,8 @@ export interface ClassAbility {
   resource?: ClassAbilityResource
   /** Spends N from ANOTHER ability's resource (Flurry of Blows → Ki). */
   cost?: { key: string; amount: number }
-  /** Spend-UI hint; 'heal-pool' = pool points are hit points healed. */
-  effect?: { kind: 'heal-pool' }
+  /** Effect hint: 'heal-pool' = pool points are hit points healed (Lay on Hands
+   * spend UI); 'heal' = a plain healing use (Second Wind). Also drives the
+   * combat tab's damage/healing/utility grouping. */
+  effect?: { kind: 'heal-pool' | 'heal' }
 }

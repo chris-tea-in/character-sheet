@@ -626,7 +626,7 @@ if (classAbilities) {
         if (!resourceKeys.has(a.cost.key))
           errors.push(`${label}: cost.key "${a.cost.key}" does not reference an ability with a resource`)
       }
-      if (a.effect && a.effect.kind !== 'heal-pool')
+      if (a.effect && a.effect.kind !== 'heal-pool' && a.effect.kind !== 'heal')
         errors.push(`${label}: unknown effect kind "${a.effect?.kind}"`)
     })
   }
