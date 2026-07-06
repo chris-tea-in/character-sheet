@@ -271,4 +271,13 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN ledger_overrides TEXT NOT NULL DEFAULT '{"disabled":[],"overrides":{},"custom":{}}'`)
     },
   },
+  {
+    version: 22,
+    up: (db) => {
+      // Sheet display privacy: hide name/class/race on the owner's sheet (same
+      // motivation as the campaign class disguise, different surface). JSON blob
+      // of optional booleans ({"name":true,…}); display-only, synced.
+      db.run(`ALTER TABLE characters ADD COLUMN sheet_privacy TEXT NOT NULL DEFAULT '{}'`)
+    },
+  },
 ]
