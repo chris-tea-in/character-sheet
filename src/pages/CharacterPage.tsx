@@ -1036,10 +1036,10 @@ export default function CharacterPage() {
             <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} derived={derived} onSave={save} />
             <FeaturesBlock character={character} setupData={setupData} onSave={save} />
             <FeatsBlock character={character} derived={derived} onSave={save} />
-            <CustomEffectsBlock character={character} onSave={save} />
-            {/* Description (languages, personality, backstory, notes) lives at the
-                bottom of the Character tab — the standalone Notes tab was retired. */}
+            {/* Description (languages, personality, backstory, notes) lives on the
+                Character tab — the standalone Notes tab was retired. */}
             <DescriptionBlock character={character} derived={derived} onSave={save} />
+            <CustomEffectsBlock character={character} onSave={save} />
           </div>
 
           <div role="tabpanel" id="sheet-panel-spells" aria-labelledby="sheet-tab-spells" data-state={effectiveTab === 'spells' ? 'active' : 'inactive'} className="space-y-6 print:mb-6">
