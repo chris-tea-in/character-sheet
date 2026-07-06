@@ -167,14 +167,14 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
     return max - Math.min(character.featureResourcesUsed[a.key] ?? 0, max)
   }
 
-  function queuedIn(label: string): QueueSlotKey | null {
-    if (queue.action?.label === label) return 'action'
-    if (queue.bonusAction?.label === label) return 'bonusAction'
+  function queuedIn(id: string): QueueSlotKey | null {
+    if (queue.action?.id === id) return 'action'
+    if (queue.bonusAction?.id === id) return 'bonusAction'
     return null
   }
 
   function toggleQueue(slot: QueueSlotKey, entry: QueuedEntry) {
-    const already = queue[slot]?.label === entry.label
+    const already = queue[slot]?.id === entry.id
     setSlot(slot, already ? undefined : entry)
   }
 
@@ -213,7 +213,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
   function weaponRows() {
     return weapons.map(({ item, weapon, active }) => {
       const w = assemble(item, weapon, active)
-      const slot = queuedIn(item.name)
+      const slot = queuedIn(`weapon:${item.id}`)
       return (
         <div key={item.id} className="flex items-center gap-2 py-1.5">
           <Badge economy="action" title="Action" />
@@ -223,7 +223,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
           <RollButton label="Dmg" tone="gold" onClick={w.rollDamage} />
           <QueueButton
             queued={slot === 'action'}
-            onClick={() => toggleQueue('action', { kind: 'weapon', label: item.name })}
+            onClick={() => toggleQueue('action', { id: `weapon:${item.id}`, kind: 'weapon', label: item.name })}
           />
         </div>
       )
@@ -244,7 +244,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
         const eligible = options.filter(o => o.castLevel >= level && o.remaining > 0)
         const chosen = eligible.find(o => o.key === chosenSlot[slug]) ?? eligible[0]
         const castable = level === 0 || !!chosen
-        const slotIn = queuedIn(label)
+        const slotIn = queuedIn(`spell:${slug}`)
         const slotKey: QueueSlotKey = economy === 'bonus_action' ? 'bonusAction' : 'action'
         return (
           <div key={cs.slug} className="flex items-center gap-2 py-1.5 flex-wrap">
@@ -298,6 +298,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
                 disabled={!castable}
                 title={castable ? undefined : 'No slot available'}
                 onClick={() => toggleQueue(slotKey, {
+                  id: `spell:${slug}`,
                   kind: 'spell',
                   label: level > 0 && chosen ? `${label} (${chosen.label} slot)` : label,
                   leveledSpell: level > 0,
@@ -329,7 +330,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
         const payable = a.cost
           ? (abilityByKey.get(a.cost.key) ? abilityRemaining(abilityByKey.get(a.cost.key)!) >= a.cost.amount : false)
           : remaining === null || remaining > 0
-        const slotIn = queuedIn(a.name)
+        const slotIn = queuedIn(a.key)
         const slotKey: QueueSlotKey = economy === 'bonus_action' ? 'bonusAction' : 'action'
         return (
           <div key={a.key} className="flex items-center gap-2 py-1.5">
@@ -343,7 +344,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
                 queued={slotIn === slotKey}
                 disabled={!payable}
                 title={payable ? undefined : 'No uses left'}
-                onClick={() => toggleQueue(slotKey, { kind: 'ability', label: a.name, cost })}
+                onClick={() => toggleQueue(slotKey, { id: a.key, kind: 'ability', label: a.name, cost })}
               />
             )}
           </div>
@@ -355,7 +356,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
     return GENERIC_ACTIONS
       .filter(g => g.economy === economy)
       .map(g => {
-        const slotIn = queuedIn(g.name)
+        const slotIn = queuedIn(`generic:${g.name}`)
         return (
           <div key={g.name} className="flex items-center gap-2 py-1.5" title={g.desc}>
             <Badge economy={g.economy} title={g.desc} />
@@ -363,7 +364,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
             {g.economy === 'action' && (
               <QueueButton
                 queued={slotIn === 'action'}
-                onClick={() => toggleQueue('action', { kind: 'generic', label: g.name })}
+                onClick={() => toggleQueue('action', { id: `generic:${g.name}`, kind: 'generic', label: g.name })}
               />
             )}
           </div>

@@ -18,6 +18,10 @@ export type QueuedCost =
   | { type: 'ability'; key: string; amount: number; label: string }
 
 export interface QueuedEntry {
+  /** Stable row identity ("weapon:<itemId>", "spell:<slug>", ability key, …) —
+   * queued-state matching uses this, never the label (two Longswords, or a
+   * cleric/paladin's two "Channel Divinity" rows, share a label). */
+  id: string
   kind: 'weapon' | 'spell' | 'ability' | 'generic'
   label: string
   cost?: QueuedCost
