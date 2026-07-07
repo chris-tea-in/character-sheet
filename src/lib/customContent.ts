@@ -137,7 +137,30 @@ export function mergeCustomFeats(
 // Turn a small form payload into a valid catalog-shaped definition, filling the
 // fields the form doesn't capture with safe defaults (mundane, no source rules).
 
-export interface CustomWeaponInput {
+// Magic fields shared by custom weapons + armor. `magical` off ⇒ a mundane item
+// (no rarity/attunement/bonus emitted, matching the built-in mundane shape). When on,
+// `bonus` is the flat +X that flows into attack/damage (weapon) or AC (armor) through
+// the exact same derive path as built-in magic items — never a second code path.
+export interface CustomMagicInput {
+  magical?: boolean
+  rarity?: string
+  attunement?: boolean
+  bonus?: number
+}
+
+// Spread onto a weapon/armor def: nothing when mundane; magical/rarity/attunement/bonus
+// (bonus omitted when 0) when magical. Kept in one place so weapon and armor stay in sync.
+function magicFields(input: CustomMagicInput): Partial<Pick<WeaponItem, 'magical' | 'rarity' | 'attunement' | 'bonus'>> {
+  if (!input.magical) return { magical: false }
+  return {
+    magical: true,
+    ...(input.rarity ? { rarity: input.rarity } : {}),
+    attunement: input.attunement ?? false,
+    ...(input.bonus ? { bonus: input.bonus } : {}),
+  }
+}
+
+export interface CustomWeaponInput extends CustomMagicInput {
   name: string
   weaponType: WeaponItem['weapon_type']
   damageDice: string
@@ -155,14 +178,14 @@ export function buildCustomWeapon(input: CustomWeaponInput): WeaponItem {
     damage_dice: input.damageDice.trim() || null,
     damage_type: input.damageType.trim() || null,
     properties: input.properties,
-    magical: false,
+    ...magicFields(input),
     source: 'Custom',
     ...(input.description?.trim() ? { description: input.description.trim() } : {}),
     ...(input.effects?.length ? { effects: input.effects } : {}),
   }
 }
 
-export interface CustomArmorInput {
+export interface CustomArmorInput extends CustomMagicInput {
   name: string
   armorType: ArmorItem['armor_type']
   acFormula: string
@@ -179,7 +202,7 @@ export function buildCustomArmor(input: CustomArmorInput): ArmorItem {
     ac_formula: input.acFormula.trim(),
     stealth_disadvantage: input.stealthDisadvantage,
     strength_requirement: null,
-    magical: false,
+    ...magicFields(input),
     source: 'Custom',
     ...(input.description?.trim() ? { description: input.description.trim() } : {}),
     ...(input.effects?.length ? { effects: input.effects } : {}),
