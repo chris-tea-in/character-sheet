@@ -82,11 +82,13 @@ export function CustomItemDialog({
   const [addsDex, setAddsDex] = useState(true)
   const [hasCap, setHasCap] = useState(true)
   const [dexCap, setDexCap] = useState(2)
-  const [flatBonus, setFlatBonus] = useState(0)
   const [stealthDisadvantage, setStealthDisadvantage] = useState(false)
-  // generic item
+  // magic (rarity/attunement always shown for generic items; toggled on for weapons/armor)
+  const [magical, setMagical] = useState(false)
   const [rarity, setRarity] = useState<WondrousItem['rarity']>('Uncommon')
   const [attunement, setAttunement] = useState(false)
+  // flat magic bonus: +X to attack & damage (weapon) or AC (armor/shield)
+  const [magicBonus, setMagicBonus] = useState(0)
   const [quantity, setQuantity] = useState(1)
   // structured effects (apply while equipped/attuned) — armor + generic items
   const [effects, setEffects] = useState<EffectSpec[]>([])
@@ -118,16 +120,30 @@ export function CustomItemDialog({
       }
       setBaseAc(parts.base); setAddsDex(parts.addsDex)
       setHasCap(parts.dexCap != null); setDexCap(parts.dexCap ?? 2)
-      setFlatBonus(parts.flatBonus)
       setStealthDisadvantage(!!initial.stealth_disadvantage)
     } else {
       setArmorType('Medium'); setBaseAc(14); setAddsDex(true); setHasCap(true); setDexCap(2)
-      setFlatBonus(0); setStealthDisadvantage(false)
+      setStealthDisadvantage(false)
     }
-    if (initial?.category === 'wondrous_item') {
+    // Magic fields. Wondrous items are inherently magical (no toggle); weapons/armor
+    // carry an explicit `magical` flag. Legacy custom armor baked its magic bonus into
+    // the AC formula (bonus field unset) — recover it so editing doesn't silently drop AC.
+    if (initial?.category === 'weapon') {
+      setMagical(!!initial.magical)
+      setMagicBonus(initial.bonus ?? 0)
+      setRarity((initial.rarity as WondrousItem['rarity']) ?? 'Uncommon')
+      setAttunement(!!initial.attunement)
+    } else if (initial && (initial.category === 'armor' || initial.category === 'shield')) {
+      const legacyBonus = initial.bonus ?? parseAcFormulaParts(initial.armor_type, initial.ac_formula)?.flatBonus ?? 0
+      setMagical(!!initial.magical || legacyBonus > 0)
+      setMagicBonus(legacyBonus)
+      setRarity((initial.rarity as WondrousItem['rarity']) ?? 'Uncommon')
+      setAttunement(!!initial.attunement)
+    } else if (initial?.category === 'wondrous_item') {
+      setMagical(false); setMagicBonus(0)
       setRarity(initial.rarity); setAttunement(!!initial.attunement)
     } else {
-      setRarity('Uncommon'); setAttunement(false)
+      setMagical(false); setMagicBonus(0); setRarity('Uncommon'); setAttunement(false)
     }
   }, [open, initial])
 
@@ -135,7 +151,7 @@ export function CustomItemDialog({
   function pickArmorType(t: ArmorItem['armor_type']) {
     setArmorType(t)
     const d = ARMOR_DEFAULTS[t]
-    setBaseAc(d.base); setAddsDex(d.dex); setHasCap(d.cap != null); setDexCap(d.cap ?? 2); setFlatBonus(0)
+    setBaseAc(d.base); setAddsDex(d.dex); setHasCap(d.cap != null); setDexCap(d.cap ?? 2)
   }
 
   const valid = name.trim() !== ''
@@ -144,14 +160,21 @@ export function CustomItemDialog({
     setProperties(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])
   }
 
-  const acPreview = buildAcFormula(armorType, baseAc, addsDex, hasCap ? dexCap : null, flatBonus)
+  // The magic bonus lives in the armor def's `bonus` field (parity with built-in magic
+  // armor + a ledger-editable AC enchantment line) — never baked into the stored formula.
+  const acFormula = buildAcFormula(armorType, baseAc, addsDex, hasCap ? dexCap : null, 0)
+  const acMagicBonus = magical ? magicBonus : 0
+  // Preview reflects the magic bonus for the user's benefit, though it's stored separately.
+  const acPreview = armorType === 'Shield'
+    ? `+${baseAc + acMagicBonus}`
+    : buildAcFormula(armorType, baseAc, addsDex, hasCap ? dexCap : null, acMagicBonus)
 
   function submit() {
     if (!valid) return
     const itemEffects = effects.map(specToItemEffect).filter((e): e is ItemEffect => e !== null)
     const def =
-      kind === 'weapon' ? buildCustomWeapon({ name, weaponType, damageDice, damageType, properties, description, effects: itemEffects })
-      : kind === 'armor' ? buildCustomArmor({ name, armorType, acFormula: acPreview, stealthDisadvantage, description, effects: itemEffects })
+      kind === 'weapon' ? buildCustomWeapon({ name, weaponType, damageDice, damageType, properties, description, effects: itemEffects, magical, rarity, attunement, bonus: magicBonus })
+      : kind === 'armor' ? buildCustomArmor({ name, armorType, acFormula, stealthDisadvantage, description, effects: itemEffects, magical, rarity, attunement, bonus: magicBonus })
       : buildCustomWondrous({ name, rarity, attunement, description, effects: itemEffects })
     if (initial && onEdit) onEdit(initial.name, def)
     else if (kind === 'item') onCreate(def, quantity)
@@ -284,15 +307,6 @@ export function CustomItemDialog({
                       )}
                     </div>
                   )}
-                  <label className="block">
-                    <span className="text-xs font-semibold text-muted-foreground">Magic bonus (optional)</span>
-                    <input
-                      type="number" min={0}
-                      value={flatBonus}
-                      onChange={e => setFlatBonus(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-                      className={fieldClass}
-                    />
-                  </label>
                 </div>
               )}
               <p className="text-[11px] text-muted-foreground">
@@ -311,6 +325,42 @@ export function CustomItemDialog({
                 </label>
               )}
             </>
+          )}
+
+          {/* Magic item — weapons & armor are mundane by default; toggle on to set rarity,
+              attunement, and a flat +X (attack & damage for weapons, AC for armor). */}
+          {(kind === 'weapon' || kind === 'armor') && (
+            <div className="space-y-2 rounded-md border border-border p-2.5">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <input type="checkbox" checked={magical} onChange={() => setMagical(v => !v)} className="h-4 w-4 accent-[var(--color-accent-gold)]" />
+                Magic item
+              </label>
+              {magical && (
+                <div className="space-y-2 pl-6">
+                  <div className="flex gap-2">
+                    <label className="block flex-1">
+                      <span className="text-xs font-semibold text-muted-foreground">Rarity</span>
+                      <select value={rarity} onChange={e => setRarity(e.target.value as WondrousItem['rarity'])} className={selectClass}>
+                        {RARITIES.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </label>
+                    <label className="block w-24">
+                      <span className="text-xs font-semibold text-muted-foreground">{kind === 'weapon' ? '+ Atk/Dmg' : '+ AC'}</span>
+                      <input
+                        type="number" min={0}
+                        value={magicBonus}
+                        onChange={e => setMagicBonus(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                        className={fieldClass}
+                      />
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                    <input type="checkbox" checked={attunement} onChange={() => setAttunement(v => !v)} className="h-4 w-4 accent-[var(--color-accent-gold)]" />
+                    Requires attunement
+                  </label>
+                </div>
+              )}
+            </div>
           )}
 
           {kind === 'item' && (
@@ -342,7 +392,7 @@ export function CustomItemDialog({
           <div className="rounded-md border border-border p-2.5">
             <EffectBuilder effects={effects} onChange={setEffects} />
             <p className="text-[10px] text-muted-foreground mt-1.5">
-              Bonuses apply while the item is {attunement && kind === 'item' ? 'attuned' : 'equipped'}.
+              Bonuses apply while the item is {attunement && (kind === 'item' || magical) ? 'attuned' : 'equipped'}.
               {kind === 'armor' ? ' (Separate from the armor’s own AC above.)' : ''}
             </p>
           </div>
