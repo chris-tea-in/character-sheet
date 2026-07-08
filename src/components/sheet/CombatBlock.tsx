@@ -364,6 +364,15 @@ export function CombatBlock({ character, onSave, derived, classHitDice, variant 
   const conMod = abilityModifier(derived.effectiveAbilities.con)
   const isMulticlass = !!classHitDice && classHitDice.length > 1
 
+  // BUG-90: the Speed stepper edits the stored BASE (character.speed) by subtracting the
+  // derived bonus. That inversion is only valid when effectiveSpeed is a purely-additive
+  // function of base — no floor/set/multiplier/condition step and no ledger override.
+  // speedAdditiveBonus is exactly that additive portion; when effectiveSpeed diverges from
+  // base + bonus, a non-additive step is live, so we show the value read-only and route
+  // edits to the breakdown pencil rather than baking a corrupted base speed.
+  const speedBonus = derived.speedAdditiveBonus
+  const speedBackSolvable = derived.effectiveSpeed === character.speed + speedBonus
+
   // RAW: spending a hit die heals roll + CON modifier
   function rollHitDie() {
     if (character.hitDiceUsed >= totalHitDice) return
@@ -425,17 +434,18 @@ export function CombatBlock({ character, onSave, derived, classHitDice, variant 
         <StatCard label="Speed">
           <div className="flex flex-col items-center gap-0.5">
             <div className="flex items-center gap-0.5">
-              <StepperField
-                value={derived.effectiveSpeed}
-                onSave={v => {
-                  const base = v - (derived.effectiveSpeed - character.speed)
-                  onSave({ speed: Math.max(0, base) })
-                }}
-                min={0}
-                max={120}
-                step={5}
-                size="sm"
-              />
+              {speedBackSolvable ? (
+                <StepperField
+                  value={derived.effectiveSpeed}
+                  onSave={v => onSave({ speed: Math.max(0, v - speedBonus) })}
+                  min={0}
+                  max={120}
+                  step={5}
+                  size="sm"
+                />
+              ) : (
+                <span className="text-lg font-bold tabular-nums">{derived.effectiveSpeed}</span>
+              )}
               <span className="text-xs text-muted-foreground ml-1">ft</span>
               <button
                 onClick={() => setOpenBreakdown('speed')}

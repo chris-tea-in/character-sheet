@@ -103,6 +103,14 @@ export function CustomRaceDialog({
         senses: base?.base.senses ?? {},
         proficiencies: splitList(proficiencies),
         traits: parseTraits(traits),
+        // BUG-89: carry the base race's machine-readable effect channel through the
+        // edit. In edit mode the fork keeps the base slug and WINS over the built-in
+        // (resolveRace), so dropping this would silently strip every derived racial
+        // mechanic — resistances, immunities, weapon/skill/tool/armor proficiencies,
+        // natural armor. The form can't edit these yet (BUG-70's deferred editor), but
+        // it must not destroy them. Deep-cloned so the custom race never aliases the
+        // shared catalog object.
+        effects: base?.base.effects ? structuredClone(base.base.effects) : undefined,
       },
       subraces: mode === 'edit' && base ? base.subraces : [],
     }

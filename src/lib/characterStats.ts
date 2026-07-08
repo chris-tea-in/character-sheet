@@ -135,6 +135,11 @@ export interface DerivedStats {
   adjustedMaxHp: number
   effectiveAbilities: Abilities
   effectiveSpeed: number
+  // Additive-only speed bonus (feat + item + feature), i.e. effectiveSpeed minus base
+  // BEFORE any floor/set/multiplier/condition step. The Speed stepper uses this to
+  // back-solve the stored base safely; when effectiveSpeed ≠ base + this, a non-additive
+  // step (or a ledger override) is live and the field must not back-solve (BUG-90).
+  speedAdditiveBonus: number
   effectiveInitiative: number
   effectiveInitiativeBonus: number
   effectiveSaveProficiencies: AbilityName[]
@@ -1353,6 +1358,7 @@ export function deriveCharacterStats(
 
   const featureSpeed = featureFx.speed.reduce((t, s) => t + (stateGated(s.whileNot) ? 0 : s.amount), 0)
   const additiveSpeed = character.speed + featSpeedBonus + itemEffects.speed + featureSpeed
+  const speedAdditiveBonus = additiveSpeed - character.speed  // additive portion only (BUG-90)
   // 5a — non-additive speed semantics, applied in RAW order AFTER the additive sum:
   // floor/set (max) → multiplier → condition (half/zero). Each non-additive step lands
   // as a realized-delta row so speedBreakdown still sums to effectiveSpeed.
@@ -1949,6 +1955,7 @@ export function deriveCharacterStats(
     adjustedMaxHp: maxHpL.effective,
     effectiveAbilities,
     effectiveSpeed: speedL.effective,
+    speedAdditiveBonus,
     effectiveInitiative: initL.effective,
     effectiveInitiativeBonus,
     effectiveSaveProficiencies,

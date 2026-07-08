@@ -424,6 +424,10 @@ describe('deriveCharacterStats — speed floor & multiplier (5a)', () => {
     name: 'Boots of Speed', category: 'wondrous_item', rarity: 'Rare', attunement: true,
     effects: [{ type: 'speed_multiplier', factor: 2 }],
   }
+  const swiftBoots: WondrousItem = {
+    name: 'Boots of Swiftness', category: 'wondrous_item', rarity: 'Uncommon', attunement: true,
+    effects: [{ type: 'speed', amount: 10 }],  // additive
+  }
 
   it('speed_set floors a slower speed up to its value; breakdown sums', () => {
     const d = deriveCharacterStats(charWith({
@@ -464,6 +468,45 @@ describe('deriveCharacterStats — speed floor & multiplier (5a)', () => {
     }), { catalog: { wondrous_items: [stridingBoots, speedBoots] } })
     expect(d.effectiveSpeed).toBe(30)
     expect(sumSpeed(d)).toBe(30)
+  })
+
+  // BUG-90: the Speed stepper back-solves the stored base as (value − speedAdditiveBonus).
+  // That inverse is exact ONLY when speed is purely additive; a live floor/multiplier/
+  // condition must make base + speedAdditiveBonus ≠ effectiveSpeed so the UI stops
+  // back-solving and can't bake a corrupted base into character.speed.
+  it('additive-only speed is back-solvable: bonus is exposed and (value − bonus) recovers the base', () => {
+    const d = deriveCharacterStats(charWith({
+      speed: 30,
+      equipment: [{ id: 'sw', name: 'Boots of Swiftness', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [swiftBoots] } })
+    expect(d.speedAdditiveBonus).toBe(10)
+    expect(d.effectiveSpeed).toBe(40)
+    expect(d.effectiveSpeed - d.speedAdditiveBonus).toBe(30) // inverse recovers the stored base
+  })
+
+  it('a live multiplier makes speed NOT back-solvable (base + bonus ≠ effective) → stepper goes read-only', () => {
+    const d = deriveCharacterStats(charWith({
+      speed: 30,
+      equipment: [
+        { id: 'sw', name: 'Boots of Swiftness', quantity: 1, attuned: true },
+        { id: 's', name: 'Boots of Speed', quantity: 1, attuned: true },
+      ],
+    }), { catalog: { wondrous_items: [swiftBoots, speedBoots] } })
+    expect(d.speedAdditiveBonus).toBe(10)   // additive part only, pre-multiplier
+    expect(d.effectiveSpeed).toBe(80)       // (30 + 10) × 2
+    expect(30 + d.speedAdditiveBonus).not.toBe(d.effectiveSpeed)
+  })
+
+  it('a speed-zeroing condition makes speed NOT back-solvable (the Grappled/Restrained repro) — no base corruption', () => {
+    const d = deriveCharacterStats(charWith({
+      speed: 30,
+      conditions: { active: ['restrained'], exhaustion: 0 }, // speed → 0, same family as Grappled
+      equipment: [{ id: 'sw', name: 'Boots of Swiftness', quantity: 1, attuned: true }],
+    }), { catalog: { wondrous_items: [swiftBoots] } })
+    expect(d.effectiveSpeed).toBe(0)
+    // The old inverse would have written 35 − (0 − 30) = 65 into character.speed; the guard
+    // (base + speedAdditiveBonus ≠ effectiveSpeed) is what makes the UI refuse to back-solve.
+    expect(30 + d.speedAdditiveBonus).not.toBe(d.effectiveSpeed)
   })
 })
 

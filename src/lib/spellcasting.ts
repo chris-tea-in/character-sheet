@@ -43,7 +43,12 @@ const ORDINAL_TO_LEVEL: Record<string, SpellLevel> = {
 }
 
 function getEntry(cls: ClassData, level: number): ClassLevel | undefined {
-  return cls.levels?.[String(Math.min(Math.max(level, 1), 20))]
+  // Level 0 = no levels in this class → no entry (BUG-94). Previously clamped up to 1,
+  // which made a class you haven't taken look like a 1st-level caster and defeated the
+  // multiclass "old level 0 → grant the new class's level-1 spells" computation below.
+  // Levels above 20 still clamp to the 20th-level row (defensive; characters cap at 20).
+  if (level < 1) return undefined
+  return cls.levels?.[String(Math.min(level, 20))]
 }
 
 export function parseClassSlots(cls: ClassData | undefined, level: number): SpellcastingProfile {
@@ -221,6 +226,7 @@ export function getPreparedSpellCount(
   classLevel: number,
   abilityMod: number,
 ): number {
+  if (classLevel < 1) return 0  // 0 levels in this class → prepares nothing (BUG-94 multiclass baseline)
   const effLevel = HALF_PREPARED_SLUGS.includes(classSlug)
     ? Math.floor(classLevel / 2)
     : classLevel

@@ -93,8 +93,14 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
   const newFeatures = newEntry?.features ?? []
   const isASILevel = newFeatures.some(f => f.toLowerCase().includes('ability score improvement'))
 
-  // For multiclass characters use this class's own level, not the total character level
-  const currentClassLevel = character.classes?.find(c => c.classSlug === classRecord.slug)?.level ?? character.level
+  // For multiclass characters use this class's own level, not the total character level.
+  // When leveling INTO a brand-new class it isn't in classes[] yet (appended on apply),
+  // so its old level is 0 — mirroring featureOldLevel below. Falling back to the total
+  // made getSpellsKnownIncrease compute max(0, known@1 − known@total) = 0, granting zero
+  // spells/cantrips (BUG-94). The character.level fallback now only covers a legacy
+  // empty classes[] (single-class characters whose array was never populated).
+  const existingClassLevel = character.classes?.find(c => c.classSlug === classRecord.slug)?.level
+  const currentClassLevel = existingClassLevel ?? (character.classes?.length ? 0 : character.level)
   const thisClassSubclass = character.classes?.find(c => c.classSlug === classRecord.slug)?.subclassSlug ?? character.subclass ?? null
 
   // Feature-choice groups that gain new picks this level-up (owning class + subclass
