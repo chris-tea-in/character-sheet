@@ -133,6 +133,11 @@ export interface RollStats {
 export interface DerivedStats {
   effectiveAC: number | null
   adjustedMaxHp: number
+  // Additive-only maxHP bonus (feat + subrace + item + feature), i.e. adjustedMaxHp minus
+  // base BEFORE any non-additive step (Exhaustion 4+ halving). The Max HP stepper uses this
+  // to back-solve the stored base; when adjustedMaxHp ≠ base + this, a non-additive step or
+  // ledger override is live and the field must not back-solve (BUG-91).
+  maxHpAdditiveBonus: number
   effectiveAbilities: Abilities
   effectiveSpeed: number
   // Additive-only speed bonus (feat + item + feature), i.e. effectiveSpeed minus base
@@ -1728,6 +1733,7 @@ export function deriveCharacterStats(
     maxHpBreakdown.push({ id: `feature:${slugifyName(s.label)}:maxHp`, label: s.label, amount: s.amount, kind: 'feature', removable: true })
   }
   const additiveMaxHp = character.maxHp + hpBonus + subraceHpBonus + itemEffects.maxHp + featureHp
+  const maxHpAdditiveBonus = additiveMaxHp - character.maxHp  // additive portion only (BUG-91)
   // Exhaustion level 4 halves the maximum — applied as a realized delta (set, not additive).
   let adjustedMaxHp = additiveMaxHp
   if (conditionEffects.maxHpHalf) {
@@ -1953,6 +1959,7 @@ export function deriveCharacterStats(
   return {
     effectiveAC: acL ? acL.effective : effectiveAC,
     adjustedMaxHp: maxHpL.effective,
+    maxHpAdditiveBonus,
     effectiveAbilities,
     effectiveSpeed: speedL.effective,
     speedAdditiveBonus,

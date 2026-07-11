@@ -29,6 +29,22 @@ export function buildCatalogMaps(catalog: EquipmentData | null): CatalogMaps {
   }
 }
 
+/**
+ * Does a melee weapon auto-qualify for Great Weapon Fighting? RAW: a melee weapon
+ * wielded with two hands — i.e. Two-Handed, or Versatile (used two-handed, which the
+ * app can't know, so Versatile always qualifies). Property tokens are matched by
+ * SUBSTRING because the catalog stores Versatile with its die notation
+ * ("Versatile (1d8)"), never a bare `versatile` token — an exact-match `.includes`
+ * was always false for every mundane versatile weapon (Longsword, Battleaxe, Warhammer,
+ * Quarterstaff, Spear, Trident), so GWF never auto-applied to them (BUG-93). Mirrors the
+ * substring matching in computeFeatureWeaponBonus.
+ */
+export function weaponAutoQualifiesForGwf(weapon: WeaponItem): boolean {
+  if (!weapon.weapon_type.toLowerCase().includes('melee')) return false
+  const props = weapon.properties.map(p => p.toLowerCase())
+  return props.some(p => p.includes('two-handed')) || props.some(p => p.includes('versatile'))
+}
+
 /** Does this item's catalog entry require attunement? (attune-required items gate
  * their effects on `attuned`; everything else on `equipped`.) Lookup order matches
  * the sheet: wondrous → armor → weapon. */
@@ -193,13 +209,9 @@ export function useWeaponActions(character: Character, derived: DerivedStats) {
     const rollDamageBonus = customDmg?.damageBonus ?? ledgerDamageBonus
     const rollDamageType = customDmg?.damageType || calc.damageType
     // Great Weapon Fighting: reroll 1s/2s on a two-handed (or versatile) melee weapon's
-    // damage dice. "Versatile used two-handed" isn't app-knowable, so versatile
-    // qualifies (same simplification as the other fighting styles). Homebrew
-    // per-weapon override (item.gwf) forces GWF on any weapon.
-    const wProps = weapon.properties.map(p => p.toLowerCase())
-    const gwfAuto = derived.greatWeaponFighting
-      && weapon.weapon_type.toLowerCase().includes('melee')
-      && (wProps.includes('two-handed') || wProps.includes('versatile'))
+    // damage dice. Auto-qualification is substring-based (see weaponAutoQualifiesForGwf —
+    // BUG-93). Homebrew per-weapon override (item.gwf) still forces GWF on any weapon.
+    const gwfAuto = derived.greatWeaponFighting && weaponAutoQualifiesForGwf(weapon)
     const gwfActive = gwfAuto || !!item.gwf
     const gwfReroll = gwfActive ? 2 : undefined
 

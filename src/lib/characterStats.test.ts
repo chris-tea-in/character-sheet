@@ -383,6 +383,28 @@ describe('deriveCharacterStats — conditions', () => {
   })
 })
 
+// ── BUG-91: maxHP stepper back-solvability (same family as BUG-90 speed) ──────
+describe('deriveCharacterStats — maxHP back-solvability (BUG-91)', () => {
+  it('additive-only maxHP is back-solvable: bonus is exposed and (value − bonus) recovers base', () => {
+    const d = deriveCharacterStats(charWith({ level: 5, maxHp: 40, feats: ['tough'] }), {})
+    expect(d.maxHpAdditiveBonus).toBe(10)   // Tough = +2/level × 5
+    expect(d.adjustedMaxHp).toBe(50)
+    expect(d.adjustedMaxHp - d.maxHpAdditiveBonus).toBe(40) // inverse recovers the stored base
+  })
+
+  it('Exhaustion 4 halving makes maxHP NOT back-solvable (base + bonus ≠ adjusted) — no base corruption', () => {
+    const d = deriveCharacterStats(charWith({
+      level: 5, maxHp: 40, feats: ['tough'],
+      conditions: { active: [], exhaustion: 4 },
+    }), {})
+    expect(d.adjustedMaxHp).toBe(25)        // floor((40 + 10) / 2)
+    expect(d.maxHpAdditiveBonus).toBe(10)   // additive part only, pre-halving
+    // The old back-solve would compute featBonus = 25 − 40 = −15 and bake a wrong base;
+    // the guard (base + bonus ≠ adjusted) is what makes the stepper refuse to back-solve.
+    expect(40 + d.maxHpAdditiveBonus).not.toBe(d.adjustedMaxHp)
+  })
+})
+
 // ── Step 5b: AC floor (Barkskin-style) ───────────────────────────────────────
 describe('deriveCharacterStats — AC floor (5b)', () => {
   const barkBracers: WondrousItem = {

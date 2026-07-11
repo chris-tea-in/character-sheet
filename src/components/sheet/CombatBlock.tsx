@@ -53,16 +53,24 @@ function StatCard({
 function HpSection({
   character,
   adjustedMaxHp,
+  maxHpAdditiveBonus,
   onSave,
   onOpenBreakdown,
 }: {
   character: Character
   adjustedMaxHp: number
+  maxHpAdditiveBonus: number
   onSave: (changes: Partial<NewCharacter>) => void
   onOpenBreakdown: () => void
 }) {
   const { currentHp, maxHp, tempHp } = character
   const [adjustOpen, setAdjustOpen] = useState(false)
+
+  // BUG-91: mirror the Speed stepper (BUG-90). Back-solving the base maxHP by subtracting
+  // the derived bonus is exact only when maxHP is purely additive; under Exhaustion 4+
+  // halving (or a ledger override) adjustedMaxHp ≠ base + bonus, so make the field read-only
+  // and route edits to the breakdown pencil rather than baking a corrupted base maxHp.
+  const maxHpBackSolvable = adjustedMaxHp === maxHp + maxHpAdditiveBonus
 
   function changeHp(delta: number) {
     // Current HP floors at 0 — a creature drops to 0 and rolls death saves; this sheet
@@ -140,20 +148,23 @@ function HpSection({
               <Pencil className="h-2.5 w-2.5" />
             </button>
           </span>
-          <StepperField
-            value={adjustedMaxHp}
-            onSave={v => {
-              const featBonus = adjustedMaxHp - maxHp
-              const newBase = Math.max(1, v - featBonus)
-              onSave({ maxHp: newBase, currentHp: Math.min(currentHp, v) })
-            }}
-            min={1}
-            max={999}
-            size="sm"
-          />
-          {adjustedMaxHp !== maxHp && (
+          {maxHpBackSolvable ? (
+            <StepperField
+              value={adjustedMaxHp}
+              onSave={v => onSave({ maxHp: Math.max(1, v - maxHpAdditiveBonus), currentHp: Math.min(currentHp, v) })}
+              min={1}
+              max={999}
+              size="sm"
+            />
+          ) : (
+            <span className="text-lg font-bold tabular-nums">{adjustedMaxHp}</span>
+          )}
+          {/* BUG-07: label the bonus generically (feat/subrace/item/feature) instead of the
+              old mis-attributed "(feat/race)", and only when it's a real positive additive
+              bonus — never a negative from a live non-additive step. */}
+          {maxHpBackSolvable && maxHpAdditiveBonus > 0 && (
             <span className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>
-              +{adjustedMaxHp - maxHp} (feat/race)
+              +{maxHpAdditiveBonus} (bonus)
             </span>
           )}
         </div>
@@ -455,9 +466,12 @@ export function CombatBlock({ character, onSave, derived, classHitDice, variant 
                 <Pencil className="h-3 w-3" />
               </button>
             </div>
-            {derived.effectiveSpeed !== character.speed && (
+            {/* BUG-07: the bonus can come from a feat, item, or feature — not just a feat —
+                so label it generically, and only show it for a real positive additive bonus
+                (never a negative delta from a live floor/multiplier/condition). */}
+            {speedBackSolvable && speedBonus > 0 && (
               <span className="text-[9px]" style={{ color: 'var(--color-accent-gold)' }}>
-                +{derived.effectiveSpeed - character.speed} (feat)
+                +{speedBonus} (bonus)
               </span>
             )}
           </div>
@@ -528,6 +542,7 @@ export function CombatBlock({ character, onSave, derived, classHitDice, variant 
         <HpSection
           character={character}
           adjustedMaxHp={adjustedMaxHp}
+          maxHpAdditiveBonus={derived.maxHpAdditiveBonus}
           onSave={onSave}
           onOpenBreakdown={() => setOpenBreakdown('maxHp')}
         />
