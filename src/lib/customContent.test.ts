@@ -154,6 +154,34 @@ describe('buildCustomWeapon', () => {
     expect(w.damage_dice).toBe('1d10')
     expect(w.damage_type).toBe('lightning')
   })
+
+  it('marks a magic weapon with rarity, attunement, and a +bonus', () => {
+    const w = buildCustomWeapon({
+      name: 'Flame Tongue', weaponType: 'Martial Melee', damageDice: '1d8', damageType: 'slashing', properties: [],
+      magical: true, rarity: 'Rare', attunement: true, bonus: 2,
+    })
+    expect(w).toMatchObject({ magical: true, rarity: 'Rare', attunement: true, bonus: 2 })
+  })
+
+  it('supports a magic weapon with no +bonus (e.g. Moon-Touched)', () => {
+    const w = buildCustomWeapon({
+      name: 'Moonblade', weaponType: 'Martial Melee', damageDice: '1d8', damageType: 'slashing', properties: [],
+      magical: true, rarity: 'Common', attunement: false, bonus: 0,
+    })
+    expect(w).toMatchObject({ magical: true, rarity: 'Common', attunement: false })
+    expect(w.bonus).toBeUndefined()
+  })
+
+  it('ignores magic fields when not magical', () => {
+    const w = buildCustomWeapon({
+      name: 'Club', weaponType: 'Simple Melee', damageDice: '1d4', damageType: 'bludgeoning', properties: [],
+      magical: false, rarity: 'Legendary', attunement: true, bonus: 3,
+    })
+    expect(w.magical).toBe(false)
+    expect(w.rarity).toBeUndefined()
+    expect(w.attunement).toBeUndefined()
+    expect(w.bonus).toBeUndefined()
+  })
 })
 
 describe('buildCustomArmor', () => {
@@ -165,6 +193,27 @@ describe('buildCustomArmor', () => {
   it('categorizes body armor as category "armor"', () => {
     const a = buildCustomArmor({ name: 'Dragonscale', armorType: 'Heavy', acFormula: '18', stealthDisadvantage: true })
     expect(a).toMatchObject({ category: 'armor', armor_type: 'Heavy', ac_formula: '18', stealth_disadvantage: true, magical: false })
+  })
+
+  it('marks magic armor and stores the enchantment in `bonus`, not the formula', () => {
+    // The dialog passes the base+Dex formula (no magic bump baked in) plus a separate bonus,
+    // matching built-in magic armor so the AC derivation adds one clean enchantment line.
+    const a = buildCustomArmor({
+      name: 'Elven Chain', armorType: 'Medium', acFormula: '13 + Dex modifier (max 2)', stealthDisadvantage: false,
+      magical: true, rarity: 'Rare', attunement: false, bonus: 1,
+    })
+    expect(a).toMatchObject({ magical: true, rarity: 'Rare', attunement: false, bonus: 1 })
+    expect(a.ac_formula).toBe('13 + Dex modifier (max 2)')
+  })
+
+  it('ignores magic fields on a mundane armor', () => {
+    const a = buildCustomArmor({
+      name: 'Leather', armorType: 'Light', acFormula: '11 + Dex modifier', stealthDisadvantage: false,
+      magical: false, rarity: 'Legendary', bonus: 3,
+    })
+    expect(a.magical).toBe(false)
+    expect(a.rarity).toBeUndefined()
+    expect(a.bonus).toBeUndefined()
   })
 })
 
