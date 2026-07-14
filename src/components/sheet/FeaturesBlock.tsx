@@ -245,6 +245,44 @@ export function FeaturesBlock({ character, setupData, onSave }: Props) {
         Features &amp; Traits
       </h2>
 
+      {/* Read-only roll-up of every earned feature — class, subclass, race, background.
+          Every row is tappable to read its description (BUG-61); name-only class
+          features (no authored text yet) open a stub that points to the rulebook.
+          Shown first so the full list is the default view; the choice pickers below
+          are only needed occasionally. */}
+      {earned.length > 0 && (
+        <div className="rounded-lg border border-border bg-card divide-y divide-border mb-3">
+          {earned.map(group => (
+            <div key={group.heading}>
+              <div className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground" style={{ background: 'var(--color-surface)' }}>
+                {group.heading}
+              </div>
+              {group.features.map((f, i) => {
+                const cat = categorizeFeature(f.name, f.description, setupData.featureCategories)
+                return (
+                  <button
+                    key={`${f.name}-${i}`}
+                    onClick={() => setViewingDetail({
+                      name: f.name,
+                      subtitle: f.note,
+                      description: f.description
+                        ?? 'No description is recorded for this feature yet — see your rulebook for the full rules.',
+                      sections: [],
+                    })}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left hover:bg-secondary/30 transition-colors"
+                  >
+                    <cat.Icon className="h-3.5 w-3.5 flex-none" style={{ color: 'var(--color-accent-gold)' }} aria-hidden />
+                    <span className="flex-1 truncate">{f.name}</span>
+                    <BookOpen className="h-3.5 w-3.5 text-muted-foreground flex-none" />
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+          <FeatureLegend earned={earned} categories={setupData.featureCategories} />
+        </div>
+      )}
+
       {/* Choosable feature groups (maneuvers, fighting styles, …) */}
       {groups.map(({ group, classLevel, known }) => {
         const selected = character.classFeatureChoices[group.key] ?? []
@@ -333,42 +371,6 @@ export function FeaturesBlock({ character, setupData, onSave }: Props) {
           </div>
         )
       })}
-
-      {/* Read-only roll-up of every earned feature — class, subclass, race, background.
-          Every row is tappable to read its description (BUG-61); name-only class
-          features (no authored text yet) open a stub that points to the rulebook. */}
-      {earned.length > 0 && (
-        <div className="rounded-lg border border-border bg-card divide-y divide-border">
-          {earned.map(group => (
-            <div key={group.heading}>
-              <div className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground" style={{ background: 'var(--color-surface)' }}>
-                {group.heading}
-              </div>
-              {group.features.map((f, i) => {
-                const cat = categorizeFeature(f.name, f.description, setupData.featureCategories)
-                return (
-                  <button
-                    key={`${f.name}-${i}`}
-                    onClick={() => setViewingDetail({
-                      name: f.name,
-                      subtitle: f.note,
-                      description: f.description
-                        ?? 'No description is recorded for this feature yet — see your rulebook for the full rules.',
-                      sections: [],
-                    })}
-                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left hover:bg-secondary/30 transition-colors"
-                  >
-                    <cat.Icon className="h-3.5 w-3.5 flex-none" style={{ color: 'var(--color-accent-gold)' }} aria-hidden />
-                    <span className="flex-1 truncate">{f.name}</span>
-                    <BookOpen className="h-3.5 w-3.5 text-muted-foreground flex-none" />
-                  </button>
-                )
-              })}
-            </div>
-          ))}
-          <FeatureLegend earned={earned} categories={setupData.featureCategories} />
-        </div>
-      )}
 
       {openGroup && (
         <SelectionList
