@@ -57,3 +57,6 @@ bugs.md
 BACKLOG.md
 # AI task-observer working log (skill-improvement notes, internal by nature)
 skill-observations/
+
+# Wrangler config state (local-only, not part of the build pipeline)
+wrangler.toml
