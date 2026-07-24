@@ -235,7 +235,7 @@ stored character fields are **base values**. All racial ASIs and feat effects ar
 ## Bug Log & Codebase Invariants
 
 - [bugs.md](bugs.md) is the live bug log (audit of 2026-06-11, 52 findings; fixed entries move to its ✅ section). Its "Systemic root-cause families" table is the distilled failure-pattern catalog for this codebase.
-- The **`codebase-invariants` project skill** has complete copies at `.agents/skills/codebase-invariants/` and `.claude/skills/codebase-invariants/`. It encodes those families as checkable invariants plus the system map and tracing protocol for bug hunting and single-pass implementation. Invoke it before editing anything touching character state, multiclass logic, effects, or the data pipeline — and append a new invariant whenever a fix session closes a bug family.
+- The **`codebase-invariants` project skill** has complete copies at `.agents/skills/codebase-invariants/` and `.claude/skills/codebase-invariants/`. It encodes those families as checkable invariants plus the system map and tracing protocol for bug hunting and single-pass implementation. Invoke it before editing anything touching character state, multiclass logic, effects, or the data pipeline — and append a new invariant whenever a fix session closes a bug family. Treat the two runtime copies as synchronized mirrors: apply every skill change to both in the same work session, then verify their relative paths and SHA-256 hashes match file by file.
 
 ## CSS Variables
 
