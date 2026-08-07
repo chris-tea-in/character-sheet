@@ -26,7 +26,7 @@ export default function JoinCampaignPage() {
     })
   }, [code, me, join, navigate])
 
-  const offline = !me && (syncStatus === 'offline' || syncStatus === 'auth-expired')
+  const unavailable = !me && (syncStatus === 'offline' || syncStatus === 'auth-expired' || syncStatus === 'forbidden')
 
   return (
     <div className="min-h-dvh flex items-center justify-center p-6">
@@ -36,9 +36,13 @@ export default function JoinCampaignPage() {
             <p className="text-destructive">{error}</p>
             <Button variant="outline" onClick={() => navigate('/')}>Go to my characters</Button>
           </>
-        ) : offline ? (
+        ) : unavailable ? (
           <>
-            <p className="text-muted-foreground">Can't reach the server to join right now.</p>
+            <p className="text-muted-foreground">
+              {syncStatus === 'forbidden'
+                ? 'Cloud sync is not available for this account.'
+                : "Can't reach the server to join right now."}
+            </p>
             <Button variant="outline" onClick={() => navigate('/')}>Go back</Button>
           </>
         ) : (

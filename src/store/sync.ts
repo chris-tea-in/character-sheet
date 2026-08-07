@@ -26,7 +26,7 @@ import type { Me, SyncedCharacter } from '../lib/syncApi'
 // any adopt-over-local; a genuine both-sides conflict prompts the user (H6); the
 // discarded side is snapshotted first (H7) so nothing is lost silently.
 
-type SyncStatus = 'idle' | 'syncing' | 'offline' | 'auth-expired'
+type SyncStatus = 'idle' | 'syncing' | 'offline' | 'auth-expired' | 'forbidden'
 
 const DEBOUNCE_MS = 3_000
 

@@ -41,6 +41,7 @@ export function UsernameDialog({ open, mode, initialValue = '', onClose }: Usern
     setSubmitting(false)
     if (res.ok) { onClose?.(); return }
     switch (res.reason) {
+      case 'forbidden': setError('Your account is not allowed to update a username.'); break
       case 'taken': setError(res.message ?? 'That username is taken'); break
       case 'invalid': setError(res.message ?? 'That username isn’t allowed'); break
       case 'auth-expired': setError('Your session expired. Reload the page to sign in again.'); break

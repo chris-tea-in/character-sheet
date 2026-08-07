@@ -126,7 +126,7 @@ export function json(data: unknown, status = 200): Response {
   })
 }
 
-export const unauthorized = () => json({ error: 'Unauthorized' }, 403)
+export const unauthorized = () => json({ error: 'Unauthorized' }, 401)
 export const forbidden = (error = 'Forbidden') => json({ error }, 403)
 export const notFound = (error = 'Not found') => json({ error }, 404)
 export const badRequest = (error = 'Bad request') => json({ error }, 400)

@@ -40,7 +40,11 @@ import { useSyncStore } from './sync'
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>>
 
-beforeAll(async () => { SQL = await initSqlJs() })
+beforeAll(async () => {
+  SQL = await initSqlJs()
+  vi.stubGlobal('window', { addEventListener: vi.fn(), location: { reload: vi.fn() } })
+  vi.stubGlobal('document', { addEventListener: vi.fn(), visibilityState: 'visible' })
+})
 
 beforeEach(() => {
   const db = new SQL.Database()
@@ -152,5 +156,15 @@ describe('push ack — server-authoritative timestamp alignment', () => {
     await vi.waitFor(() => expect(getCharacter(h.db, 'ck-1')?.updatedAt).toBe(555))
     // base and local.updatedAt now agree → reconcile won't see a phantom local change
     expect(getSyncBases(h.db).get('ck-1')).toBe(555)
+  })
+})
+
+describe('initial sync failures', () => {
+  it('keeps a forbidden cloud response distinct from an expired session', async () => {
+    ;(api.getMe as Mock).mockResolvedValue({ ok: false, reason: 'forbidden' })
+
+    await useSyncStore.getState().runInitialSync()
+
+    expect(useSyncStore.getState().status).toBe('forbidden')
   })
 })

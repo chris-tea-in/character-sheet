@@ -8,8 +8,13 @@ import { normalizeCharacterStats } from './storage/normalizeStats'
 import { loadSetupData, loadFeatsData } from './lib/data'
 import { useSyncStore } from './store/sync'
 import { useCampaignStore } from './store/campaigns'
+import { setAuthExpiredHandler } from './lib/syncApi'
 
 const root = createRoot(document.getElementById('root')!)
+
+setAuthExpiredHandler(() => {
+  useSyncStore.getState().setStatus('auth-expired')
+})
 
 // Cap on how long first paint waits for the cloud pull before falling back to the
 // local cache, so a slow/absent network never hangs the open (offline returns fast

@@ -64,11 +64,35 @@ export interface RosterMember {
 // bad/offline. Callers never merge anything but a good read, so a truncated,
 // non-JSON, or error response can never be misread as data (and absence can
 // never be misread as a delete — deletes travel only as explicit tombstones).
+export type SyncFailureReason = 'auth-expired' | 'forbidden' | 'offline'
+
 export type SyncResult<T> =
   | { ok: true; data: T }
-  | { ok: false; reason: 'auth-expired' | 'offline' }
+  | { ok: false; reason: SyncFailureReason }
 
 const TIMEOUT_MS = 10_000
+let authExpiredHandler: (() => void) | null = null
+
+export function setAuthExpiredHandler(handler: (() => void) | null): void {
+  authExpiredHandler = handler
+}
+
+function classifyFailure(response: Response): SyncFailureReason | null {
+  if (response.type === 'opaqueredirect' || response.status === 401) {
+    authExpiredHandler?.()
+    return 'auth-expired'
+  }
+  if (response.status === 403) return 'forbidden'
+  return response.ok ? null : 'offline'
+}
+
+function accessAwareHeaders(headers?: HeadersInit): Headers {
+  const result = new Headers(headers)
+  // Cloudflare Access uses this conventional marker to return a 401 to an SPA
+  // request whose session expired, rather than navigating that request to login.
+  result.set('x-requested-with', 'XMLHttpRequest')
+  return result
+}
 
 async function request<T>(input: string, init?: RequestInit): Promise<SyncResult<T>> {
   const controller = new AbortController()
@@ -79,17 +103,20 @@ async function request<T>(input: string, init?: RequestInit): Promise<SyncResult
     // redirect:'manual' so an expired Access session (which answers with a
     // cross-origin 302 to the login page) surfaces as an opaqueredirect we can
     // detect, rather than a fetch that silently fails CORS.
-    res = await fetch(input, { ...init, redirect: 'manual', signal: controller.signal })
+    res = await fetch(input, {
+      ...init,
+      headers: accessAwareHeaders(init?.headers),
+      redirect: 'manual',
+      signal: controller.signal,
+    })
   } catch {
     clearTimeout(timer)
     return { ok: false, reason: 'offline' }
   }
   clearTimeout(timer)
 
-  if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) {
-    return { ok: false, reason: 'auth-expired' }
-  }
-  if (!res.ok) return { ok: false, reason: 'offline' }
+  const reason = classifyFailure(res)
+  if (reason) return { ok: false, reason }
 
   const contentType = res.headers.get('content-type') ?? ''
   if (!contentType.includes('application/json')) return { ok: false, reason: 'offline' }
@@ -110,7 +137,7 @@ export function getMe(): Promise<SyncResult<Me>> {
 // So it has its own fetch, mirroring request()'s redirect/timeout handling.
 export type SetUsernameResult =
   | { ok: true; data: Me }
-  | { ok: false; reason: 'taken' | 'invalid' | 'auth-expired' | 'offline'; message?: string }
+  | { ok: false; reason: 'taken' | 'invalid' | SyncFailureReason; message?: string }
 
 async function readErrorMessage(res: Response): Promise<string | undefined> {
   try {
@@ -129,7 +156,7 @@ export async function setUsername(username: string): Promise<SetUsernameResult> 
   try {
     res = await fetch('/api/me', {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: accessAwareHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ username }),
       redirect: 'manual',
       signal: controller.signal,
@@ -140,9 +167,8 @@ export async function setUsername(username: string): Promise<SetUsernameResult> 
   }
   clearTimeout(timer)
 
-  if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) {
-    return { ok: false, reason: 'auth-expired' }
-  }
+  const reason = classifyFailure(res)
+  if (reason) return { ok: false, reason }
   if (res.status === 409) return { ok: false, reason: 'taken', message: await readErrorMessage(res) }
   if (res.status === 400) return { ok: false, reason: 'invalid', message: await readErrorMessage(res) }
   if (!res.ok) return { ok: false, reason: 'offline' }

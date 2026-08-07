@@ -42,6 +42,11 @@ export default function App({ dbResult }: AppProps) {
           <button onClick={reconnect} style={{ background: '#1a1a2e', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 'bold', marginLeft: '1rem', padding: '0.25rem 0.75rem', borderRadius: '4px' }}>Reconnect</button>
         </div>
       )}
+      {syncStatus === 'forbidden' && (
+        <div style={{ background: '#c4a35a', color: '#1a1a2e', padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
+          Cloud sync is not available for this account. Your edits remain saved on this device.
+        </div>
+      )}
       {storageError && (
         <div style={{ background: '#e94560', color: '#fff', padding: '0.5rem 1rem', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{storageError}</span>
