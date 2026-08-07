@@ -48,8 +48,9 @@ verify-shots/
 # Stray spell→class data artifact (not part of the build pipeline)
 _spells_classes.json
 
-# misclellaneous docs that are not part of the build pipeline
-docs/*
+# Restricted operating material; public contributor documentation is tracked.
+docs/internal/
+docs/private/
 
 # Internal working docs — keep local, don't publish to the public GitHub repo
 CLAUDE.md
@@ -57,6 +58,9 @@ bugs.md
 BACKLOG.md
 # AI task-observer working log (skill-improvement notes, internal by nature)
 skill-observations/
+.agents/
+AGENTS.md
+system-design-review-transcript.md
 
 # Wrangler config state (local-only, not part of the build pipeline)
 wrangler.toml

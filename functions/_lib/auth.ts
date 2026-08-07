@@ -26,6 +26,11 @@ function jwks(teamDomain: string) {
   return cachedJwks
 }
 
+function isLoopbackRequest(request: Request): boolean {
+  const { hostname } = new URL(request.url)
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
+}
+
 /**
  * Resolve the verified caller email from the Cloudflare Access JWT, or null if
  * absent/invalid. Identity is derived from the signed header Cloudflare injects;
@@ -35,10 +40,9 @@ export async function getEmail(request: Request, env: Env): Promise<string | nul
   const token = request.headers.get('cf-access-jwt-assertion')
 
   if (!token) {
-    // No JWT means the request did not pass through Access. In production behind
-    // Access this never happens (Access always injects the header), so this whole
-    // branch only ever takes effect under `wrangler pages dev`.
-    if (!env.DEV_EMAIL) return null
+    // The local bypass is restricted to loopback hosts, so accidentally setting
+    // DEV_EMAIL on a deployment cannot authenticate arbitrary public requests.
+    if (!env.DEV_EMAIL || !isLoopbackRequest(request)) return null
     // Local multi-identity testing: an explicit `x-dev-email` header overrides the
     // default DEV_EMAIL so a single `wrangler pages dev` can be exercised as
     // several users (the campaign privacy gate). Gated on DEV_EMAIL being set, so

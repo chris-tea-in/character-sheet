@@ -57,4 +57,4 @@ The local database remains usable offline. When sync is configured, local writes
 
 Browser storage favors privacy and offline capability, but users should export backups because browsers can clear local data. The optional sync layer adds conflict handling and server-side authorization complexity in exchange for campaign collaboration.
 
-The public repository contains application code and public documentation. It intentionally excludes reference-data sources, generated catalogs, credentials, deployment identifiers, internal plans, audits, and operational records.
+The public repository contains application code and contributor documentation. It excludes credentials, user data, internal plans, audits, operational records, raw reference data, and generated catalogs. Public configuration examples use placeholders; live production configuration remains restricted.

@@ -23,25 +23,29 @@ A browser-based D&D 5e character sheet for guided character creation, play at th
 
 ```bash
 npm install
-npm run dev
+PUBLIC_BUILD_MODE=1 npm run dev
 ```
 
 Useful checks:
 
 ```bash
 npm run test
-npm run build
+PUBLIC_BUILD_MODE=1 npm run build
 npm run typecheck:functions
 ```
 
-The reference-data source and generated catalog files are intentionally not included in this public repository. Local development that runs the data build requires a separately provisioned data set.
+The reference-data source and generated catalog files are intentionally not included in this public repository. `PUBLIC_BUILD_MODE=1` creates a minimal empty catalog for contributor checks; it does not include game content. See [development notes](docs/DEVELOPMENT.md) and [data and licensing](docs/DATA_AND_LICENSING.md).
 
 ## Privacy and data
 
 Character data is stored locally in the browser by default. Browser storage can be cleared by the browser or device owner, so exported character files and database backups are the portable backup mechanism; they may include private notes and should be handled accordingly.
 
-When cloud sync is configured, it is an authenticated, optional mirror of the local character store for campaign use. The repository excludes reference-data sources, credentials, and provider-specific deployment configuration.
+When cloud sync is configured, it is an authenticated, optional mirror of the local character store for campaign use. Secrets are not stored in the repository. See the sanitized [cloud-sync guide](docs/CLOUD_SYNC.md).
 
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the system design, persistence model, synchronization boundary, and tradeoffs.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change and [SECURITY.md](SECURITY.md) to report vulnerabilities privately.

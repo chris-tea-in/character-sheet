@@ -2,7 +2,7 @@
 -- Apply with:
 --   wrangler d1 execute dnd-characters --remote --file db/schema.sql   (production)
 --   wrangler d1 execute dnd-characters --local  --file db/schema.sql   (local wrangler pages dev)
--- See CLOUD_SYNC.md for the full setup runbook.
+-- See docs/CLOUD_SYNC.md for the public setup guide.
 
 CREATE TABLE IF NOT EXISTS characters (
   id          TEXT PRIMARY KEY,           -- same UUID as the local character id

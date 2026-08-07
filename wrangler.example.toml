@@ -1,0 +1,13 @@
+# Public example only. Store real production bindings and secrets outside Git.
+name = "dnd-character-sheet"
+compatibility_date = "2026-06-16"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "<DATABASE_NAME>"
+database_id = "<DATABASE_ID>"
+
+[vars]
+TEAM_DOMAIN = "https://<TEAM>.cloudflareaccess.com"
+POLICY_AUD = "<ACCESS_APPLICATION_AUD>"

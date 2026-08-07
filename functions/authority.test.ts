@@ -80,7 +80,7 @@ function request(method: string, opts: { body?: unknown; email?: string; url?: s
   if (opts.email) headers['x-dev-email'] = opts.email
   if (opts.body !== undefined) headers['content-type'] = 'application/json'
   // `url` matters for handlers that read query params (notes subject filters).
-  return new Request(opts.url ?? 'https://app.example/api', {
+  return new Request(opts.url ?? 'http://localhost:8788/api', {
     method,
     headers,
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -224,7 +224,7 @@ describe('GET /api/campaigns/:id/characters — visibility', () => {
 const notesUrl = (subjectKind = 'campaign', subjectId?: string) => {
   const p = new URLSearchParams({ subjectKind })
   if (subjectId) p.set('subjectId', subjectId)
-  return `https://app.example/api/notes?${p}`
+  return `http://localhost:8788/api/notes?${p}`
 }
 
 async function addNote(camp: string, email: string, body: Record<string, unknown>) {
