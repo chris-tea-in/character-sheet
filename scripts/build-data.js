@@ -9,6 +9,26 @@ if (existsSync(wasmSrc)) {
   copyFileSync(wasmSrc, wasmDst)
 }
 
+if (process.env.PUBLIC_BUILD_MODE === '1') {
+  const publicCatalogs = [
+    'races',
+    'spells',
+    'classes',
+    'subclasses',
+    'feats',
+    'backgrounds',
+    'equipment',
+    'class-features',
+  ]
+
+  mkdirSync('public/data', { recursive: true })
+  for (const catalog of publicCatalogs) {
+    writeFileSync(`public/data/${catalog}.json`, '{}\n')
+  }
+  console.log('Built minimal public catalog')
+  process.exit(0)
+}
+
 const errors = []
 const warnings = []
 
