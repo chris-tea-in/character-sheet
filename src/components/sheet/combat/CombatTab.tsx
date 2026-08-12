@@ -18,7 +18,7 @@ import { useWeaponActions, characterWeapons, buildCatalogMaps, isItemActive } fr
 import { earnedAbilities, owningClassLevel, resolveResourceMax } from '@/lib/classFeatures'
 import { normalizeCastingTime } from '@/lib/actionEconomy'
 import type { ActionEconomy } from '@/lib/actionEconomy'
-import { getSpellcastingInfo, PACT_SLOT_KEY } from '@/lib/spellcasting'
+import { getSpellSlotPools, getSpellcastingInfo, normalizeSpellSlotUsage } from '@/lib/spellcasting'
 import type { SpellcastingProfile } from '@/lib/spellcasting'
 import { ORDINALS, componentStr } from '@/lib/spells'
 import { lookupFeatureDescription } from '@/lib/data'
@@ -32,6 +32,7 @@ import { ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
 import { useCombatLogStore } from '@/store/combatLog'
 import type { QueuedEntry, QueueSlotKey } from '@/store/combatLog'
 import { cn } from '@/lib/utils'
+import { SpellSlotTracker } from '@/components/shared/SpellSlotTracker'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { ClassAbility, ClassData, EquipmentData, SpellData } from '@/types/data'
 import type { DerivedStats } from '@/lib/characterStats'
@@ -69,27 +70,24 @@ const GENERIC_ACTIONS: { name: string; economy: ActionEconomy; desc: string }[] 
 ]
 
 interface SlotOption {
-  key: number            // spellSlotsUsed key: 1–9 or PACT_SLOT_KEY
+  key: number            // spellSlotsUsed key: 1–9 or PACT_SLOT_KEY for mixed pact
   castLevel: number      // the level the spell is cast at
   label: string
+  total: number
   remaining: number
 }
 
 function slotOptions(profile: SpellcastingProfile, slotsUsed: Partial<Record<number, number>>): SlotOption[] {
-  const out: SlotOption[] = []
-  if (profile.kind === 'slots' || profile.kind === 'slots+pact') {
-    for (const [k, total] of Object.entries(profile.slotsByLevel)) {
-      const level = Number(k)
-      out.push({ key: level, castLevel: level, label: `${ORDINALS[level]}`, remaining: (total ?? 0) - (slotsUsed[level] ?? 0) })
-    }
-  }
-  if (profile.kind === 'pact') {
-    out.push({ key: PACT_SLOT_KEY, castLevel: profile.slotLevel, label: `Pact (${ORDINALS[profile.slotLevel]})`, remaining: profile.slotCount - (slotsUsed[PACT_SLOT_KEY] ?? 0) })
-  }
-  if (profile.kind === 'slots+pact') {
-    out.push({ key: PACT_SLOT_KEY, castLevel: profile.pactSlotLevel, label: `Pact (${ORDINALS[profile.pactSlotLevel]})`, remaining: profile.pactSlotCount - (slotsUsed[PACT_SLOT_KEY] ?? 0) })
-  }
-  return out.sort((a, b) => a.castLevel - b.castLevel)
+  const normalizedUsage = normalizeSpellSlotUsage(profile, slotsUsed)
+  return getSpellSlotPools(profile)
+    .map(pool => ({
+      key: pool.key,
+      castLevel: pool.castLevel,
+      label: pool.kind === 'pact' ? `Pact (${ORDINALS[pool.castLevel]})` : ORDINALS[pool.castLevel],
+      total: pool.total,
+      remaining: Math.max(0, pool.total - (normalizedUsage[pool.key] ?? 0)),
+    }))
+    .sort((a, b) => a.castLevel - b.castLevel)
 }
 
 const ECONOMY_BADGE: Record<ActionEconomy, string> = { action: 'A', bonus_action: 'BA', reaction: 'R', other: '—' }
@@ -295,14 +293,14 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
     const entries = [queue.action, queue.bonusAction].filter((e): e is QueuedEntry => !!e)
     if (entries.length === 0) return
     const changes: Partial<NewCharacter> = {}
-    let slotsUsed = character.spellSlotsUsed
+    let slotsUsed = normalizeSpellSlotUsage(profile, character.spellSlotsUsed)
     let resUsed = character.featureResourcesUsed
     const costs: string[] = []
     for (const e of entries) {
       const cost = e.cost
       if (cost?.type === 'spell-slot') {
         const opt = options.find(o => o.key === cost.level)
-        const cap = opt ? (slotsUsed[cost.level] ?? 0) + opt.remaining : Infinity
+        const cap = opt?.total ?? Infinity
         slotsUsed = { ...slotsUsed, [cost.level]: Math.min((slotsUsed[cost.level] ?? 0) + 1, cap) }
         costs.push(cost.label)
       } else if (cost?.type === 'ability') {
@@ -621,6 +619,12 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
           </div>
         )}
       </div>
+
+      <SpellSlotTracker
+        profile={profile}
+        used={character.spellSlotsUsed}
+        onChange={spellSlotsUsed => onSave({ spellSlotsUsed })}
+      />
 
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Turn</h2>
 

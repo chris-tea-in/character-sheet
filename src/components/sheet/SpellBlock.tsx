@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button'
 import { SelectionList } from '@/components/SelectionList'
 import { InfoPopup } from '@/components/InfoPopup'
 import { StepperField } from './StepperField'
-import { getSpellcastingInfo, getPreparedSpellCount, isSpellbookCaster, PACT_SLOT_KEY } from '@/lib/spellcasting'
-import type { SpellcastingProfile, CasterKind, SpellLevel } from '@/lib/spellcasting'
+import { getSpellcastingInfo, getPreparedSpellCount, isSpellbookCaster } from '@/lib/spellcasting'
+import type { SpellcastingProfile, CasterKind } from '@/lib/spellcasting'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { abilityModifier } from '@/lib/dice'
 import { ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
@@ -21,8 +21,8 @@ import type { ParsedSpellHeal } from '@/lib/spellHeal'
 import { mergeCustomSpells } from '@/lib/customContent'
 import { CustomSpellDialog } from './CustomSpellDialog'
 import { StatBreakdown } from './StatBreakdown'
-import { ResourcePips } from './ResourcePips'
 import { ClassAbilitiesSection } from './ClassAbilitiesSection'
+import { SpellSlotTracker } from '@/components/shared/SpellSlotTracker'
 import type { CustomSpellDamage } from './CustomSpellDialog'
 import type { FeatureDescriptions } from '@/lib/data'
 import type { ClassAbility, ClassData, SpellData } from '@/types/data'
@@ -47,15 +47,6 @@ interface Props {
 
 // The raw SpellData.slug field carries a "spell:" prefix; the JSON is keyed without it.
 const normalizeSlug = (slug: string) => slug.replace(/^spell:/, '')
-
-function SlotPips({
-  total, used, onToggle,
-}: {
-  total: number; used: number; onToggle: (n: number) => void
-}) {
-  // Shared spend-tracker convention (filled = available, hollow = spent).
-  return <ResourcePips total={total} used={used} onChange={onToggle} label="slot" />
-}
 
 function SpellRow({
   spell,
@@ -336,10 +327,6 @@ export function SpellBlock({ character, classRecord, classLevel, derived, classA
     { label: 'All Spells', entries: allSpellEntries, groupOrder: LEVEL_GROUP_ORDER },
   ], [classSpellEntries, allSpellEntries, classRecord.name])
 
-  function setSlotUsed(level: SpellLevel, used: number) {
-    onSave({ spellSlotsUsed: { ...character.spellSlotsUsed, [level]: used } })
-  }
-
   function addSpell(key: string) {
     // Single-model prepared casters (cleric/druid/paladin/artificer) prepare their
     // whole list, so a newly added spell is prepared immediately. Wizard (spellbook)
@@ -460,22 +447,19 @@ export function SpellBlock({ character, classRecord, classLevel, derived, classA
 
       {/* Spell slot tracker — casters only; a non-caster's section is just the spell list. */}
       {isCaster && (
-      <div className="rounded-lg border border-border bg-card p-3 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Spell Slots
-            </p>
-            <button
-              onClick={() => setBonusEditorOpen(true)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Manual spell-focus override"
-            >
-              <Pencil className="h-3 w-3" />
-            </button>
-          </div>
-          <div className="flex gap-4 text-center">
-            <div>
+        <>
+          <div className="rounded-lg border border-border bg-card p-3">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setBonusEditorOpen(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+                title="Manual spell-focus override"
+              >
+                Spellcasting
+                <Pencil className="h-3 w-3" />
+              </button>
+              <div className="flex gap-4 text-center">
+                <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Attack</p>
               <button
                 onClick={() => setOpenBreakdown('attack')}
@@ -516,60 +500,17 @@ export function SpellBlock({ character, classRecord, classLevel, derived, classA
                   +{character.spellBonusModifier} (manual)
                 </button>
               )}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Pure pact pool (single-class warlock) — keyed by its slot level */}
-        {profile.kind === 'pact' && (
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground w-8">{ORDINALS[profile.slotLevel]}</span>
-            <SlotPips
-              total={profile.slotCount}
-              used={character.spellSlotsUsed[profile.slotLevel] ?? 0}
-              onToggle={n => setSlotUsed(profile.slotLevel, n)}
-            />
-          </div>
-        )}
-
-        {/* Standard slot rows (single-class casters and multiclass slots/slots+pact) */}
-        {(profile.kind === 'slots' || profile.kind === 'slots+pact') &&
-          Object.entries(profile.slotsByLevel).map(([k, total]) => {
-            const level = parseInt(k, 10) as SpellLevel
-            const used = character.spellSlotsUsed[level] ?? 0
-            return (
-              <div key={level} className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-8 flex-none">{ORDINALS[level]}</span>
-                <SlotPips total={total!} used={used} onToggle={n => setSlotUsed(level, n)} />
-                <span className="text-xs text-muted-foreground ml-auto">{total! - used}/{total}</span>
-              </div>
-            )
-          })}
-
-        {/* Pact pool alongside standard slots — separate counter (BUG-16) */}
-        {profile.kind === 'slots+pact' && (
-          <div className="flex items-center gap-3 pt-1 border-t border-border">
-            <span className="text-[11px] text-muted-foreground w-8 flex-none" title="Pact slots refresh on a short rest">
-              Pact
-            </span>
-            <SlotPips
-              total={profile.pactSlotCount}
-              used={character.spellSlotsUsed[PACT_SLOT_KEY] ?? 0}
-              onToggle={n => setSlotUsed(PACT_SLOT_KEY as SpellLevel, n)}
-            />
-            <span className="text-xs text-muted-foreground ml-auto">
-              {ORDINALS[profile.pactSlotLevel]}-level · short rest
-            </span>
-          </div>
-        )}
-
-        {profile.kind !== 'none' && profile.cantripsKnown > 0 && (
-          <p className="text-xs text-muted-foreground">
-            Cantrips known: <span className="text-foreground font-semibold">{profile.cantripsKnown}</span>
-          </p>
-        )}
-        <p className="text-[11px] text-muted-foreground">Tap a pip to use or restore a slot</p>
-      </div>
+          <SpellSlotTracker
+            profile={profile}
+            used={character.spellSlotsUsed}
+            onChange={spellSlotsUsed => onSave({ spellSlotsUsed })}
+          />
+        </>
       )}
 
       {/* Class abilities — resource-backed features (Lay on Hands, Rage, Ki …), not spells */}
