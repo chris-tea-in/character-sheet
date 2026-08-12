@@ -33,11 +33,19 @@ import { useCombatLogStore } from '@/store/combatLog'
 import type { QueuedEntry, QueueSlotKey } from '@/store/combatLog'
 import { cn } from '@/lib/utils'
 import { SpellSlotTracker } from '@/components/shared/SpellSlotTracker'
+import { buildResourceRecoveryPatch } from '@/lib/resourceRecovery'
+import type { RecoveryScope } from '@/lib/resourceRecovery'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { ClassAbility, ClassData, EquipmentData, SpellData } from '@/types/data'
 import type { DerivedStats } from '@/lib/characterStats'
 
 const normalizeSlug = (slug: string) => slug.replace(/^spell:/, '')
+
+const RECOVERY_CONTROLS: { scope: RecoveryScope; label: string }[] = [
+  { scope: 'spell-slots', label: 'Restore all spell slots' },
+  { scope: 'class-resources', label: 'Restore class resources' },
+  { scope: 'all', label: 'Restore all tracked resources' },
+]
 
 // Effect-mode grouping buckets. Weapons are always damage; generic SRD actions
 // are always general; spells classify like the Spells-tab filter (damage wins,
@@ -211,6 +219,10 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
 
   const { profile: rawProfile, casterKind: rawCasterKind } = getSpellcastingInfo(classRecord ?? undefined, classLevel)
   const profile = overrideSlotProfile ?? rawProfile
+  const recoveryControls = RECOVERY_CONTROLS.map(control => ({
+    ...control,
+    patch: buildResourceRecoveryPatch(character, control.scope),
+  }))
   const isPreparedCaster = rawCasterKind === 'prepared'
   const options = slotOptions(profile, character.spellSlotsUsed)
   // Per-spell chosen spend slot (defaults to the lowest eligible with a slot left).
@@ -625,6 +637,18 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
         used={character.spellSlotsUsed}
         onChange={spellSlotsUsed => onSave({ spellSlotsUsed })}
       />
+      <div className="flex flex-wrap gap-2">
+        {recoveryControls.map(({ scope, label, patch }) => (
+          <button
+            key={scope}
+            onClick={() => onSave(patch)}
+            disabled={Object.keys(patch).length === 0}
+            className="text-[11px] rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Turn</h2>
 

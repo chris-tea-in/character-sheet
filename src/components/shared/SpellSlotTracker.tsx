@@ -14,7 +14,6 @@ export function SpellSlotTracker({ profile, used, onChange }: Props) {
   if (pools.length === 0) return null
 
   const normalizedUsed = normalizeSpellSlotUsage(profile, used)
-  const hasUsedSlots = Object.values(normalizedUsed).some(value => (value ?? 0) > 0)
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-3">
@@ -58,16 +57,7 @@ export function SpellSlotTracker({ profile, used, onChange }: Props) {
         </p>
       )}
 
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] text-muted-foreground">Tap a pip to use or restore a slot</p>
-        <button
-          onClick={() => onChange({})}
-          disabled={!hasUsedSlots}
-          className="text-[11px] rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
-        >
-          Restore all spell slots
-        </button>
-      </div>
+      <p className="text-[11px] text-muted-foreground">Tap a pip to use or restore a slot</p>
     </div>
   )
 }
