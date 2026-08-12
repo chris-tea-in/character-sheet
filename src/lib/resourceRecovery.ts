@@ -7,8 +7,8 @@ type RecoveryState = Pick<
   'spellSlotsUsed' | 'featureResourcesUsed' | 'equipment' | 'hitDiceUsed' | 'hitDiceUsedByClass'
 >
 
-const hasPositiveUsage = (usage: Record<string | number, number>) =>
-  Object.values(usage).some(value => value > 0)
+const hasPositiveUsage = (usage: Partial<Record<string | number, number>>) =>
+  Object.values(usage).some(value => (value ?? 0) > 0)
 
 export function buildResourceRecoveryPatch(
   character: RecoveryState,

@@ -54,4 +54,17 @@ describe('buildResourceRecoveryPatch', () => {
 
     expect(buildResourceRecoveryPatch(character, 'all')).toEqual({})
   })
+
+  it('treats undefined partial-tracker counters as unspent', () => {
+    const character = {
+      ...defaultCharacter('Partially Tracked Tester'),
+      spellSlotsUsed: { 1: undefined, [-1]: 1 },
+      featureResourcesUsed: { 'warlock:hexblade\'s-curse': undefined },
+      hitDiceUsedByClass: { fighter: undefined },
+    }
+
+    expect(buildResourceRecoveryPatch(character, 'all')).toEqual({
+      spellSlotsUsed: {},
+    })
+  })
 })
