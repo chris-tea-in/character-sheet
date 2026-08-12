@@ -8,6 +8,15 @@ export type SpellLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 // spell level. Pure-warlock characters key pact usage by its actual slot level.
 export const PACT_SLOT_KEY = -1
 
+export type SpellSlotPoolKey = SpellLevel | typeof PACT_SLOT_KEY
+
+export interface SpellSlotPool {
+  key: SpellSlotPoolKey
+  castLevel: SpellLevel
+  total: number
+  kind: 'standard' | 'pact'
+}
+
 export type SpellcastingProfile =
   | { kind: 'none' }
   | { kind: 'slots'; slotsByLevel: Partial<Record<SpellLevel, number>>; cantripsKnown: number }
@@ -20,6 +29,49 @@ export type SpellcastingProfile =
       pactSlotLevel: SpellLevel
       cantripsKnown: number
     }
+
+export function getSpellSlotPools(profile: SpellcastingProfile): SpellSlotPool[] {
+  if (profile.kind === 'none') return []
+
+  if (profile.kind === 'pact') {
+    return [{
+      key: profile.slotLevel,
+      castLevel: profile.slotLevel,
+      total: profile.slotCount,
+      kind: 'pact',
+    }]
+  }
+
+  const standardPools = Object.entries(profile.slotsByLevel).map(([key, total]) => {
+    const level = Number(key) as SpellLevel
+    return { key: level, castLevel: level, total: total!, kind: 'standard' as const }
+  })
+
+  if (profile.kind === 'slots') return standardPools
+
+  return [...standardPools, {
+    key: PACT_SLOT_KEY,
+    castLevel: profile.pactSlotLevel,
+    total: profile.pactSlotCount,
+    kind: 'pact',
+  }]
+}
+
+// Combat previously stored pure-warlock pact use under PACT_SLOT_KEY. Preserve
+// that spend for display, then move it to the actual pact slot level on a write.
+export function normalizeSpellSlotUsage(
+  profile: SpellcastingProfile,
+  used: Partial<Record<number, number>>,
+): Partial<Record<number, number>> {
+  if (profile.kind !== 'pact' || used[PACT_SLOT_KEY] === undefined) return used
+
+  const normalized = { ...used }
+  delete normalized[PACT_SLOT_KEY]
+  if (normalized[profile.slotLevel] === undefined) {
+    normalized[profile.slotLevel] = used[PACT_SLOT_KEY]
+  }
+  return normalized
+}
 
 // "Known" casters: bard, ranger, sorcerer, warlock — have explicit Spells Known count
 // "Prepared" casters: wizard, cleric, druid, paladin — prepare from full list, no fixed count

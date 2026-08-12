@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { getSpellsKnownIncrease } from './spellcasting'
+import {
+  getSpellSlotPools,
+  getSpellsKnownIncrease,
+  normalizeSpellSlotUsage,
+  PACT_SLOT_KEY,
+} from './spellcasting'
 import type { ClassData } from '../types/data'
 
 // A minimal "known" caster (Bard-shaped). getSpellcastingInfo classifies it 'known'
@@ -40,5 +45,43 @@ describe('getSpellsKnownIncrease — multiclass-into-new-caster old level (BUG-9
     // IS in classes[] and its real current level is the correct old level.
     const knownAt2 = getSpellsKnownIncrease(bard, 1, 5) // 1 → 5: 8−4 spells, 3−2 cantrips
     expect(knownAt2).toEqual({ spells: 4, cantrips: 1 })
+  })
+})
+
+describe('spell-slot pools', () => {
+  it('uses the pact slot level as the storage key for a pure pact profile', () => {
+    expect(getSpellSlotPools({ kind: 'pact', slotCount: 2, slotLevel: 3, cantripsKnown: 2 }))
+      .toEqual([{ key: 3, castLevel: 3, total: 2, kind: 'pact' }])
+  })
+
+  it('uses the pact sentinel only for a mixed pact pool', () => {
+    expect(getSpellSlotPools({
+      kind: 'slots+pact',
+      slotsByLevel: { 1: 3 },
+      pactSlotCount: 2,
+      pactSlotLevel: 2,
+      cantripsKnown: 0,
+    })).toEqual([
+      { key: 1, castLevel: 1, total: 3, kind: 'standard' },
+      { key: PACT_SLOT_KEY, castLevel: 2, total: 2, kind: 'pact' },
+    ])
+  })
+
+  it('returns no pools for a non-caster', () => {
+    expect(getSpellSlotPools({ kind: 'none' })).toEqual([])
+  })
+
+  it('normalizes legacy pure pact sentinel usage to the pact slot level', () => {
+    expect(normalizeSpellSlotUsage(
+      { kind: 'pact', slotCount: 2, slotLevel: 3, cantripsKnown: 2 },
+      { [PACT_SLOT_KEY]: 1 },
+    )).toEqual({ 3: 1 })
+  })
+
+  it('keeps a current pure pact value when legacy sentinel usage also exists', () => {
+    expect(normalizeSpellSlotUsage(
+      { kind: 'pact', slotCount: 2, slotLevel: 3, cantripsKnown: 2 },
+      { 3: 2, [PACT_SLOT_KEY]: 1 },
+    )).toEqual({ 3: 2 })
   })
 })
