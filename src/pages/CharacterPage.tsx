@@ -1091,6 +1091,7 @@ export default function CharacterPage() {
               onLevelChange={handleLevelChange}
               onCustomizeRace={() => currentRaceData && setRaceDialog({ mode: 'edit', base: currentRaceData })}
             />
+            <CombatBlock character={character} derived={derived} onSave={save} variant="statsOnly" />
             <AbilityBlock character={character} derived={derived} onSave={save} />
             <ProficienciesBlock character={character} classRecord={classRecord} classRecords={classRecords} backgroundSkills={backgroundSkills} derived={derived} onSave={save} />
             <FeaturesBlock character={character} setupData={setupData} onSave={save} />
