@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import { Miniflare } from 'miniflare'
-import { defaultCharacter } from '../src/types/character'
+import { defaultCharacter, normalizeNewCharacter } from '../src/types/character'
 import { reconcileDecision } from '../src/store/reconcile'
 import type { Env } from './_lib/auth'
 import { onRequestPut as putChar, onRequestDelete as delChar } from './api/characters/[id]'
@@ -15,6 +15,7 @@ import { onRequestPost as postNpc } from './api/campaigns/[id]/npcs'
 import { onRequestGet as listCompanions, onRequestPost as postCompanion } from './api/campaigns/[id]/companions'
 import { onRequestPut as putCompanion, onRequestDelete as delCompanion } from './api/campaigns/[id]/companions/[companionId]'
 import { defaultCompanion } from '../shared/companionValidation'
+import { resolveLegacyLanguage } from '../src/components/sheet/DescriptionBlock'
 
 // Backend authority tests. The handlers run against a REAL local D1 (Miniflare,
 // in-process, zero Cloudflare/free-tier usage), so the WHERE-scoping, json_set,
@@ -259,6 +260,40 @@ describe('PUT /api/characters/:id — ownership & creation', () => {
     const data = JSON.parse(row.data)
     expect(data.name).toBe('Renamed')          // changed field
     expect(data.alignment).toBe('lawful-good')  // untouched field survives
+  })
+
+  it('round trips legacy language resolution without retaining the stale mixed cloud field', async () => {
+    // The cloud still has the pre-migration mixed list, while this device has
+    // already classified Dwarvish as explicitly learned and left two entries
+    // unresolved. Resolving Common as racial must replace both cloud fields.
+    await putChar(ctx(request('PUT', {
+      body: newBody('Legacy Hero', 1, {
+        languages: ['Common', 'Dwarvish', 'Draconic'],
+      }),
+      email: 'owner@a.com',
+    }), { id: 'legacy-languages' }))
+
+    const local = {
+      languages: ['Dwarvish'],
+      legacyLanguages: ['Common', 'Draconic'],
+    }
+    const patch = resolveLegacyLanguage(local, 'Common', false)
+    expect(patch).toEqual({
+      languages: ['Dwarvish'],
+      legacyLanguages: ['Draconic'],
+    })
+
+    const response = await putChar(ctx(request('PUT', {
+      body: { updatedAt: 2, patch },
+      email: 'owner@a.com',
+    }), { id: 'legacy-languages' }))
+    expect(response.status).toBe(200)
+
+    const pulled = await listChars(ctx(request('GET', { email: 'owner@a.com' })))
+    const remote = ((await pulled.json()) as any).characters[0].data
+    const freshDevice = normalizeNewCharacter(remote)
+    expect(freshDevice.languages).toEqual(['Dwarvish'])
+    expect(freshDevice.legacyLanguages).toEqual(['Draconic'])
   })
 
   it('retries a stale snapshot so concurrent disjoint patches both survive', async () => {

@@ -12,6 +12,22 @@ interface Props {
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
+/** Keep the learned and unresolved sets in sync when classifying a legacy language.
+ * Cloud updates are field-scoped, so both fields must be present to replace a
+ * pre-migration server record whose `languages` still contains mixed grants. */
+export function resolveLegacyLanguage(
+  character: Pick<Character, 'languages' | 'legacyLanguages'>,
+  language: string,
+  keepLearned: boolean,
+): Pick<NewCharacter, 'languages' | 'legacyLanguages'> {
+  return {
+    languages: keepLearned
+      ? [...new Set([...character.languages, language])]
+      : [...character.languages],
+    legacyLanguages: character.legacyLanguages.filter(l => l !== language),
+  }
+}
+
 const FIELDS: Array<{ key: keyof NewCharacter; label: string; rows: number }> = [
   { key: 'personalityTraits', label: 'Personality Traits', rows: 2 },
   { key: 'ideals', label: 'Ideals', rows: 2 },
@@ -200,18 +216,13 @@ export function DescriptionBlock({ character, derived, onSave }: Props) {
                     type="button"
                     className="rounded border border-border px-2 py-1"
                     aria-label={`Keep ${language} as learned separately`}
-                    onClick={() => onSave({
-                      languages: [...new Set([...character.languages, language])],
-                      legacyLanguages: character.legacyLanguages.filter(l => l !== language),
-                    })}
+                    onClick={() => onSave(resolveLegacyLanguage(character, language, true))}
                   >Keep learned</button>
                   <button
                     type="button"
                     className="rounded border border-border px-2 py-1"
                     aria-label={`${language} was granted by a race`}
-                    onClick={() => onSave({
-                      legacyLanguages: character.legacyLanguages.filter(l => l !== language),
-                    })}
+                    onClick={() => onSave(resolveLegacyLanguage(character, language, false))}
                   >From race</button>
                 </div>
               ))}
