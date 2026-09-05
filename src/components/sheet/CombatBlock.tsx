@@ -28,7 +28,7 @@ interface Props {
   // hit dice → defenses → conditions.
   // Reordered visually via flex `order` so the DOM (and default surfaces like the
   // DM campaign view) keep the original layout.
-  variant?: 'default' | 'combatTab'
+  variant?: 'default' | 'combatTab' | 'statsOnly'
 }
 
 function StatCard({
@@ -403,9 +403,9 @@ export function CombatBlock({ character, onSave, derived, classHitDice, variant 
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {variant !== 'statsOnly' && <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Combat
-      </h2>
+      </h2>}
 
       {/* Stats row */}
       <div className="flex gap-2 flex-wrap">
@@ -504,6 +504,7 @@ export function CombatBlock({ character, onSave, derived, classHitDice, variant 
         </StatCard>
       </div>
 
+      {variant !== 'statsOnly' && <>
       {/* Defenses — resistances / immunities with provenance; tap a chip to disable it (Step 6b) */}
       {(derived.resistanceSources.length > 0 || derived.immunitySources.length > 0) && (
         <div className={cn('rounded-lg border border-border bg-card px-3 py-2 space-y-1.5', combatTab && 'order-4')}>
@@ -628,6 +629,7 @@ export function CombatBlock({ character, onSave, derived, classHitDice, variant 
       <div className={cn(combatTab && 'order-5')}>
         <ConditionsSection character={character} onSave={onSave} />
       </div>
+      </>}
 
       <StatBreakdown
         open={openBreakdown === 'speed'}

@@ -11,13 +11,14 @@ import { formatBonus } from './dice'
 import { mergeCustomEquipment } from './customContent'
 import type { DerivedStats } from './characterStats'
 import type { Character, EquipmentItem } from '../types/character'
-import type { ArmorItem, EquipmentData, WeaponItem, WondrousItem } from '../types/data'
+import type { AdventuringGearItem, ArmorItem, EquipmentData, WeaponItem, WondrousItem } from '../types/data'
 
 // ── Catalog lookups shared by EquipmentBlock and the Combat tab ────────────────
 
 export interface CatalogMaps {
   weaponByName: Map<string, WeaponItem>
   armorByName: Map<string, ArmorItem>
+  adventuringGearByName: Map<string, AdventuringGearItem>
   wondrousItemByName: Map<string, WondrousItem>
 }
 
@@ -25,8 +26,20 @@ export function buildCatalogMaps(catalog: EquipmentData | null): CatalogMaps {
   return {
     weaponByName: new Map((catalog?.weapons ?? []).map(w => [w.name.toLowerCase(), w])),
     armorByName: new Map((catalog?.armor ?? []).map(a => [a.name.toLowerCase(), a])),
+    adventuringGearByName: new Map((catalog?.adventuring_gear ?? []).map(g => [g.name.toLowerCase(), g])),
     wondrousItemByName: new Map((catalog?.wondrous_items ?? []).map(w => [w.name.toLowerCase(), w])),
   }
+}
+
+/** Resolve the description shown for an equipped item in Combat's Loadout.
+ * Name matching stays case-insensitive, and custom equipment is supported when
+ * callers build the maps from `mergeCustomEquipment`, just like other lookups. */
+export function lookupEquipmentDescription(maps: CatalogMaps, name: string): string | undefined {
+  const n = name.toLowerCase()
+  return maps.weaponByName.get(n)?.description
+    || maps.armorByName.get(n)?.description
+    || maps.adventuringGearByName.get(n)?.description
+    || maps.wondrousItemByName.get(n)?.description
 }
 
 /**
