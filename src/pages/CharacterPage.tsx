@@ -1110,6 +1110,7 @@ export default function CharacterPage() {
                 classLevel={primaryClassLevel}
                 derived={derived}
                 classAbilities={setupData?.classAbilities ?? []}
+                classFeatures={setupData?.classFeatures ?? null}
                 featureDescriptions={setupData?.featureDescriptions ?? {}}
                 overrideSlotProfile={multiclassSlotProfile ?? undefined}
                 overrideCasterKind={multiclassCasterKind}
@@ -1137,6 +1138,7 @@ export default function CharacterPage() {
               classRecord={classRecord}
               classLevel={primaryClassLevel}
               classAbilities={setupData?.classAbilities ?? []}
+              classFeatures={setupData?.classFeatures ?? null}
               featureDescriptions={setupData?.featureDescriptions ?? {}}
               overrideSlotProfile={multiclassSlotProfile ?? undefined}
               onSave={save}

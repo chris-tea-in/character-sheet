@@ -11,6 +11,7 @@
 // committing a turn only spends resources, it never rolls.
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { RollButton } from '@/components/sheet/RollButton'
+import { SelectedFeaturesSection } from '@/components/sheet/SelectedFeaturesSection'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { useDiceStore } from '@/store/dice'
 import { summarizeItemEffects } from '@/lib/characterStats'
@@ -36,7 +37,7 @@ import { SpellSlotTracker } from '@/components/shared/SpellSlotTracker'
 import { buildResourceRecoveryPatch } from '@/lib/resourceRecovery'
 import type { RecoveryScope } from '@/lib/resourceRecovery'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
-import type { ClassAbility, ClassData, EquipmentData, SpellData } from '@/types/data'
+import type { ClassAbility, ClassData, ClassFeatureData, EquipmentData, SpellData } from '@/types/data'
 import type { DerivedStats } from '@/lib/characterStats'
 
 const normalizeSlug = (slug: string) => slug.replace(/^spell:/, '')
@@ -148,12 +149,13 @@ interface Props {
   classRecord: ClassData | null
   classLevel: number
   classAbilities: ClassAbility[]
+  classFeatures?: ClassFeatureData | null
   featureDescriptions: FeatureDescriptions
   overrideSlotProfile?: SpellcastingProfile
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
-export function CombatTab({ character, derived, catalog, classRecord, classLevel, classAbilities, featureDescriptions, overrideSlotProfile, onSave }: Props) {
+export function CombatTab({ character, derived, catalog, classRecord, classLevel, classAbilities, classFeatures, featureDescriptions, overrideSlotProfile, onSave }: Props) {
   const { dispatch, dispatchDamage } = useRollDispatch(derived)
   const { assemble } = useWeaponActions(character, derived)
   const queue = useCombatLogStore(s => s.queue)
@@ -820,6 +822,8 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
           </div>
         )
       }))}
+
+      <SelectedFeaturesSection character={character} features={classFeatures} derived={derived} profile={profile} onSave={onSave} />
 
       {/* Session-only history — mirrors dice history; lost on refresh by design */}
       {history.length > 0 && (
