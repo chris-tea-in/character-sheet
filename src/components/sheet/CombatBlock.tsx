@@ -24,8 +24,8 @@ interface Props {
   onSave: (changes: Partial<NewCharacter>) => void
   derived: DerivedStats
   classHitDice?: ClassHitDice[]
-  // 'combatTab' reorders for play (CharacterPage Combat tab): HP → death saves →
-  // hit dice → defenses → conditions, with the AC/Speed/Init/PB tiles LAST.
+  // 'combatTab' reorders for play (CharacterPage Combat tab): stats → HP → death saves →
+  // hit dice → defenses → conditions.
   // Reordered visually via flex `order` so the DOM (and default surfaces like the
   // DM campaign view) keep the original layout.
   variant?: 'default' | 'combatTab'
@@ -407,8 +407,8 @@ export function CombatBlock({ character, onSave, derived, classHitDice, variant 
         Combat
       </h2>
 
-      {/* Stats row — last in the combat-tab layout (play-time info first) */}
-      <div className={cn('flex gap-2 flex-wrap', combatTab && 'order-6')}>
+      {/* Stats row */}
+      <div className="flex gap-2 flex-wrap">
         <StatCard label="AC">
           {effectiveAC !== null ? (
             <div className="flex items-center gap-1">
