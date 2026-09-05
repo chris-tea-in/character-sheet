@@ -40,7 +40,7 @@ interface Props {
   // of this block; gated/sized per OWNING class inside ClassAbilitiesSection —
   // never by the primary-class `classLevel` prop above (INV-2).
   classAbilities: ClassAbility[]
-  classFeatures?: ClassFeatureData | null
+  classFeatures: ClassFeatureData | null
   featureDescriptions: FeatureDescriptions
   overrideSlotProfile?: SpellcastingProfile
   overrideCasterKind?: CasterKind
