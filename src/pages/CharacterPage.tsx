@@ -56,9 +56,9 @@ type IdentityList = 'class' | 'subclass' | 'race' | 'subrace' | 'background' | '
 // @media print rule there overrides so the whole sheet prints.
 const SHEET_TABS = [
   { key: 'character', label: 'Character' },
+  { key: 'combat', label: 'Combat' },
   { key: 'spells', label: 'Spells' },
   { key: 'inventory', label: 'Inventory' },
-  { key: 'combat', label: 'Combat' },
   // DM- or player-created companions (familiars, mounts, sidekicks) assigned to
   // this character — only shown while the character is in a campaign.
   { key: 'companions', label: 'Companions' },
