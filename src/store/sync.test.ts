@@ -42,7 +42,10 @@ let SQL: Awaited<ReturnType<typeof initSqlJs>>
 
 beforeAll(async () => {
   SQL = await initSqlJs()
-  vi.stubGlobal('window', { addEventListener: vi.fn(), location: { reload: vi.fn() } })
+  vi.stubGlobal('window', { addEventListener: vi.fn(), location: {
+    reload: vi.fn(), assign: vi.fn(),
+    pathname: '/character/abc', search: '?tab=spells', hash: '#slots',
+  } })
   vi.stubGlobal('document', { addEventListener: vi.fn(), visibilityState: 'visible' })
 })
 
@@ -65,6 +68,24 @@ function seedLocal(id: string, over: Partial<Character>, base: number) {
   const full: Character = { ...defaultCharacter('Local'), id, createdAt: 1, updatedAt: 100, ...over }
   upsertSyncedCharacter(h.db, full, base)
 }
+
+describe('reconnect', () => {
+  it('navigates through the uncached auth endpoint and preserves the current sheet route', () => {
+    useSyncStore.setState({ status: 'auth-expired' })
+    useSyncStore.getState().reconnect()
+
+    expect(window.location.assign).toHaveBeenCalledWith(
+      '/api/reconnect?returnTo=%2Fcharacter%2Fabc%3Ftab%3Dspells%23slots',
+    )
+    expect(window.location.reload).not.toHaveBeenCalled()
+  })
+
+  it('starts only one navigation for repeated reconnect clicks', () => {
+    useSyncStore.getState().reconnect()
+    useSyncStore.getState().reconnect()
+    expect(window.location.assign).toHaveBeenCalledTimes(1)
+  })
+})
 
 function remote(id: string, over: Partial<SyncedCharacter> = {}): SyncedCharacter {
   return { id, createdAt: 1, updatedAt: 200, deleted: false, data: defaultCharacter('Remote'), ...over }
