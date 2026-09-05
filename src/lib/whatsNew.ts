@@ -6,10 +6,25 @@
 export interface WhatsNewEntry {
   version: string        // ordered id, newest first (e.g. a release date)
   title?: string         // optional short heading
+  notice?: { title: string; text: string }
   changes: string[]      // user-friendly bullets — what the player will see
 }
 
 export const WHATS_NEW: WhatsNewEntry[] = [
+  {
+    version: '2026-09-05',
+    title: 'Easier access to combat details',
+    notice: {
+      title: 'Please check your languages',
+      text: 'Older characters may show languages with an unknown source. Choose “Keep learned” if you learned the language separately, or “From race” if it came from your race.',
+    },
+    changes: [
+      'Your AC, speed, initiative, and proficiency bonus now appear above your ability scores on the Character tab and at the top of the Combat tab.',
+      'The Combat tab now sits beside Character, ahead of Spells and Inventory.',
+      'Tap an equipped item’s name in Combat’s Loadout to read its description.',
+      'Weapon attacks in Combat also expand to show the weapon’s description.',
+    ],
+  },
   {
     version: '2026-07-06',
     title: 'Companions',
