@@ -397,6 +397,10 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
   reconnect: () => {
     if (get().reconnecting) return // guard against a reload storm from concurrent failures
     set({ reconnecting: true })
-    window.location.reload()
+    // A reload can serve the cached app shell without reaching Access. Navigate
+    // through /api/ (excluded from the PWA fallback) to renew the session first.
+    const { pathname, search, hash } = window.location
+    const returnTo = encodeURIComponent(`${pathname}${search}${hash}`)
+    window.location.assign(`/api/reconnect?returnTo=${returnTo}`)
   },
 }))
