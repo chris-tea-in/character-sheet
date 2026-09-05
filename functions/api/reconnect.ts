@@ -11,7 +11,7 @@ export function sanitizeReturnTo(raw: string | null, requestUrl: string): string
   const origin = new URL(requestUrl).origin
   try {
     const target = new URL(raw, origin)
-    if (target.origin !== origin || target.pathname.startsWith('/api/')) return '/'
+    if (target.origin !== origin || /^\/(?:api|cdn-cgi)(?:\/|$)/.test(target.pathname)) return '/'
     return `${target.pathname}${target.search}${target.hash}`
   } catch {
     return '/'

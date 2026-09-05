@@ -22,10 +22,10 @@ export default defineConfig({
       injectRegister: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
-        // Never serve the SPA index.html fallback for an API request — keep the
-        // Access redirect flow and the `curl /api/me` verification honest. (API
-        // calls are fetch(), not navigations, so this is belt-and-suspenders.)
-        navigateFallbackDenylist: [/^\/api\//],
+        // Both API requests and Cloudflare's login callback must reach the
+        // network. Caching /cdn-cgi/access/authorized serves an empty app route
+        // instead of letting Access set the renewed session cookie.
+        navigateFallbackDenylist: [/^\/api\//, /^\/cdn-cgi\//],
         runtimeCaching: [
           {
             // Character sync must never be cached or replayed. NetworkOnly caches
