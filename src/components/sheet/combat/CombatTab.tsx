@@ -14,7 +14,7 @@ import { RollButton } from '@/components/sheet/RollButton'
 import { useRollDispatch } from '@/lib/useRollDispatch'
 import { useDiceStore } from '@/store/dice'
 import { summarizeItemEffects } from '@/lib/characterStats'
-import { useWeaponActions, characterWeapons, buildCatalogMaps, isItemActive } from '@/lib/weaponActions'
+import { useWeaponActions, characterWeapons, buildCatalogMaps, isItemActive, lookupEquipmentDescription } from '@/lib/weaponActions'
 import { earnedAbilities, owningClassLevel, resolveResourceMax } from '@/lib/classFeatures'
 import { normalizeCastingTime } from '@/lib/actionEconomy'
 import type { ActionEconomy } from '@/lib/actionEconomy'
@@ -623,8 +623,7 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
             {activeItems.map(item => {
               const n = item.name.toLowerCase()
               const armor = catalogMaps.armorByName.get(n)
-              const description = catalogMaps.weaponByName.get(n)?.description
-                || armor?.description || catalogMaps.wondrousItemByName.get(n)?.description
+              const description = lookupEquipmentDescription(catalogMaps, item.name)
               const rowId = `loadout:${item.id}`
               const cw = catalogMaps.weaponByName.has(n) ? weapons.find(x => x.item.id === item.id) : undefined
               const brief = cw
