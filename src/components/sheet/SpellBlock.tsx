@@ -22,10 +22,11 @@ import { mergeCustomSpells } from '@/lib/customContent'
 import { CustomSpellDialog } from './CustomSpellDialog'
 import { StatBreakdown } from './StatBreakdown'
 import { ClassAbilitiesSection } from './ClassAbilitiesSection'
+import { SelectedFeaturesSection } from './SelectedFeaturesSection'
 import { SpellSlotTracker } from '@/components/shared/SpellSlotTracker'
 import type { CustomSpellDamage } from './CustomSpellDialog'
 import type { FeatureDescriptions } from '@/lib/data'
-import type { ClassAbility, ClassData, SpellData } from '@/types/data'
+import type { ClassAbility, ClassData, ClassFeatureData, SpellData } from '@/types/data'
 import type { Character, CharacterSpell, NewCharacter } from '@/types/character'
 import type { SelectionEntry, TabConfig } from '@/components/SelectionList'
 import type { DerivedStats } from '@/lib/characterStats'
@@ -39,6 +40,7 @@ interface Props {
   // of this block; gated/sized per OWNING class inside ClassAbilitiesSection —
   // never by the primary-class `classLevel` prop above (INV-2).
   classAbilities: ClassAbility[]
+  classFeatures: ClassFeatureData | null
   featureDescriptions: FeatureDescriptions
   overrideSlotProfile?: SpellcastingProfile
   overrideCasterKind?: CasterKind
@@ -246,7 +248,7 @@ function SpellRow({
 }
 
 
-export function SpellBlock({ character, classRecord, classLevel, derived, classAbilities, featureDescriptions, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
+export function SpellBlock({ character, classRecord, classLevel, derived, classAbilities, classFeatures, featureDescriptions, overrideSlotProfile, overrideCasterKind, onSave }: Props) {
   const [allSpells, setAllSpells] = useState<Record<string, SpellData>>({})
   const [spellListOpen, setSpellListOpen] = useState(false)
   const [customSpellOpen, setCustomSpellOpen] = useState(false)
@@ -523,6 +525,7 @@ export function SpellBlock({ character, classRecord, classLevel, derived, classA
       />
 
       {/* Spell list */}
+      <SelectedFeaturesSection character={character} features={classFeatures} derived={derived} profile={profile} onSave={onSave} />
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="flex items-center justify-between mb-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
