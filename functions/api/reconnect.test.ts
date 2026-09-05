@@ -12,6 +12,7 @@ describe('sanitizeReturnTo', () => {
     ['//evil.example/steal', '/'],
     ['\\\\evil.example\\steal', '/'],
     ['/api/characters', '/'],
+    ['/cdn-cgi/access/authorized?code=example', '/'],
   ])('maps %s to %s', (raw, expected) => {
     expect(sanitizeReturnTo(raw, requestUrl)).toBe(expected)
   })
