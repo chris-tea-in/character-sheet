@@ -333,6 +333,12 @@ in the derivation ledger. Migration 23 retains ambiguous old entries separately
 in `legacyLanguages` for visible source review. Never infer that a matching name
 proves the player did not also learn that language. Test race changes, source
 disable, legacy review, and all repository write paths.
+Every cloud patch changing either language field must include both current
+`languages` and `legacyLanguages`; the shared sync queue enforces this for picker,
+background, wizard, and legacy-resolution saves. The legacy field's presence is
+the normalization marker. Validate both optional fields as string arrays before
+adopting external records. Guards: `src/store/sync.test.ts` and
+`shared/characterValidation.test.ts` (2026-09-05 PR review follow-up).
 
 ---
 ## RAW assertions (check against any game-mechanics code)

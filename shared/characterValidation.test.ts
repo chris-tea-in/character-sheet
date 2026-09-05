@@ -235,3 +235,13 @@ describe('validateCharacter — rejects', () => {
     expect(validateCharacter(c).ok).toBe(false)
   })
 })
+
+
+describe('language field validation', () => {
+  it.each(['Elvish', null, {}, [null], [3]].map(languages => ({ languages })))('rejects malformed learned languages: $languages', ({ languages }) => {
+    expect(validateCharacter({ ...validBlob(), languages }).ok).toBe(false)
+  })
+  it.each([[], ['Elvish']].map(languages => ({ languages })))('accepts learned language lists: $languages', ({ languages }) => {
+    expect(validateCharacter({ ...validBlob(), languages }).ok).toBe(true)
+  })
+})

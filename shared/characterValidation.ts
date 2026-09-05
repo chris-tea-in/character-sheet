@@ -287,6 +287,8 @@ export function validateCharacter(c: unknown): ValidationResult {
     if (!validateLedgerOverrides(o.ledgerOverrides))
       return { ok: false, reason: 'ledgerOverrides are malformed' }
   }
+  if (o.languages !== undefined && !isStringArray(o.languages))
+    return { ok: false, reason: 'languages are malformed' }
   if (o.legacyLanguages !== undefined && (!Array.isArray(o.legacyLanguages) || !o.legacyLanguages.every(v => typeof v === 'string')))
     return { ok: false, reason: 'legacyLanguages are malformed' }
 
