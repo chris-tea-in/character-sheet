@@ -273,6 +273,7 @@ export default function CreateCharacterPage() {
           progressionType: newCharData.progressionType,
           alignment: newCharData.alignment,
           languages: newCharData.languages,
+          legacyLanguages: newCharData.legacyLanguages,
           backstory: newCharData.backstory,
           abilities: newCharData.abilities,
           raceAsiChoices: newCharData.raceAsiChoices,

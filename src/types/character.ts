@@ -126,6 +126,9 @@ export interface Character {
   progressionType: 'xp' | 'milestone'
   alignment: string
   languages: string[]
+  // Older records mixed learned and race-granted languages. Preserve them for
+  // explicit source review; they are not confirmed learned choices.
+  legacyLanguages: string[]
   backstory: string
 
   // BASE scores: point-buy/rolled values + permanent level-up ASI +1s.
@@ -254,7 +257,7 @@ export function defaultCharacter(name: string): NewCharacter {
     background: '',
     level: 1, xp: 0, progressionType: 'milestone', alignment: '',
     classes: [],
-    languages: [], backstory: '',
+    languages: [], legacyLanguages: [], backstory: '',
     abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
     raceAsiChoices: [],
     maxHp: 0, currentHp: 0, tempHp: 0,
@@ -307,5 +310,10 @@ export function defaultCharacter(name: string): NewCharacter {
  */
 export function normalizeNewCharacter(data: unknown): NewCharacter {
   const d = data && typeof data === 'object' ? (data as Partial<NewCharacter>) : {}
-  return { ...defaultCharacter(typeof d.name === 'string' ? d.name : ''), ...d }
+  const normalized = { ...defaultCharacter(typeof d.name === 'string' ? d.name : ''), ...d }
+  if (d.legacyLanguages === undefined) {
+    normalized.legacyLanguages = normalized.languages
+    normalized.languages = []
+  }
+  return normalized
 }

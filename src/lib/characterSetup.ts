@@ -521,6 +521,7 @@ export interface SetupDraft {
   appearance: string
   // Screen 3
   languageProficiencies: string[]
+  legacyLanguages: string[]
   skillProficiencies: SkillName[]
   // Skills picked for a background's "choose N" skill grant (e.g. Cloistered
   // Scholar). Baked into skillProficiencies by draftToNewCharacter, alongside
@@ -573,6 +574,7 @@ export const INITIAL_DRAFT: SetupDraft = {
   backstory: '',
   appearance: '',
   languageProficiencies: [],
+  legacyLanguages: [],
   skillProficiencies: [],
   backgroundSkillChoices: [],
   toolProficiencies: [],
@@ -756,8 +758,8 @@ export function draftToNewCharacter(
   const savingThrowProficiencies =
     (cls?.saving_throw_proficiencies ?? []).map(toAbilityName).filter(Boolean) as AbilityName[]
 
-  const raceLanguages = race?.base.languages ?? []
-  const languages = [...new Set([...raceLanguages, ...draft.languageProficiencies])]
+  // Racial languages derive with provenance; store only the player's choices.
+  const languages = [...new Set(draft.languageProficiencies)]
 
   // Prepared flag per caster type: Wizard (spellbook) prepares the chosen subset;
   // other prepared casters (cleric/druid/paladin/artificer) prepare their whole
@@ -780,6 +782,7 @@ export function draftToNewCharacter(
     progressionType: draft.progressionType,
     alignment: draft.alignment,
     languages,
+    legacyLanguages: [...draft.legacyLanguages],
     backstory: draft.backstory,
     abilities,
     raceAsiChoices: draft.asiChoices,
@@ -899,6 +902,7 @@ export function characterToDraft(
       ? character.notes.slice('Appearance: '.length)
       : '',
     languageProficiencies: character.languages,
+    legacyLanguages: character.legacyLanguages ?? [],
     skillProficiencies: Object.keys(character.skillProficiencies) as SkillName[],
     // Already-chosen background skills survive inside skillProficiencies above
     // (re-baked by draftToNewCharacter); the picker just re-opens empty on edit.

@@ -32,11 +32,11 @@ export default defineConfig({
             // nothing, so a Cloudflare Access login redirect or a stale write can
             // never be served from cache. Listed first to stay correct even if a
             // broad catch-all rule is added later (first match wins).
-            urlPattern: /^\/api\//,
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/api/'),
             handler: 'NetworkOnly',
           },
           {
-            urlPattern: /^\/data\/.*\.json$/,
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && /^\/data\/.*\.json$/.test(url.pathname),
             // Serve the cached copy instantly, then refresh from the network in
             // the background. Crucially, only cache 200s — never a Cloudflare
             // Access login redirect or an error — so a bad response can't poison

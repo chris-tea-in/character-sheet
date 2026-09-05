@@ -2,6 +2,7 @@ import {
   getEmail, isCampaignDm, isCampaignMember,
   json, unauthorized, forbidden, badRequest, type Env,
 } from '../../../_lib/auth'
+import { validateCampaignItem } from '../../../../shared/itemValidation'
 
 // DM-created shared homebrew items for a campaign (#12). Campaign-scoped:
 //   GET    — any member: the active item list (merged into their catalog client-side)
@@ -33,7 +34,7 @@ function validateItemBody(body: unknown): { category: string; data: Record<strin
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null
   const d = data as Record<string, unknown>
   if (typeof d.name !== 'string' || d.name.trim() === '' || d.name.length > MAX_NAME_LEN) return null
-  if (d.category !== category) return null
+  if (!validateCampaignItem(category, d).ok) return null
   const serialized = JSON.stringify(d)
   if (serialized.length > MAX_DATA_BYTES) return null
   return { category, data: d }
@@ -56,6 +57,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   for (const r of results ?? []) {
     let data: unknown
     try { data = JSON.parse(r.data) } catch { continue }
+    if (!validateCampaignItem(r.category, data).ok) continue
     items.push({ id: r.id, category: r.category, data, createdBy: r.created_by, updatedAt: r.updated_at })
   }
   return json({ items })
