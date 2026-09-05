@@ -152,7 +152,12 @@ export function syncOnUpdate(character: Character, changes: Partial<NewCharacter
   dirty.set(character.id, character)
   // Accumulate the changed keys so a debounced push carries every field touched
   // since the last successful push (server shallow-merges them).
-  pendingPatch.set(character.id, { ...pendingPatch.get(character.id), ...changes })
+  // The presence of legacyLanguages marks a migrated cloud record. Send both
+  // fields whenever either changes so a fresh device retains learned choices.
+  const patch = changes.languages !== undefined || changes.legacyLanguages !== undefined
+    ? { ...changes, languages: character.languages, legacyLanguages: character.legacyLanguages }
+    : changes
+  pendingPatch.set(character.id, { ...pendingPatch.get(character.id), ...patch })
   const existing = timers.get(character.id)
   if (existing) clearTimeout(existing)
   // Coalesce chatty edits (every stepper tick) into one push per character.

@@ -31,6 +31,31 @@ beforeAll(async () => {
 })
 
 describe('characterRepo round-trip', () => {
+  it('preserves learned and unresolved legacy languages across every write path (BUG-109)', () => {
+    const db = freshDb()
+    const inserted = insertCharacter(db, {
+      ...defaultCharacter('Languages'), languages: ['Draconic'], legacyLanguages: ['Common', 'Dwarvish'],
+    })
+    expect(getCharacter(db, inserted.id)!.legacyLanguages).toEqual(['Common', 'Dwarvish'])
+    updateCharacter(db, inserted.id, { languages: ['Draconic', 'Dwarvish'], legacyLanguages: ['Common'] })
+    expect(getCharacter(db, inserted.id)!.languages).toEqual(['Draconic', 'Dwarvish'])
+    const synced = { ...inserted, legacyLanguages: ['Elvish'], updatedAt: 5 }
+    upsertSyncedCharacter(db, synced, 5)
+    expect(getCharacter(db, inserted.id)!.legacyLanguages).toEqual(['Elvish'])
+    db.close()
+  })
+
+  it('migration 23 preserves all old languages for review without guessing their source', () => {
+    const db = new SQL.Database()
+    for (const migration of migrations.filter(m => m.version < 23)) migration.up(db)
+    db.run(`INSERT INTO characters (id, name, languages, created_at, updated_at)
+      VALUES ('old', 'Old', '["Common","Dwarvish","Draconic"]', 1, 1)`)
+    migrations.find(m => m.version === 23)!.up(db)
+    const migrated = getCharacter(db, 'old')!
+    expect(migrated.languages).toEqual([])
+    expect(migrated.legacyLanguages).toEqual(['Common', 'Dwarvish', 'Draconic'])
+    db.close()
+  })
   it('insertCharacter → getCharacter preserves homebrewAllWeaponsProficient', () => {
     const db = freshDb()
     const inserted = insertCharacter(db, { ...defaultCharacter('Insert'), homebrewAllWeaponsProficient: true })
@@ -123,6 +148,7 @@ function fullCharacter(): NewCharacter {
     progressionType: 'xp',
     alignment: 'chaotic-good',
     languages: ['common', 'elvish'],
+    legacyLanguages: ['Dwarvish'],
     backstory: 'Raised in a hidden tower.',
     abilities: { str: 8, dex: 14, con: 12, int: 18, wis: 10, cha: 13 },
     raceAsiChoices: ['int', 'dex'],

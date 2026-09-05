@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import { Miniflare } from 'miniflare'
-import { defaultCharacter } from '../src/types/character'
+import { defaultCharacter, normalizeNewCharacter } from '../src/types/character'
+import { reconcileDecision } from '../src/store/reconcile'
 import type { Env } from './_lib/auth'
 import { onRequestPut as putChar, onRequestDelete as delChar } from './api/characters/[id]'
 import { onRequestGet as listChars } from './api/characters'
@@ -14,6 +15,7 @@ import { onRequestPost as postNpc } from './api/campaigns/[id]/npcs'
 import { onRequestGet as listCompanions, onRequestPost as postCompanion } from './api/campaigns/[id]/companions'
 import { onRequestPut as putCompanion, onRequestDelete as delCompanion } from './api/campaigns/[id]/companions/[companionId]'
 import { defaultCompanion } from '../shared/companionValidation'
+import { resolveLegacyLanguage } from '../src/components/sheet/DescriptionBlock'
 
 // Backend authority tests. The handlers run against a REAL local D1 (Miniflare,
 // in-process, zero Cloudflare/free-tier usage), so the WHERE-scoping, json_set,
@@ -110,6 +112,85 @@ async function seedCampaign(id: string, dm: string, players: string[]) {
 const newBody = (name: string, updatedAt = 1, extra: Record<string, unknown> = {}) =>
   ({ updatedAt, patch: { ...defaultCharacter(name), ...extra } })
 
+/** Hold each concurrent handler after its first D1 character read. The route
+ * still uses Miniflare's real D1 statements; the wrapper only makes the stale
+ * snapshot race deterministic. */
+function characterReadBarrier(parties: number): D1Database {
+  let reads = 0
+  let release!: () => void
+  const ready = new Promise<void>(resolve => { release = resolve })
+
+  const wrapStatement = (statement: any, gate: boolean): any => new Proxy(statement, {
+    get(target, property, receiver) {
+      if (property === 'bind') return (...values: unknown[]) => wrapStatement(target.bind(...values), gate)
+      if (property === 'first' && gate) {
+        return async (...values: unknown[]) => {
+          const row = await target.first(...values)
+          if (reads++ < parties) {
+            if (reads === parties) release()
+            await ready
+          }
+          return row
+        }
+      }
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+
+  return new Proxy(env.DB, {
+    get(target, property, receiver) {
+      if (property !== 'prepare') {
+        const value = Reflect.get(target, property, receiver)
+        return typeof value === 'function' ? value.bind(target) : value
+      }
+      return (sql: string) => wrapStatement(
+        target.prepare(sql),
+        /^SELECT owner_email, data, updated_at, campaign_id, deleted FROM characters WHERE id = \?$/.test(sql),
+      )
+    },
+  })
+}
+
+/** Intercept only character mutations while retaining Miniflare D1 for all
+ * reads and unforced writes. It lets retries exercise a changed authority
+ * boundary deterministically. */
+function characterWriteInterceptor(opts: { beforeFirstWrite?: () => Promise<void>; alwaysMiss?: boolean } = {}) {
+  let writes = 0
+  let first = true
+  const wrapStatement = (statement: any, mutatesCharacter: boolean): any => new Proxy(statement, {
+    get(target, property, receiver) {
+      if (property === 'bind') return (...values: unknown[]) => wrapStatement(target.bind(...values), mutatesCharacter)
+      if (property === 'run' && mutatesCharacter) {
+        return async (...values: unknown[]) => {
+          writes++
+          if (first) {
+            first = false
+            await opts.beforeFirstWrite?.()
+          }
+          if (opts.alwaysMiss) return { meta: { changes: 0 } }
+          return target.run(...values)
+        }
+      }
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+
+  return {
+    DB: new Proxy(env.DB, {
+      get(target, property, receiver) {
+        if (property !== 'prepare') {
+          const value = Reflect.get(target, property, receiver)
+          return typeof value === 'function' ? value.bind(target) : value
+        }
+        return (sql: string) => wrapStatement(target.prepare(sql), /^UPDATE characters\b/.test(sql))
+      },
+    }) as D1Database,
+    writes: () => writes,
+  }
+}
+
 describe('PUT /api/characters/:id — ownership & creation', () => {
   it('creates a character and scopes list reads to the owner', async () => {
     const res = await putChar(ctx(request('PUT', { body: newBody('Aragorn'), email: 'owner@a.com' }), { id: 'c1' }))
@@ -138,6 +219,23 @@ describe('PUT /api/characters/:id — ownership & creation', () => {
     expect(JSON.parse(row.data).level).toBe(1) // original kept
   })
 
+  it('rejects null, non-finite, and unsafe timestamp payloads without throwing', async () => {
+    const nullBody = await putChar(ctx(request('PUT', { body: null, email: 'owner@a.com' }), { id: 'bad-null' }))
+    expect(nullBody.status).toBe(400)
+
+    const overflow = new Request('https://app.example/api', {
+      method: 'PUT', headers: { 'content-type': 'application/json', 'x-dev-email': 'owner@a.com' },
+      body: `{"updatedAt":1e400,"patch":${JSON.stringify(defaultCharacter('Overflow'))}}`,
+    })
+    const nonFinite = await putChar(ctx(overflow, { id: 'bad-infinity' }))
+    expect(nonFinite.status).toBe(400)
+
+    const unsafeCreated = await putChar(ctx(request('PUT', {
+      body: { createdAt: Number.MAX_SAFE_INTEGER + 1, updatedAt: 1, patch: defaultCharacter('Unsafe') }, email: 'owner@a.com',
+    }), { id: 'bad-created' }))
+    expect(unsafeCreated.status).toBe(400)
+  })
+
   it('clamps a far-future client updatedAt to server time (anti clock-skew pinning)', async () => {
     const future = Date.now() + 1000 * 60 * 60 * 24 * 365 // +1 year
     const res = await putChar(ctx(request('PUT', { body: { updatedAt: future, patch: defaultCharacter('Timebomb') }, email: 'owner@a.com' }), { id: 'tb' }))
@@ -163,6 +261,105 @@ describe('PUT /api/characters/:id — ownership & creation', () => {
     expect(data.name).toBe('Renamed')          // changed field
     expect(data.alignment).toBe('lawful-good')  // untouched field survives
   })
+
+  it('round trips legacy language resolution without retaining the stale mixed cloud field', async () => {
+    // The cloud still has the pre-migration mixed list, while this device has
+    // already classified Dwarvish as explicitly learned and left two entries
+    // unresolved. Resolving Common as racial must replace both cloud fields.
+    await putChar(ctx(request('PUT', {
+      body: newBody('Legacy Hero', 1, {
+        languages: ['Common', 'Dwarvish', 'Draconic'],
+      }),
+      email: 'owner@a.com',
+    }), { id: 'legacy-languages' }))
+
+    const local = {
+      languages: ['Dwarvish'],
+      legacyLanguages: ['Common', 'Draconic'],
+    }
+    const patch = resolveLegacyLanguage(local, 'Common', false)
+    expect(patch).toEqual({
+      languages: ['Dwarvish'],
+      legacyLanguages: ['Draconic'],
+    })
+
+    const response = await putChar(ctx(request('PUT', {
+      body: { updatedAt: 2, patch },
+      email: 'owner@a.com',
+    }), { id: 'legacy-languages' }))
+    expect(response.status).toBe(200)
+
+    const pulled = await listChars(ctx(request('GET', { email: 'owner@a.com' })))
+    const remote = ((await pulled.json()) as any).characters[0].data
+    const freshDevice = normalizeNewCharacter(remote)
+    expect(freshDevice.languages).toEqual(['Dwarvish'])
+    expect(freshDevice.legacyLanguages).toEqual(['Draconic'])
+  })
+
+  it('retries a stale snapshot so concurrent disjoint patches both survive', async () => {
+    await putChar(ctx(request('PUT', { body: newBody('Hero', 1, { notes: 'Original' }), email: 'owner@a.com' }), { id: 'race' }))
+    const racingEnv = { ...env, DB: characterReadBarrier(2) }
+    const first = putChar({ request: request('PUT', { body: { updatedAt: 2, patch: { name: 'Renamed' } }, email: 'owner@a.com' }), env: racingEnv, params: { id: 'race' } } as any)
+    const second = putChar({ request: request('PUT', { body: { updatedAt: 2, patch: { notes: 'Changed concurrently' } }, email: 'owner@a.com' }), env: racingEnv, params: { id: 'race' } } as any)
+
+    const [firstResult, secondResult] = await Promise.all([first, second])
+    expect(firstResult.status).toBe(200)
+    expect(secondResult.status).toBe(200)
+
+    const row = await env.DB.prepare('SELECT data, updated_at FROM characters WHERE id=?').bind('race').first<any>()
+    expect(JSON.parse(row.data)).toMatchObject({ name: 'Renamed', notes: 'Changed concurrently' })
+    expect(row.updated_at).toBeGreaterThan(2)
+  })
+
+  it('never overwrites a different owner when concurrent creates collide', async () => {
+    const racingEnv = { ...env, DB: characterReadBarrier(2) }
+    const first = putChar({ request: request('PUT', { body: newBody('First'), email: 'first@a.com' }), env: racingEnv, params: { id: 'same-id' } } as any)
+    const second = putChar({ request: request('PUT', { body: newBody('Second'), email: 'second@a.com' }), env: racingEnv, params: { id: 'same-id' } } as any)
+
+    const results = await Promise.all([first, second])
+    expect(results.map(r => r.status).sort()).toEqual([200, 403])
+
+    const row = await env.DB.prepare('SELECT owner_email, data FROM characters WHERE id=?').bind('same-id').first<any>()
+    expect(JSON.parse(row.data).name).toBe(row.owner_email === 'first@a.com' ? 'First' : 'Second')
+  })
+
+  it('preserves an explicit null patch for a nullable character field', async () => {
+    await putChar(ctx(request('PUT', { body: newBody('Hero', 1, { subclass: 'champion' }), email: 'owner@a.com' }), { id: 'null-patch' }))
+    const res = await putChar(ctx(request('PUT', { body: { updatedAt: 2, patch: { subclass: null } }, email: 'owner@a.com' }), { id: 'null-patch' }))
+    expect(res.status).toBe(200)
+    const row = await env.DB.prepare('SELECT data FROM characters WHERE id=?').bind('null-patch').first<any>()
+    expect(JSON.parse(row.data).subclass).toBeNull()
+  })
+
+  it('advances the revision when a slower client updates a newer row', async () => {
+    const base = Date.now() + 120_000
+    await env.DB.prepare(
+      'INSERT INTO characters (id,owner_email,data,created_at,updated_at,deleted,campaign_id) VALUES (?,?,?,?,?,?,?)',
+    ).bind('slow-clock', 'owner@a.com', JSON.stringify(defaultCharacter('Hero')), 1, base, 0, null).run()
+
+    const res = await putChar(ctx(request('PUT', { body: { updatedAt: 1, patch: { name: 'Slow but accepted' } }, email: 'owner@a.com' }), { id: 'slow-clock' }))
+    const body = await res.json() as any
+    expect(res.status).toBe(200)
+    expect(body.updatedAt).toBeGreaterThan(base)
+    const row = await env.DB.prepare('SELECT updated_at FROM characters WHERE id=?').bind('slow-clock').first<any>()
+    expect(row.updated_at).toBe(body.updatedAt)
+    // The client records the echoed revision as both its local timestamp and
+    // reconciliation base, so a later pull is already settled.
+    expect(reconcileDecision({
+      localExists: true, localUpdatedAt: body.updatedAt, base: body.updatedAt,
+      remoteUpdatedAt: body.updatedAt, remoteDeleted: false,
+    })).toBe('none')
+  })
+
+  it('returns conflict after bounded compare-and-swap exhaustion', async () => {
+    await putChar(ctx(request('PUT', { body: newBody('Hero'), email: 'owner@a.com' }), { id: 'exhausted' }))
+    const intercepted = characterWriteInterceptor({ alwaysMiss: true })
+    const res = await putChar({ request: request('PUT', { body: { updatedAt: 2, patch: { name: 'Never lands' } }, email: 'owner@a.com' }), env: { ...env, DB: intercepted.DB }, params: { id: 'exhausted' } } as any)
+    expect(res.status).toBe(409)
+    expect(intercepted.writes()).toBe(4)
+    const row = await env.DB.prepare('SELECT data FROM characters WHERE id=?').bind('exhausted').first<any>()
+    expect(JSON.parse(row.data).name).toBe('Hero')
+  })
 })
 
 describe('PUT /api/characters/:id — DM authority', () => {
@@ -183,6 +380,45 @@ describe('PUT /api/characters/:id — DM authority', () => {
     const res = await putChar(ctx(request('PUT', { body: newBody('Sneaky', 1, { campaignId: 'camp9' }), email: 'outsider@a.com' }), { id: 'sneak' }))
     expect(res.status).toBe(403)
   })
+
+  it('allows an owner who left a campaign to keep editing unrelated character fields', async () => {
+    await seedCampaign('former-member', 'dm@a.com', ['owner@a.com'])
+    await putChar(ctx(request('PUT', { body: newBody('PC', 1, { campaignId: 'former-member' }), email: 'owner@a.com' }), { id: 'former-member-pc' }))
+    await env.DB.prepare('DELETE FROM campaign_members WHERE campaign_id = ? AND email = ?').bind('former-member', 'owner@a.com').run()
+
+    const res = await putChar(ctx(request('PUT', { body: { updatedAt: 2, patch: { name: 'Still mine' } }, email: 'owner@a.com' }), { id: 'former-member-pc' }))
+    expect(res.status).toBe(200)
+    const row = await env.DB.prepare('SELECT data, campaign_id FROM characters WHERE id=?').bind('former-member-pc').first<any>()
+    expect(JSON.parse(row.data).name).toBe('Still mine')
+    expect(row.campaign_id).toBe('former-member')
+  })
+
+  it('rechecks DM authority when it changes between authorization and mutation', async () => {
+    await seedCampaign('lost-dm', 'dm@a.com', ['player@a.com'])
+    await putChar(ctx(request('PUT', { body: newBody('PC', 1, { campaignId: 'lost-dm' }), email: 'player@a.com' }), { id: 'lost-dm-pc' }))
+    const intercepted = characterWriteInterceptor({
+      beforeFirstWrite: () => env.DB.prepare('UPDATE campaigns SET deleted = 1 WHERE id = ?').bind('lost-dm').run().then(() => undefined),
+    })
+
+    const res = await putChar({ request: request('PUT', { body: { updatedAt: 2, patch: { name: 'DM write' } }, email: 'dm@a.com' }), env: { ...env, DB: intercepted.DB }, params: { id: 'lost-dm-pc' } } as any)
+    expect(res.status).toBe(403)
+    const row = await env.DB.prepare('SELECT data FROM characters WHERE id=?').bind('lost-dm-pc').first<any>()
+    expect(JSON.parse(row.data).name).toBe('PC')
+  })
+
+  it('rechecks owner membership when it changes between validation and mutation', async () => {
+    await seedCampaign('lost-member', 'dm@a.com', ['owner@a.com'])
+    await putChar(ctx(request('PUT', { body: newBody('PC'), email: 'owner@a.com' }), { id: 'lost-member-pc' }))
+    const intercepted = characterWriteInterceptor({
+      beforeFirstWrite: () => env.DB.prepare('DELETE FROM campaign_members WHERE campaign_id = ? AND email = ?').bind('lost-member', 'owner@a.com').run().then(() => undefined),
+    })
+
+    const res = await putChar({ request: request('PUT', { body: { updatedAt: 2, patch: { campaignId: 'lost-member' } }, email: 'owner@a.com' }), env: { ...env, DB: intercepted.DB }, params: { id: 'lost-member-pc' } } as any)
+    expect(res.status).toBe(403)
+    const row = await env.DB.prepare('SELECT data, campaign_id FROM characters WHERE id=?').bind('lost-member-pc').first<any>()
+    expect(JSON.parse(row.data).campaignId).toBeNull()
+    expect(row.campaign_id).toBeNull()
+  })
 })
 
 describe('DELETE /api/characters/:id — owner-only tombstone', () => {
@@ -195,8 +431,25 @@ describe('DELETE /api/characters/:id — owner-only tombstone', () => {
     const ok = await delChar(ctx(request('DELETE', { email: 'owner@a.com' }), { id: 'c5' }))
     expect(ok.status).toBe(200)
 
-    const row = await env.DB.prepare('SELECT deleted FROM characters WHERE id=?').bind('c5').first<any>()
+    const deletedAt = ((await ok.json()) as any).updatedAt
+    const row = await env.DB.prepare('SELECT deleted, updated_at FROM characters WHERE id=?').bind('c5').first<any>()
     expect(row.deleted).toBe(1) // soft delete, not a hard removal
+    expect(deletedAt).toBeGreaterThan(1)
+    expect(row.updated_at).toBe(deletedAt)
+  })
+
+  it('advances a tombstone revision beyond a newer stored revision', async () => {
+    const base = Date.now() + 120_000
+    await env.DB.prepare(
+      'INSERT INTO characters (id,owner_email,data,created_at,updated_at,deleted,campaign_id) VALUES (?,?,?,?,?,?,?)',
+    ).bind('slow-delete', 'owner@a.com', JSON.stringify(defaultCharacter('Hero')), 1, base, 0, null).run()
+
+    const res = await delChar(ctx(request('DELETE', { email: 'owner@a.com' }), { id: 'slow-delete' }))
+    const body = await res.json() as any
+    expect(res.status).toBe(200)
+    expect(body.updatedAt).toBeGreaterThan(base)
+    const row = await env.DB.prepare('SELECT deleted, updated_at FROM characters WHERE id=?').bind('slow-delete').first<any>()
+    expect(row).toMatchObject({ deleted: 1, updated_at: body.updatedAt })
   })
 })
 

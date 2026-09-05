@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { buildLevelUpSpells } from '@/lib/levelUpSpells'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -9,7 +10,7 @@ import { StepperField } from './StepperField'
 import { abilityModifier, proficiencyBonus, rollDie, SKILL_ABILITY_MAP } from '@/lib/dice'
 import { parseHitDie, toggleAsiSelection, ABILITY_ORDER, ABILITY_SHORT, ABILITY_FULL_TO_SHORT } from '@/lib/characterSetup'
 import { LEVEL_GROUP_ORDER, spellGroup, componentStr } from '@/lib/spells'
-import { getSpellcastingInfo, getSpellsKnownIncrease, parseClassSlots } from '@/lib/spellcasting'
+import { getSpellcastingInfo, getSpellsKnownIncrease, isSpellbookCaster, parseClassSlots } from '@/lib/spellcasting'
 import {
   featHasChoiceAsi, featChoiceAsiOptions,
   meetsFeatPrerequisites, type FeatPrereqContext,
@@ -219,10 +220,7 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
     }
 
     // Apply new spells
-    const addedSpells = [
-      ...newCantrips.map(slug => ({ slug, prepared: false })),
-      ...newSpells.map(slug => ({ slug, prepared: false })),
-    ]
+    const addedSpells = buildLevelUpSpells(classRecord, newLevel, newCantrips, newSpells)
     if (addedSpells.length) {
       changes.spells = [...character.spells, ...addedSpells]
     }
@@ -442,10 +440,10 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
               </Section>
             )}
 
-            {/* Spells to learn (known casters) / prepare (prepared casters) */}
+            {/* Spellbook additions are learned; list-prepared casters prepare picks. */}
             {spellIncrease.spells > 0 && (
               <Section
-                title={`${newSpellInfo.casterKind === 'prepared' ? 'Spells to Prepare' : 'Spells to Learn'} — choose ${spellIncrease.spells}`}
+                title={`${newSpellInfo.casterKind === 'prepared' && !isSpellbookCaster(classRecord.slug) ? 'Spells to Prepare' : 'Spells to Learn'} — choose ${spellIncrease.spells}`}
                 accent
               >
                 <div className="space-y-2">
@@ -482,7 +480,7 @@ export function LevelUpDialog({ character, effectiveAbilities, classRecord, newL
             )}
 
             {/* Prepared caster note — only when no new prep slot opened this level */}
-            {newSpellInfo.casterKind === 'prepared' && spellIncrease.spells === 0 && (
+            {newSpellInfo.casterKind === 'prepared' && !isSpellbookCaster(classRecord.slug) && spellIncrease.spells === 0 && (
               <Section title="Spell Preparation">
                 <p className="text-xs text-muted-foreground">
                   You can prepare spells from the {classRecord.slug} spell list — use the Spells section on your sheet.

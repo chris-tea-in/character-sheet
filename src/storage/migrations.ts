@@ -280,4 +280,13 @@ export const migrations: Migration[] = [
       db.run(`ALTER TABLE characters ADD COLUMN sheet_privacy TEXT NOT NULL DEFAULT '{}'`)
     },
   },
+  {
+    version: 23,
+    up: (db) => {
+      // Prior versions mixed race grants with learned languages. Do not guess
+      // which were learned: preserve every entry for an explicit source review.
+      db.run(`ALTER TABLE characters ADD COLUMN legacy_languages TEXT NOT NULL DEFAULT '[]'`)
+      db.run(`UPDATE characters SET legacy_languages = languages, languages = '[]'`)
+    },
+  },
 ]

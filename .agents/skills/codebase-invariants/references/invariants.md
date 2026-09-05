@@ -294,6 +294,53 @@ disadvantage except the one stat that has advantage.
 
 ---
 
+## INV-12 — Sync writes compare the snapshot and advance the revision — ENFORCED
+
+A field patch must compare-and-swap the exact stored snapshot it merged. On a
+miss, reload, reauthorize, remerge, and revalidate before retrying. Recheck the
+same authority conditions in the final SQL write; do not broaden them during
+hardening. An owner editing stats does not need campaign membership unless the
+patch explicitly assigns a campaign. A successful PUT or tombstone must return
+an integer revision strictly greater than the replaced revision, including with
+a slow client clock. Insert collisions must reload the actual owner.
+
+- Fixed (2026-09-05): BUG-102/103. Guards: `functions/authority.test.ts` forces
+  competing patches, insert collisions, authority changes, slow clocks, and retry
+  exhaustion. The acknowledgment test verifies the echoed revision reconciles to
+  no further action.
+- Trace: read snapshot → authority → merged validation → conditional SQL →
+  `meta.changes` → acknowledged revision → local sync base.
+
+## INV-13 — Validate present structures before adoption or replacement — ENFORCED
+
+Absent older fields may receive compatibility defaults. Present malformed class,
+item, effect, and override structures must be rejected before persistence or
+render-time derivation. Apply shared validation on both server writes and client
+reads. An imported SQLite database must migrate in isolation, match the supported
+schema, pass integrity/foreign-key checks, and decode its character records before
+it can replace IndexedDB. A claimed schema version is not proof of schema shape.
+
+- Fixed (2026-09-05): BUG-104/105/106. Guards: shared character/item validator tests,
+  D1 item rejection tests, client catalog filtering, and `src/storage/db.test.ts`.
+- Trace: external bytes/JSON → preflight/migration → structural validation →
+  consumer. Include an invalid container entry such as `[null]`, a forged current
+  version, and a supported older payload in regression coverage.
+
+### INV-1 language follow-up (BUG-109)
+
+`languages` stores explicit learned choices only. Racial language grants remain
+in the derivation ledger. Migration 23 retains ambiguous old entries separately
+in `legacyLanguages` for visible source review. Never infer that a matching name
+proves the player did not also learn that language. Test race changes, source
+disable, legacy review, and all repository write paths.
+Every cloud patch changing either language field must include both current
+`languages` and `legacyLanguages`; the shared sync queue enforces this for picker,
+background, wizard, and legacy-resolution saves. The legacy field's presence is
+the normalization marker. Validate both optional fields as string arrays before
+adopting external records. Guards: `src/store/sync.test.ts` and
+`shared/characterValidation.test.ts` (2026-09-05 PR review follow-up).
+
+---
 ## RAW assertions (check against any game-mechanics code)
 
 All of these are now ENFORCED in code (fixed 2026-06-13 unless noted); keep them

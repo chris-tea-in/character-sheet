@@ -908,7 +908,7 @@ export default function CharacterPage() {
 
   // Apply a homebrew race (created or edited via CustomRaceDialog). 'new' selects
   // it as the character's race; 'edit' just upserts the override (same slug wins via
-  // resolveRace). Either way set base speed + union the race languages. Stored ASIs
+  // resolveRace). Either way set base speed; racial languages and ASIs
   // derive at render through getRacialBonuses (INV-1) — nothing baked here.
   function applyCustomRace(race: Race) {
     if (!character) return
@@ -917,7 +917,6 @@ export default function CharacterPage() {
     const changes: Partial<NewCharacter> = {
       customRaces: [...others, race],
       speed: race.base.speed,
-      languages: [...new Set([...character.languages, ...race.base.languages])],
     }
     if (mode === 'new') {
       changes.race = race.slug

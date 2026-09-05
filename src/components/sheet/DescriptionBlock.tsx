@@ -12,6 +12,22 @@ interface Props {
   onSave: (changes: Partial<NewCharacter>) => void
 }
 
+/** Keep the learned and unresolved sets in sync when classifying a legacy language.
+ * Cloud updates are field-scoped, so both fields must be present to replace a
+ * pre-migration server record whose `languages` still contains mixed grants. */
+export function resolveLegacyLanguage(
+  character: Pick<Character, 'languages' | 'legacyLanguages'>,
+  language: string,
+  keepLearned: boolean,
+): Pick<NewCharacter, 'languages' | 'legacyLanguages'> {
+  return {
+    languages: keepLearned
+      ? [...new Set([...character.languages, language])]
+      : [...character.languages],
+    legacyLanguages: character.legacyLanguages.filter(l => l !== language),
+  }
+}
+
 const FIELDS: Array<{ key: keyof NewCharacter; label: string; rows: number }> = [
   { key: 'personalityTraits', label: 'Personality Traits', rows: 2 },
   { key: 'ideals', label: 'Ideals', rows: 2 },
@@ -187,6 +203,31 @@ export function DescriptionBlock({ character, derived, onSave }: Props) {
               })
             }}
           />
+          {character.legacyLanguages.length > 0 && (
+            <div className="mt-3 space-y-2 rounded-md border border-border p-3">
+              <p className="text-xs text-muted-foreground">
+                These saved languages have no recorded source. Keep each as learned
+                separately, or use only your race's language grants.
+              </p>
+              {[...new Set(character.legacyLanguages)].map(language => (
+                <div key={language} className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="mr-auto">{language} <span className="text-muted-foreground">(source unknown)</span></span>
+                  <button
+                    type="button"
+                    className="rounded border border-border px-2 py-1"
+                    aria-label={`Keep ${language} as learned separately`}
+                    onClick={() => onSave(resolveLegacyLanguage(character, language, true))}
+                  >Keep learned</button>
+                  <button
+                    type="button"
+                    className="rounded border border-border px-2 py-1"
+                    aria-label={`${language} was granted by a race`}
+                    onClick={() => onSave(resolveLegacyLanguage(character, language, false))}
+                  >From race</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Text fields */}

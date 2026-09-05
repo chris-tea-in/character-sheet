@@ -3,7 +3,7 @@ import initSqlJs from 'sql.js'
 import type { Database } from 'sql.js'
 import { migrations } from '../storage/migrations'
 import { upsertSyncedCharacter, getCharacter, listBackups, getSyncBases } from '../storage/characterRepo'
-import { defaultCharacter } from '../types/character'
+import { defaultCharacter, normalizeNewCharacter } from '../types/character'
 import type { Character, NewCharacter } from '../types/character'
 import type { SyncedCharacter } from '../lib/syncApi'
 
@@ -36,7 +36,7 @@ vi.mock('../lib/syncApi', () => ({
 }))
 
 import * as api from '../lib/syncApi'
-import { useSyncStore } from './sync'
+import { useSyncStore, syncOnUpdate } from './sync'
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>>
 
@@ -187,5 +187,42 @@ describe('initial sync failures', () => {
     await useSyncStore.getState().runInitialSync()
 
     expect(useSyncStore.getState().status).toBe('forbidden')
+  })
+})
+
+
+describe('language patches across the migration boundary', () => {
+  it.each([
+    { languages: ['Elvish'] },
+    { legacyLanguages: ['Dwarvish'] },
+  ])('sends both language fields for a partial edit: %j', async changes => {
+    seedLocal('language-pair', { languages: ['Elvish'], legacyLanguages: ['Dwarvish'] }, 100)
+    const character = getCharacter(h.db, 'language-pair')!
+    vi.useFakeTimers()
+    try {
+      syncOnUpdate(character, changes)
+      await vi.advanceTimersByTimeAsync(3000)
+      const sent = (api.pushCharacter as Mock).mock.calls[0][0].patch
+      // Simulate the server's field-scoped merge into a pre-v23 cloud record.
+      const remote = { ...defaultCharacter('Legacy'), languages: ['Common', 'Dwarvish'] }
+      delete (remote as Partial<NewCharacter>).legacyLanguages
+      const fresh = normalizeNewCharacter({ ...remote, ...sent })
+      expect(fresh.languages).toEqual(['Elvish'])
+      expect(fresh.legacyLanguages).toEqual(['Dwarvish'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps unrelated edits field-scoped', async () => {
+    seedLocal('language-unrelated', {}, 100)
+    vi.useFakeTimers()
+    try {
+      syncOnUpdate(getCharacter(h.db, 'language-unrelated')!, { name: 'Renamed' })
+      await vi.advanceTimersByTimeAsync(3000)
+      expect((api.pushCharacter as Mock).mock.calls[0][0].patch).toEqual({ name: 'Renamed' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
