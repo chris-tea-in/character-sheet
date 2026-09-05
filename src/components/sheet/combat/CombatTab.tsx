@@ -357,16 +357,23 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
       const w = assemble(item, weapon, active)
       const slot = queuedIn(`weapon:${item.id}`)
       return (
-        <div key={item.id} className="flex items-center gap-2 py-1.5">
-          <Badge economy="action" title="Action" />
-          <span className="flex-1 text-sm font-medium truncate">{item.name}</span>
-          <span className="text-xs text-muted-foreground flex-none">{w.displayToHit} · {w.displayDamage}</span>
-          <RollButton label="Hit" rollMode={derived.attackRollState} onClick={w.rollHit} />
-          <RollButton label="Dmg" tone="gold" onClick={w.rollDamage} />
-          <QueueButton
-            queued={slot === 'action'}
-            onClick={() => toggleQueue('action', { id: `weapon:${item.id}`, kind: 'weapon', label: item.name })}
-          />
+        <div key={item.id}>
+          <div className="flex items-center gap-2 py-1.5">
+            <Badge economy="action" title="Action" />
+            <button className="flex-1 text-sm font-medium truncate text-left hover:opacity-75" onClick={() => toggleExpanded(`weapon:${item.id}`)} aria-expanded={expandedId === `weapon:${item.id}`}>
+              {item.name}
+            </button>
+            <span className="text-xs text-muted-foreground flex-none">{w.displayToHit} · {w.displayDamage}</span>
+            <RollButton label="Hit" rollMode={derived.attackRollState} onClick={w.rollHit} />
+            <RollButton label="Dmg" tone="gold" onClick={w.rollDamage} />
+            <QueueButton
+              queued={slot === 'action'}
+              onClick={() => toggleQueue('action', { id: `weapon:${item.id}`, kind: 'weapon', label: item.name })}
+            />
+          </div>
+          {expandedId === `weapon:${item.id}` && (
+            <p className="pb-2 text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{weapon.description || 'No description available.'}</p>
+          )}
         </div>
       )
     })
@@ -616,15 +623,25 @@ export function CombatTab({ character, derived, catalog, classRecord, classLevel
             {activeItems.map(item => {
               const n = item.name.toLowerCase()
               const armor = catalogMaps.armorByName.get(n)
+              const description = catalogMaps.weaponByName.get(n)?.description
+                || armor?.description || catalogMaps.wondrousItemByName.get(n)?.description
+              const rowId = `loadout:${item.id}`
               const cw = catalogMaps.weaponByName.has(n) ? weapons.find(x => x.item.id === item.id) : undefined
               const brief = cw
                 ? (() => { const a = assemble(cw.item, cw.weapon, true); return `${a.displayToHit} · ${a.displayDamage}` })()
                 : armor ? `AC ${armor.ac_formula}`
                 : summarizeItemEffects(catalogMaps.wondrousItemByName.get(n)?.effects) ?? ''
               return (
-                <div key={item.id} className="flex items-center gap-2 py-1.5">
-                  <span className="flex-1 text-sm font-medium truncate">{item.name}</span>
-                  {brief && <span className="text-xs text-muted-foreground truncate flex-none max-w-[60%]">{brief}</span>}
+                <div key={item.id}>
+                  <div className="flex items-center gap-2 py-1.5">
+                    <button className="flex-1 text-sm font-medium truncate text-left hover:opacity-75" onClick={() => toggleExpanded(rowId)} aria-expanded={expandedId === rowId}>
+                      {item.name}
+                    </button>
+                    {brief && <span className="text-xs text-muted-foreground truncate flex-none max-w-[60%]">{brief}</span>}
+                  </div>
+                  {expandedId === rowId && (
+                    <p className="pb-2 text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{description || 'No description available.'}</p>
+                  )}
                 </div>
               )
             })}
