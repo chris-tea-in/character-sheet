@@ -48,6 +48,7 @@ function rowToCharacter(row: Row, spells: CharacterSpell[]): Character {
     progressionType: (row['progression_type'] as string ?? 'milestone') as 'xp' | 'milestone',
     alignment: row['alignment'] as string,
     languages: JSON.parse(row['languages'] as string ?? '[]'),
+    legacyLanguages: JSON.parse(row['legacy_languages'] as string ?? '[]'),
     backstory: row['backstory'] as string ?? '',
     abilities: JSON.parse(row['abilities'] as string),
     raceAsiChoices: JSON.parse(row['race_asi_choices'] as string ?? '[]'),
@@ -169,9 +170,9 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         class_feature_choices, feature_resources_used, custom_weapons, custom_armor, custom_feats,
         custom_items, custom_spells, custom_tools, custom_races, classes,
         race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at,
-        ledger_overrides, sheet_privacy
+        ledger_overrides, sheet_privacy, legacy_languages
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )`,
       [
         id, data.name, data.race ?? '', data.subrace ?? null, data.class ?? '', data.subclass ?? null, data.background ?? '',
@@ -211,6 +212,7 @@ export function insertCharacter(db: Database, data: NewCharacter): Character {
         now, now,
         JSON.stringify(data.ledgerOverrides ?? { disabled: [], overrides: {}, custom: {} }),
         JSON.stringify(data.sheetPrivacy ?? {}),
+        JSON.stringify(data.legacyLanguages ?? []),
       ],
     )
     syncSpells(db, id, data.spells)
@@ -248,7 +250,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         equipment=?, currency=?, feats=?, feat_choices=?, tool_proficiencies=?,
         class_feature_choices=?, feature_resources_used=?, custom_weapons=?, custom_armor=?, custom_feats=?,
         custom_items=?, custom_spells=?, custom_tools=?, custom_races=?, classes=?,
-        race_asi_choices=?, campaign_id=?, disguise_class=?, disguise_as=?, ledger_overrides=?, sheet_privacy=?, updated_at=?
+        race_asi_choices=?, campaign_id=?, disguise_class=?, disguise_as=?, ledger_overrides=?, sheet_privacy=?, legacy_languages=?, updated_at=?
       WHERE id=?`,
       [
         merged.name, merged.race, merged.subrace, primaryClassSlug, primarySubclass, merged.background,
@@ -285,6 +287,7 @@ export function updateCharacter(db: Database, id: string, changes: Partial<NewCh
         merged.disguiseClass ? 1 : 0, merged.disguiseAs ?? '',
         JSON.stringify(merged.ledgerOverrides ?? { disabled: [], overrides: {}, custom: {} }),
         JSON.stringify(merged.sheetPrivacy ?? {}),
+        JSON.stringify(merged.legacyLanguages ?? []),
         merged.updatedAt,
         id,
       ],
@@ -333,9 +336,9 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         class_feature_choices, feature_resources_used, custom_weapons, custom_armor, custom_feats,
         custom_items, custom_spells, custom_tools, custom_races, classes,
         race_asi_choices, hit_dice_used_by_class, campaign_id, disguise_class, disguise_as, stats_normalized, created_at, updated_at,
-        last_synced_updated_at, ledger_overrides, sheet_privacy
+        last_synced_updated_at, ledger_overrides, sheet_privacy, legacy_languages
       ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       )
       ON CONFLICT(id) DO UPDATE SET
         name=excluded.name, race_slug=excluded.race_slug, subrace=excluded.subrace,
@@ -361,7 +364,7 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         disguise_class=excluded.disguise_class, disguise_as=excluded.disguise_as,
         stats_normalized=excluded.stats_normalized, updated_at=excluded.updated_at,
         last_synced_updated_at=excluded.last_synced_updated_at, ledger_overrides=excluded.ledger_overrides,
-        sheet_privacy=excluded.sheet_privacy`,
+        sheet_privacy=excluded.sheet_privacy, legacy_languages=excluded.legacy_languages`,
       [
         full.id, full.name, full.race ?? '', full.subrace ?? null, primaryClassSlug, primarySubclass, full.background ?? '',
         totalLevel, full.xp ?? 0, full.progressionType ?? 'milestone', full.alignment ?? '',
@@ -401,6 +404,7 @@ export function upsertSyncedCharacter(db: Database, full: Character, lastSyncedU
         lastSyncedUpdatedAt, // device-local reconcile base (never synced; INV-4)
         JSON.stringify(full.ledgerOverrides ?? { disabled: [], overrides: {}, custom: {} }),
         JSON.stringify(full.sheetPrivacy ?? {}),
+        JSON.stringify(full.legacyLanguages ?? []),
       ],
     )
     syncSpells(db, full.id, full.spells)

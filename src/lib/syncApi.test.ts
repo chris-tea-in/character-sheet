@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getMe, setAuthExpiredHandler } from './syncApi'
+import { campaignItems, getMe, setAuthExpiredHandler } from './syncApi'
 
 describe('cloud API response classification', () => {
   afterEach(() => {
@@ -49,5 +49,13 @@ describe('cloud API response classification', () => {
     await getMe()
 
     expect(new Headers(fetch.mock.calls[0][1].headers).get('x-requested-with')).toBe('XMLHttpRequest')
+  })
+
+  it('drops malformed shared campaign items returned by the API', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      items: [{ id: 'bad', category: 'wondrous_item', data: { category: 'wondrous_item', name: 'Bad', effects: [null] }, createdBy: 'dm@example.com', updatedAt: 1 }],
+    }), { headers: { 'content-type': 'application/json' } })))
+
+    await expect(campaignItems('campaign')).resolves.toEqual({ ok: true, data: [] })
   })
 })

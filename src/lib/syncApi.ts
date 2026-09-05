@@ -1,6 +1,7 @@
 import type { NewCharacter } from '../types/character'
 import type { WeaponItem, ArmorItem, WondrousItem } from '../types/data'
 import type { CompanionData } from '../../shared/companionValidation'
+import { validateCampaignItem } from '../../shared/itemValidation'
 
 // Thin same-origin fetch wrapper around the cloud-storage API. Identity is
 // solved by Cloudflare Access (the Access cookie rides along on same-origin
@@ -291,7 +292,11 @@ export interface CampaignItem {
 /** Any member: the campaign's shared item catalog (merged into the member's own catalog client-side). */
 export async function campaignItems(id: string): Promise<SyncResult<CampaignItem[]>> {
   const res = await request<{ items: CampaignItem[] }>(`/api/campaigns/${encodeURIComponent(id)}/items`)
-  return res.ok ? { ok: true, data: res.data.items } : res
+  if (!res.ok) return res
+  const items = Array.isArray(res.data.items) ? res.data.items.filter(item =>
+    !!item && typeof item === 'object' && validateCampaignItem(item.category, item.data).ok,
+  ) : []
+  return { ok: true, data: items }
 }
 
 /** DM only: add a catalog-shaped item to the campaign. */

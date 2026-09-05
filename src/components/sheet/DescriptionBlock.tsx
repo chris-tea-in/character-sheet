@@ -187,6 +187,36 @@ export function DescriptionBlock({ character, derived, onSave }: Props) {
               })
             }}
           />
+          {character.legacyLanguages.length > 0 && (
+            <div className="mt-3 space-y-2 rounded-md border border-border p-3">
+              <p className="text-xs text-muted-foreground">
+                These saved languages have no recorded source. Keep each as learned
+                separately, or use only your race's language grants.
+              </p>
+              {[...new Set(character.legacyLanguages)].map(language => (
+                <div key={language} className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="mr-auto">{language} <span className="text-muted-foreground">(source unknown)</span></span>
+                  <button
+                    type="button"
+                    className="rounded border border-border px-2 py-1"
+                    aria-label={`Keep ${language} as learned separately`}
+                    onClick={() => onSave({
+                      languages: [...new Set([...character.languages, language])],
+                      legacyLanguages: character.legacyLanguages.filter(l => l !== language),
+                    })}
+                  >Keep learned</button>
+                  <button
+                    type="button"
+                    className="rounded border border-border px-2 py-1"
+                    aria-label={`${language} was granted by a race`}
+                    onClick={() => onSave({
+                      legacyLanguages: character.legacyLanguages.filter(l => l !== language),
+                    })}
+                  >From race</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Text fields */}

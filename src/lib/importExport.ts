@@ -4,7 +4,7 @@ import { flush } from '../storage'
 import { normalizeCharacterPayload } from '../storage/normalizeStats'
 import { loadSetupData, loadFeatsData } from './data'
 import { validateCharacter } from '../../shared/characterValidation'
-import type { Character, NewCharacter } from '../types/character'
+import { normalizeNewCharacter, type Character, type NewCharacter } from '../types/character'
 
 // v1: abilities/speed/initiative stored with racial + feat bonuses baked in
 // v2: abilities are BASE scores + raceAsiChoices; bonuses derived at render
@@ -130,6 +130,10 @@ export async function importCharacter(file: File): Promise<Character> {
       raceAsiChoices: [],
     }
   }
+
+  // Fill modern optional fields after version-specific conversion. This keeps
+  // older single-character exports compatible as new persisted fields are added.
+  character = normalizeNewCharacter(character)
 
   const db = getDb()
   const inserted = insertCharacter(db, character)
