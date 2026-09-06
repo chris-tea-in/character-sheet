@@ -39,6 +39,12 @@ export function WhatsNewModal() {
                   {entry.title}
                 </p>
               )}
+              {entry.notice && (
+                <div className="space-y-1 text-sm" style={{ color: 'var(--color-accent-red)' }}>
+                  <p className="font-semibold">{entry.notice.title}</p>
+                  <p>{entry.notice.text}</p>
+                </div>
+              )}
               <ul className="list-disc pl-5 space-y-1.5 text-sm text-muted-foreground">
                 {entry.changes.map((change, i) => (
                   <li key={i}>{change}</li>

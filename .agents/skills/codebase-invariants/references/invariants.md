@@ -341,6 +341,31 @@ adopting external records. Guards: `src/store/sync.test.ts` and
 `shared/characterValidation.test.ts` (2026-09-05 PR review follow-up).
 
 ---
+## INV-14 — Every tracked resource has an explicit recovery route — ENFORCED
+
+Usage fields store only spent amounts. Any UI that can spend a resource must retain
+an explicit way to restore it, either by direct pip/stepper editing or a scoped
+recovery action. `buildResourceRecoveryPatch` is the single bulk-recovery helper:
+it emits the smallest `Partial<NewCharacter>` possible and returns `{}` for a
+semantic no-op. Its scopes are deliberately separate: `spell-slots` clears only
+`spellSlotsUsed`; `class-resources` clears only `featureResourcesUsed`; `all` also
+resets positive `EquipmentItem.chargesUsed`, `hitDiceUsed`, and
+`hitDiceUsedByClass`. It must preserve every other equipment property and never
+apply short-rest/long-rest rules, derived effects, HP, conditions, or other state.
+`CombatTab` renders all three restore controls outside `SpellSlotTracker`, so a
+non-caster with class resources can recover them; each control uses the exact patch
+for both enablement and its single `onSave` call.
+
+- Member fixed (2026-08-11): spent Hexblade's Curse (`featureResourcesUsed`) could
+  reach zero without a Combat-tab recovery control.
+- Recipe: `rg -n "spellSlotsUsed|featureResourcesUsed|chargesUsed|hitDiceUsed" src/`
+  — when adding or changing a usage tracker, trace its spend and recovery sites.
+  `rg -n "buildResourceRecoveryPatch|Restore all spell slots|Restore class resources|Restore all tracked resources" src/`
+  — the helper and all three Combat controls must remain connected; verify each
+  scope's patch is the value passed to `onSave`.
+
+---
+
 ## RAW assertions (check against any game-mechanics code)
 
 All of these are now ENFORCED in code (fixed 2026-06-13 unless noted); keep them

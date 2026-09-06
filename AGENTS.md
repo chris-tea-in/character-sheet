@@ -494,3 +494,32 @@ All former staging files resolved 2026-06-13 (BUG-42/43/44 fixed): `_gap_*` were
 Class roster: `barbarian`, `bard`, `cleric`, `druid`, `fighter`, `monk`, `paladin`, `ranger`, `rogue`, `sorcerer`, `warlock`, `wizard`, `artificer`, `blood-hunter`
 
 **`data/` is gitignored** — these files are not version-controlled. Manual backup required when changing machines.
+
+## Approved project continuity — 2026-09-05
+
+For implementation resume, project status, handoff, and milestone closeout, use
+the personal `project-resume` skill. Its canonical workflow is:
+
+`C:\Users\buyp1\Workspace\Workspace-vault\Agent-System\Project Workflow.md`
+
+Before the first Node build/test in a new checkout or changed environment, use
+its runtime preflight. Check project-required local inputs as well: for D&D,
+include `data`; never assume ignored dependencies or data exist in a worktree.
+Skip this workflow for ordinary conceptual answers.
+
+Keep the roadmap brief and plan only the selected step. Preserve the requested
+execution workflow and its run-specific model choices. Read current Wiki state
+and later source evidence before treating a dated handoff as a current command.
+Inspect approved existing configuration before asking for new setup; do not
+display secret values or mistake sandbox denial for invalid credentials.
+
+Report local, pushed, merged, and deployed separately, leading with any missing
+delivery step that blocks the requested outcome. Closeout does not authorize
+merging to main/default, enabling auto-merge, pushing a default branch, or
+deployment. Require explicit permission for the target; default-branch merge
+and push require permission in the same turn. Do not ask for deployment when
+the requested endpoint was only local coding or a handoff.
+
+Update existing Wiki Current State and Plan Status at meaningful milestones.
+Keep sources immutable and preserve unrelated work. No schedule or catalog
+execution is authorized by these continuity instructions.
