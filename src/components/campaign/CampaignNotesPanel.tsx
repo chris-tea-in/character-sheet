@@ -1,11 +1,11 @@
 // Reusable campaign-notes panel (Phase F): the notes for one subject (the
 // campaign itself, a character, a location, or an NPC). Any member can add a
-// note; "Hidden" notes are visible only to their author and the DM - enforced
+// note; "Hidden" notes are visible only to their author and the DM — enforced
 // server-side in SQL, so this component only ever receives what the viewer may
 // see. Fetches on mount + manual Refresh; no polling (free-tier budget).
 //
 // Failure contract: a failed save shows an inline error and KEEPS the typed
-// text - a long note is never silently eaten (the fire-and-forget trap).
+// text — a long note is never silently eaten (the fire-and-forget trap).
 import { useEffect, useState } from 'react'
 import { Eye, EyeOff, Pencil, Plus, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -66,15 +66,15 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
       load()
     } else {
       setError(res.reason === 'auth-expired'
-        ? 'Couldn't save - your session may have expired. Reconnect and try again; your note text is kept.'
-        : 'Couldn't save - check your connection and try again; your note text is kept.')
+        ? 'Couldn’t save — your session may have expired. Reconnect and try again; your note text is kept.'
+        : 'Couldn’t save — check your connection and try again; your note text is kept.')
     }
   }
 
   async function remove(noteId: string) {
     const res = await deleteCampaignNote(campaignId, noteId)
     if (res.ok) load()
-    else setError('Couldn't delete - check your connection or session.')
+    else setError('Couldn’t delete — check your connection or session.')
   }
 
   async function saveEdit() {
@@ -93,8 +93,8 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
       setEditing(null)
     } else {
       setEditError(res.reason === 'auth-expired'
-        ? 'Couldn\u2019t save changes - your session may have expired. Reconnect and try again; your edited text is kept.'
-        : 'Couldn\u2019t save changes - check your connection and try again; your edited text is kept.')
+        ? 'Couldn\u2019t save changes — your session may have expired. Reconnect and try again; your edited text is kept.'
+        : 'Couldn\u2019t save changes — check your connection and try again; your edited text is kept.')
     }
   }
 
@@ -103,7 +103,7 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
   async function setVisibility(noteId: string, visibility: 'public' | 'hidden') {
     const res = await updateCampaignNote(campaignId, noteId, { visibility })
     if (res.ok) load()
-    else setError('Couldn't change visibility - check your connection or session.')
+    else setError('Couldn’t change visibility — check your connection or session.')
   }
 
   const myEmail = me?.email?.toLowerCase()
@@ -123,7 +123,7 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
       </div>
 
       {notes === null ? (
-        <p className="text-sm text-muted-foreground">Loading notes.</p>
+        <p className="text-sm text-muted-foreground">Loading notes…</p>
       ) : notes.length === 0 ? (
         <p className="text-sm text-muted-foreground">No notes yet.</p>
       ) : (
@@ -154,7 +154,7 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
                         Cancel
                       </Button>
                       <Button size="sm" variant="outline" onClick={saveEdit} disabled={editSaving || !editing.body.trim()}>
-                        {editSaving ? 'Saving.' : 'Save changes'}
+                        {editSaving ? 'Saving…' : 'Save changes'}
                       </Button>
                     </div>
                   </div>
@@ -166,14 +166,14 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
                     <span
                       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border"
                       style={{ color: 'var(--color-accent-gold)', borderColor: 'var(--color-accent-gold)' }}
-                      title={mine ? 'Hidden - only you and the DM can see this' : 'Hidden note - visible to you as the DM'}
+                      title={mine ? 'Hidden — only you and the DM can see this' : 'Hidden note — visible to you as the DM'}
                     >
                       <EyeOff className="h-2.5 w-2.5" />
-                      hidden{!mine && ` - by ${authorLabel(n)}`}
+                      hidden{!mine && ` — by ${authorLabel(n)}`}
                     </span>
                   )}
                   <span>{mine ? 'you' : authorLabel(n)}</span>
-                  <span>� {new Date(n.createdAt).toLocaleDateString()}</span>
+                  <span>· {new Date(n.createdAt).toLocaleDateString()}</span>
                   {(mine || isDm) && (
                     <span className="ml-auto inline-flex items-center gap-2">
                       <button
@@ -190,7 +190,7 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
                           onClick={() => setVisibility(n.id, 'public')}
                           disabled={isEditing}
                           className="text-muted-foreground hover:text-foreground transition-colors"
-                          title="Make public - everyone in the campaign will see this note"
+                          title="Make public — everyone in the campaign will see this note"
                           aria-label="Make note public"
                         >
                           <Eye className="h-3 w-3" />
@@ -200,7 +200,7 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
                           onClick={() => setVisibility(n.id, 'hidden')}
                           disabled={isEditing}
                           className="text-muted-foreground hover:text-foreground transition-colors"
-                          title="Make hidden - only the author and the DM will see it (anyone who already read it still did)"
+                          title="Make hidden — only the author and the DM will see it (anyone who already read it still did)"
                           aria-label="Make note hidden"
                         >
                           <EyeOff className="h-3 w-3" />
@@ -228,7 +228,7 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
         <textarea
           value={draft}
           onChange={e => setDraft(e.target.value)}
-          placeholder="Add a note."
+          placeholder="Add a note…"
           rows={2}
           className="w-full bg-[var(--color-surface-2)] border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-ring"
         />
@@ -245,7 +245,7 @@ export function CampaignNotesPanel({ campaignId, subjectKind, subjectId, isDm = 
           </label>
           <Button size="sm" variant="outline" onClick={add} disabled={saving || !draft.trim()} className="ml-auto">
             <Plus className="h-3.5 w-3.5" />
-            {saving ? 'Saving.' : 'Add note'}
+            {saving ? 'Saving…' : 'Add note'}
           </Button>
         </div>
       </div>
